@@ -1,8 +1,8 @@
 [package]
-name = "crate-template"
+name = "vmm-reference"
 version = "0.1.0"
-authors = [TODO]
-license = "Apache-2.0 OR BSD-3-Clause"
+authors = ["rust-vmm AWS maintainers <rust-vmm-maintainers@amazon.com>"]
 edition = "2018"
+license = "Apache-2.0 OR BSD-3-Clause"
 
 [dependencies]
