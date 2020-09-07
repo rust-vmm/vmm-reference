@@ -35,6 +35,6 @@ fn main() {
         vcpu_config: default_vcpu_config(),
     };
 
-    let vmm = VMM::try_from(vmm_config).expect("Failed to create VMM from configurations");
+    let mut vmm = VMM::try_from(vmm_config).expect("Failed to create VMM from configurations");
     vmm.run();
 }

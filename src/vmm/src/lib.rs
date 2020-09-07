@@ -20,9 +20,10 @@ extern crate vmm_sys_util;
 use std::convert::TryFrom;
 use std::ffi::CString;
 use std::fs::File;
-use std::io::{self, stdout, Stdout};
+use std::io::{self, stdin, stdout, Stdout};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::thread;
 
 use event_manager::{EventManager, EventOps, Events, MutEventSubscriber, SubscriberOps};
 use kvm_bindings::{
@@ -45,7 +46,7 @@ use vm_memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryRegion,
 };
 use vm_superio::Serial;
-use vmm_sys_util::eventfd::EventFd;
+use vmm_sys_util::{eventfd::EventFd, terminal::Terminal};
 
 mod boot;
 use boot::*;
@@ -414,8 +415,22 @@ impl VMM {
     }
 
     /// Run the VMM.
-    pub fn run(&self) {
-        unimplemented!();
+    pub fn run(&mut self) {
+        if let Err(r) = stdin().lock().set_raw_mode() {
+            eprintln!("Failed to set raw mode on terminal. Stdin will echo.");
+        }
+
+        for mut vcpu in self.vcpus.drain(..) {
+            let _ = thread::Builder::new().spawn(move || loop {
+                vcpu.run();
+            });
+        }
+        loop {
+            match self.event_mgr.run() {
+                Ok(_) => (),
+                Err(e) => eprintln!("Failed to handle events: {:?}", e),
+            }
+        }
     }
 
     fn check_kvm_capabilities(&self) -> Result<()> {
