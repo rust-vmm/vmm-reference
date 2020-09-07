@@ -19,7 +19,11 @@ extern crate vmm_sys_util;
 use std::convert::TryFrom;
 use std::path::PathBuf;
 
-use kvm_ioctls::{Kvm, VmFd};
+use kvm_bindings::KVM_API_VERSION;
+use kvm_ioctls::{
+    Cap::{self, Ioeventfd, Irqchip, Irqfd, UserMemory},
+    Kvm, VmFd,
+};
 
 #[derive(Default)]
 /// Guest memory configurations.
@@ -58,8 +62,12 @@ pub struct VMMConfig {
 #[derive(Debug)]
 /// VMM errors.
 pub enum Error {
-    /// Placeholder.
-    TODO,
+    /// Invalid KVM API version.
+    KvmApiVersion(i32),
+    /// Unsupported KVM capability.
+    KvmCap(Cap),
+    /// Error issuing an ioctl to KVM.
+    KvmIoctl(kvm_ioctls::Error),
 }
 
 /// Dedicated [`Result`](https://doc.rust-lang.org/std/result/) type.
@@ -74,7 +82,22 @@ pub struct VMM {
 impl VMM {
     /// Create a new VMM.
     pub fn new() -> Result<Self> {
-        unimplemented!();
+        let kvm = Kvm::new().map_err(Error::KvmIoctl)?;
+
+        // Check that KVM has the correct version.
+        let kvm_api_ver = kvm.get_api_version();
+        if kvm_api_ver != KVM_API_VERSION as i32 {
+            return Err(Error::KvmApiVersion(kvm_api_ver));
+        }
+
+        // Create fd for interacting with kvm-vm specific functions.
+        let vm_fd = kvm.create_vm().map_err(Error::KvmIoctl)?;
+
+        let vmm = VMM { vm_fd, kvm };
+
+        vmm.check_kvm_capabilities()?;
+
+        Ok(vmm)
     }
 
     /// Configure guest memory.
@@ -118,6 +141,20 @@ impl VMM {
     /// Run the VMM.
     pub fn run(&self) {
         unimplemented!();
+    }
+
+    fn check_kvm_capabilities(&self) -> Result<()> {
+        let capabilities = vec![Irqchip, Ioeventfd, Irqfd, UserMemory];
+
+        // Check that all desired capabilities are supported.
+        if let Some(c) = capabilities
+            .iter()
+            .find(|&capability| !self.kvm.check_extension(*capability))
+        {
+            Err(Error::KvmCap(*c))
+        } else {
+            Ok(())
+        }
     }
 }
 
