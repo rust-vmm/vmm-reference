@@ -397,6 +397,13 @@ impl VMM {
             // Configure MSRs (model specific registers).
             vcpu.configure_msrs().map_err(Error::Vcpu)?;
 
+            // Configure regs, sregs and fpu.
+            vcpu.configure_regs(kernel_load.kernel_load)
+                .map_err(Error::Vcpu)?;
+            vcpu.configure_sregs(&self.guest_memory)
+                .map_err(Error::Vcpu)?;
+            vcpu.configure_fpu().map_err(Error::Vcpu)?;
+
             self.vcpus.push(vcpu);
         }
 
