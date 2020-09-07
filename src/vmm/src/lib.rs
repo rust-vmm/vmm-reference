@@ -394,6 +394,9 @@ impl VMM {
             );
             vcpu.configure_cpuid(&vcpu_cpuid).map_err(Error::Vcpu)?;
 
+            // Configure MSRs (model specific registers).
+            vcpu.configure_msrs().map_err(Error::Vcpu)?;
+
             self.vcpus.push(vcpu);
         }
 
