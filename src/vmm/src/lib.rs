@@ -14,15 +14,20 @@ extern crate kvm_bindings;
 extern crate kvm_ioctls;
 extern crate linux_loader;
 extern crate vm_memory;
+extern crate vm_superio;
 extern crate vmm_sys_util;
 
 use std::convert::TryFrom;
 use std::ffi::CString;
 use std::fs::File;
-use std::io;
+use std::io::{self, stdout, Stdout};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
-use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
+use event_manager::{EventManager, EventOps, Events, MutEventSubscriber, SubscriberOps};
+use kvm_bindings::{
+    kvm_pit_config, kvm_userspace_memory_region, KVM_API_VERSION, KVM_PIT_SPEAKER_DUMMY,
+};
 use kvm_ioctls::{
     Cap::{self, Ioeventfd, Irqchip, Irqfd, UserMemory},
     Kvm, VmFd,
@@ -33,12 +38,19 @@ use linux_loader::configurator::{
     self, linux::LinuxBootConfigurator, BootConfigurator, BootParams,
 };
 use linux_loader::loader::{self, elf::Elf, load_cmdline, KernelLoader, KernelLoaderResult};
+use vm_device::device_manager::IoManager;
+use vm_device::resources::Resource;
 use vm_memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryRegion,
 };
+use vm_superio::Serial;
+use vmm_sys_util::eventfd::EventFd;
 
 mod boot;
 use boot::*;
+
+mod devices;
+use devices::SerialWrapper;
 
 /// First address past 32 bits.
 const FIRST_ADDR_PAST_32BITS: u64 = 1 << 32;
@@ -107,6 +119,10 @@ pub enum Error {
     BootParam(boot::Error),
     /// Error configuring the kernel command line.
     Cmdline(cmdline::Error),
+    /// Error setting up devices.
+    Device(devices::Error),
+    /// Event management error.
+    EventManager(event_manager::Error),
     /// I/O error.
     IO(io::Error),
     /// Failed to load kernel.
@@ -129,6 +145,14 @@ pub struct VMM {
     vm_fd: VmFd,
     kvm: Kvm,
     guest_memory: GuestMemoryMmap,
+    // An Option, of all things, because it needs to be mutable while adding devices (so it can't
+    // be in an Arc), then it needs to be packed in an Arc to share it across vCPUs. An Option
+    // allows us to .take() it when starting the vCPUs.
+    device_mgr: Option<IoManager>,
+    // Arc<Mutex<>> because the same device (a dyn DevicePio/DeviceMmio from IoManager's
+    // perspective, and a dyn MutEventSubscriber from EventManager's) is managed by the 2 entities,
+    // and isn't Copy-able; so once one of them gets ownership, the other one can't anymore.
+    event_mgr: EventManager<Arc<Mutex<dyn MutEventSubscriber>>>,
 }
 
 impl VMM {
@@ -149,6 +173,8 @@ impl VMM {
             vm_fd,
             kvm,
             guest_memory: GuestMemoryMmap::default(),
+            device_mgr: Some(IoManager::new()),
+            event_mgr: EventManager::new().map_err(Error::EventManager)?,
         };
 
         vmm.check_kvm_capabilities()?;
@@ -199,7 +225,11 @@ impl VMM {
                     flags: 0,
                 };
 
-                // Safe because the fd is a valid KVM file descriptor.
+                // Safe because:
+                // * userspace_addr is a valid address for a memory region, obtained by calling
+                //   get_host_address() on a valid region's start address;
+                // * the memory regions do not overlap - there's either a single region spanning
+                //   the whole guest memory, or 2 regions with the MMIO gap in between.
                 unsafe { self.vm_fd.set_user_memory_region(memory_region) }
             })
             .map_err(Error::KvmIoctl)?;
@@ -283,7 +313,54 @@ impl VMM {
     /// * `x86_64`: serial console
     /// * `aarch64`: N/A
     pub fn configure_pio_devices(&mut self) -> Result<()> {
-        unimplemented!();
+        // First, create the irqchip.
+        // On `x86_64`, this _must_ be created _before_ the vCPUs.
+        // It sets up the virtual IOAPIC, virtual PIC, and sets up the future vCPUs for local APIC.
+        // When in doubt, look in the kernel for `KVM_CREATE_IRQCHIP`.
+        // https://elixir.bootlin.com/linux/latest/source/arch/x86/kvm/x86.c
+        self.vm_fd.create_irq_chip().map_err(Error::KvmIoctl)?;
+
+        // Set up the speaker PIT, because some kernels are musical and access the speaker port
+        // during boot. Without this, KVM would continuously exit to userspace.
+        // TODO: does this *need* the irqchip in place?
+        let mut pit_config = kvm_pit_config::default();
+        pit_config.flags = KVM_PIT_SPEAKER_DUMMY;
+        self.vm_fd
+            .create_pit2(pit_config)
+            .map_err(Error::KvmIoctl)?;
+
+        // Create the serial console.
+        let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::IO)?;
+        let serial = Arc::new(Mutex::new(SerialWrapper(Serial::new(
+            interrupt_evt.try_clone().map_err(Error::IO)?,
+            stdout(),
+        ))));
+
+        // Register its interrupt fd with KVM. IRQ line 4 is typically used for serial port 1.
+        // See more IRQ assignments & info: https://tldp.org/HOWTO/Serial-HOWTO-8.html
+        self.vm_fd
+            .register_irqfd(&interrupt_evt, 4)
+            .map_err(Error::KvmIoctl)?;
+
+        // Put it on the bus.
+        // Safe to use expect() because the device manager is instantiated in new(), there's no
+        // default implementation, and the field is private inside the VMM struct.
+        self.device_mgr
+            .as_mut()
+            .expect("Missing device manager")
+            .register_pio_resources(
+                serial.clone(),
+                &[Resource::PioAddressRange {
+                    base: 0x3f8,
+                    size: 0x8,
+                }],
+            )
+            .unwrap();
+
+        // Hook it to event management.
+        self.event_mgr.add_subscriber(serial);
+
+        Ok(())
     }
 
     /// Run the VMM.
