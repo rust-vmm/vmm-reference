@@ -26,7 +26,8 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::{EventManager, EventOps, Events, MutEventSubscriber, SubscriberOps};
 use kvm_bindings::{
-    kvm_pit_config, kvm_userspace_memory_region, KVM_API_VERSION, KVM_PIT_SPEAKER_DUMMY,
+    kvm_pit_config, kvm_userspace_memory_region, KVM_API_VERSION, KVM_MAX_CPUID_ENTRIES,
+    KVM_PIT_SPEAKER_DUMMY,
 };
 use kvm_ioctls::{
     Cap::{self, Ioeventfd, Irqchip, Irqfd, UserMemory},
@@ -53,7 +54,7 @@ mod devices;
 use devices::SerialWrapper;
 
 mod vcpu;
-use vcpu::{mpspec, mptable};
+use vcpu::{cpuid, mpspec, mptable, Vcpu};
 
 /// First address past 32 bits.
 const FIRST_ADDR_PAST_32BITS: u64 = 1 << 32;
@@ -158,6 +159,7 @@ pub struct VMM {
     // perspective, and a dyn MutEventSubscriber from EventManager's) is managed by the 2 entities,
     // and isn't Copy-able; so once one of them gets ownership, the other one can't anymore.
     event_mgr: EventManager<Arc<Mutex<dyn MutEventSubscriber>>>,
+    vcpus: Vec<Vcpu>,
 }
 
 impl VMM {
@@ -180,6 +182,7 @@ impl VMM {
             guest_memory: GuestMemoryMmap::default(),
             device_mgr: Some(IoManager::new()),
             event_mgr: EventManager::new().map_err(Error::EventManager)?,
+            vcpus: vec![],
         };
 
         vmm.check_kvm_capabilities()?;
@@ -367,6 +370,33 @@ impl VMM {
     ) -> Result<()> {
         mptable::setup_mptable(&self.guest_memory, vcpu_cfg.num_vcpus)
             .map_err(|e| Error::Vcpu(vcpu::Error::Mptable(e)))?;
+
+        let base_cpuid = self
+            .kvm
+            .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
+            .map_err(Error::KvmIoctl)?;
+
+        // Safe to use expect() because the device manager is instantiated in new(), there's no
+        // default implementation, and the field is private inside the VMM struct.
+        let shared_device_mgr = Arc::new(self.device_mgr.take().expect("Missing device manager"));
+
+        for index in 0..vcpu_cfg.num_vcpus {
+            let mut vcpu =
+                Vcpu::new(&self.vm_fd, index, shared_device_mgr.clone()).map_err(Error::Vcpu)?;
+
+            // Set CPUID.
+            let mut vcpu_cpuid = base_cpuid.clone();
+            cpuid::filter_cpuid(
+                &self.kvm,
+                index as usize,
+                vcpu_cfg.num_vcpus as usize,
+                &mut vcpu_cpuid,
+            );
+            vcpu.configure_cpuid(&vcpu_cpuid).map_err(Error::Vcpu)?;
+
+            self.vcpus.push(vcpu);
+        }
+
         Ok(())
     }
 
