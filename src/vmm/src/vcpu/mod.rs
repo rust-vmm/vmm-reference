@@ -13,6 +13,8 @@ use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap}
 pub(crate) mod cpuid;
 mod gdt;
 use gdt::*;
+mod interrupts;
+use interrupts::*;
 pub(crate) mod mpspec;
 pub(crate) mod mptable;
 pub(crate) mod msr_index;
@@ -184,5 +186,25 @@ impl Vcpu {
             ..Default::default()
         };
         self.vcpu_fd.set_fpu(&fpu).map_err(Error::KvmIoctl)
+    }
+
+    /// Configures LAPICs. LAPIC0 is set for external interrupts, LAPIC1 is set for NMI.
+    pub fn configure_lapic(&self) -> Result<()> {
+        let mut klapic = self.vcpu_fd.get_lapic().map_err(Error::KvmIoctl)?;
+
+        let lvt_lint0 = get_klapic_reg(&klapic, APIC_LVT0);
+        set_klapic_reg(
+            &mut klapic,
+            APIC_LVT0,
+            set_apic_delivery_mode(lvt_lint0, APIC_MODE_EXTINT),
+        );
+        let lvt_lint1 = get_klapic_reg(&klapic, APIC_LVT1);
+        set_klapic_reg(
+            &mut klapic,
+            APIC_LVT1,
+            set_apic_delivery_mode(lvt_lint1, APIC_MODE_NMI),
+        );
+
+        self.vcpu_fd.set_lapic(&klapic).map_err(Error::KvmIoctl)
     }
 }
