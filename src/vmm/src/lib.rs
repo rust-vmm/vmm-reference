@@ -404,6 +404,9 @@ impl VMM {
                 .map_err(Error::Vcpu)?;
             vcpu.configure_fpu().map_err(Error::Vcpu)?;
 
+            // Configure LAPICs.
+            vcpu.configure_lapic().map_err(Error::Vcpu)?;
+
             self.vcpus.push(vcpu);
         }
 
