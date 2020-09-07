@@ -6,27 +6,16 @@
 //! Reference VMM built with rust-vmm components and minimal glue.
 #![deny(missing_docs)]
 
-extern crate libc;
-
-extern crate event_manager;
-extern crate kvm_bindings;
-extern crate kvm_ioctls;
-extern crate linux_loader;
-extern crate vm_memory;
-extern crate vm_superio;
-extern crate vmm_sys_util;
-
 use std::convert::TryFrom;
 use std::ffi::CString;
 use std::fs::File;
 use std::io::{self, stdin, stdout};
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use event_manager::{EventManager, MutEventSubscriber, SubscriberOps};
 use kvm_bindings::{
-    kvm_pit_config, kvm_userspace_memory_region, KVM_API_VERSION, KVM_MAX_CPUID_ENTRIES,
+    kvm_pit_config, kvm_userspace_memory_region, CpuId, KVM_API_VERSION, KVM_MAX_CPUID_ENTRIES,
     KVM_PIT_SPEAKER_DUMMY,
 };
 use kvm_ioctls::{
@@ -50,6 +39,9 @@ use vmm_sys_util::{eventfd::EventFd, terminal::Terminal};
 mod boot;
 use boot::*;
 
+mod config;
+pub use config::*;
+
 mod devices;
 use devices::SerialWrapper;
 
@@ -67,44 +59,8 @@ const ZEROPG_START: u64 = 0x7000;
 /// Address where the kernel command line is written.
 const CMDLINE_START: u64 = 0x0002_0000;
 
-#[derive(Default)]
-/// Guest memory configurations.
-pub struct MemoryConfig {
-    /// Guest memory size in MiB.
-    pub mem_size_mib: u32,
-}
-
-#[derive(Default)]
-/// vCPU configurations.
-pub struct VcpuConfig {
-    /// Number of vCPUs.
-    pub num_vcpus: u8,
-}
-
-#[derive(Default)]
-/// Guest kernel configurations.
-pub struct KernelConfig {
-    /// Kernel command line.
-    pub cmdline: String,
-    /// Path to the kernel image.
-    pub path: PathBuf,
-    /// Start address for high memory.
-    pub himem_start: u64,
-}
-
-#[derive(Default)]
-/// VMM configuration.
-pub struct VMMConfig {
-    /// Guest memory configuration.
-    pub memory_config: MemoryConfig,
-    /// vCPU configuration.
-    pub vcpu_config: VcpuConfig,
-    /// Guest kernel configuration.
-    pub kernel_config: KernelConfig,
-}
-
-#[derive(Debug)]
 /// VMM memory related errors.
+#[derive(Debug)]
 pub enum MemoryError {
     /// Failure during guest memory operation.
     GuestMemory(GuestMemoryError),
@@ -114,8 +70,8 @@ pub enum MemoryError {
     VmMemory(vm_memory::Error),
 }
 
-#[derive(Debug)]
 /// VMM errors.
+#[derive(Debug)]
 pub enum Error {
     /// Failed to write boot parameters to guest memory.
     BootConfigure(configurator::Error),
@@ -225,7 +181,7 @@ impl VMM {
             .with_regions(|index, region| {
                 let memory_region = kvm_userspace_memory_region {
                     slot: index as u32,
-                    guest_phys_addr: region.start_addr().raw_value() as u64,
+                    guest_phys_addr: region.start_addr().raw_value(),
                     memory_size: region.len() as u64,
                     // It's safe to unwrap because the guest address is valid.
                     userspace_addr: guest_memory.get_host_address(region.start_addr()).unwrap()
@@ -287,7 +243,7 @@ impl VMM {
         load_cmdline(
             &self.guest_memory,
             GuestAddress(CMDLINE_START),
-            // Safe because the command line is valid.
+            // Safe because we know the command line string doesn't contain any 0 bytes.
             unsafe { &CString::from_vec_unchecked(cmdline.into()) },
         )
         .map_err(Error::KernelLoad)?;
@@ -363,10 +319,11 @@ impl VMM {
     /// # Arguments
     ///
     /// * `vcpu_cfg` - [`VcpuConfig`](struct.VcpuConfig.html) struct containing vCPU configurations.
+    /// * `kernel_load` - address where the kernel is loaded in guest memory.
     pub fn configure_vcpus(
         &mut self,
         vcpu_cfg: VcpuConfig,
-        kernel_load: KernelLoaderResult,
+        kernel_load: GuestAddress,
     ) -> Result<()> {
         mptable::setup_mptable(&self.guest_memory, vcpu_cfg.num_vcpus)
             .map_err(|e| Error::Vcpu(vcpu::Error::Mptable(e)))?;
@@ -392,20 +349,9 @@ impl VMM {
                 vcpu_cfg.num_vcpus as usize,
                 &mut vcpu_cpuid,
             );
-            vcpu.configure_cpuid(&vcpu_cpuid).map_err(Error::Vcpu)?;
 
-            // Configure MSRs (model specific registers).
-            vcpu.configure_msrs().map_err(Error::Vcpu)?;
-
-            // Configure regs, sregs and fpu.
-            vcpu.configure_regs(kernel_load.kernel_load)
+            self.configure_vcpu(&vcpu, &vcpu_cpuid, kernel_load)
                 .map_err(Error::Vcpu)?;
-            vcpu.configure_sregs(&self.guest_memory)
-                .map_err(Error::Vcpu)?;
-            vcpu.configure_fpu().map_err(Error::Vcpu)?;
-
-            // Configure LAPICs.
-            vcpu.configure_lapic().map_err(Error::Vcpu)?;
 
             self.vcpus.push(vcpu);
         }
@@ -445,6 +391,27 @@ impl VMM {
             Ok(())
         }
     }
+
+    fn configure_vcpu(
+        &self,
+        vcpu: &Vcpu,
+        cpuid: &CpuId,
+        kernel_load: GuestAddress,
+    ) -> vcpu::Result<()> {
+        // Configure CPUID.
+        vcpu.configure_cpuid(cpuid)?;
+
+        // Configure MSRs (model specific registers).
+        vcpu.configure_msrs()?;
+
+        // Configure regs, sregs and fpu.
+        vcpu.configure_regs(kernel_load)?;
+        vcpu.configure_sregs(&self.guest_memory)?;
+        vcpu.configure_fpu()?;
+
+        // Configure LAPICs.
+        vcpu.configure_lapic()
+    }
 }
 
 impl TryFrom<VMMConfig> for VMM {
@@ -455,7 +422,7 @@ impl TryFrom<VMMConfig> for VMM {
         vmm.configure_guest_memory(config.memory_config)?;
         let kernel_load = vmm.configure_kernel(config.kernel_config)?;
         vmm.configure_pio_devices()?;
-        vmm.configure_vcpus(config.vcpu_config, kernel_load)?;
+        vmm.configure_vcpus(config.vcpu_config, kernel_load.kernel_load)?;
         Ok(vmm)
     }
 }

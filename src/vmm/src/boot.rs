@@ -1,8 +1,6 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
-#![cfg(target_arch = "x86_64")]
-
 use std::result;
 
 use linux_loader::bootparam::boot_params;
@@ -39,8 +37,12 @@ pub enum Error {
     HimemStartPastMemEnd,
     /// Highmem start address is past the MMIO gap end.
     HimemStartPastMmioGapEnd,
+    /// Highmem start address is past the MMIO gap start.
+    HimemStartPastMmioGapStart,
     /// The MMIO gap end is past the guest memory end.
     MmioGapPastMemEnd,
+    /// The MMIO gap start is past the gap end.
+    MmioGapStartPastMmioGapEnd,
 }
 
 fn add_e820_entry(
@@ -75,6 +77,10 @@ pub fn build_bootparams(
     mmio_gap_start: GuestAddress,
     mmio_gap_end: GuestAddress,
 ) -> result::Result<boot_params, Error> {
+    if mmio_gap_start >= mmio_gap_end {
+        return Err(Error::MmioGapStartPastMmioGapEnd);
+    }
+
     let mut params = boot_params::default();
 
     params.hdr.boot_flag = KERNEL_BOOT_FLAG_MAGIC;
@@ -90,19 +96,24 @@ pub fn build_bootparams(
     if last_addr < mmio_gap_start {
         add_e820_entry(
             &mut params,
-            himem_start.raw_value() as u64,
+            himem_start.raw_value(),
+            // The unchecked + 1 is safe because:
+            // * overflow could only occur if last_addr - himem_start == u64::MAX
+            // * last_addr is smaller than mmio_gap_start, a valid u64 value
+            // * last_addr - himem_start is also smaller than mmio_gap_start
             last_addr
                 .checked_offset_from(himem_start)
-                .ok_or(Error::HimemStartPastMemEnd)?,
+                .ok_or(Error::HimemStartPastMemEnd)?
+                + 1,
             E820_RAM,
         )?;
     } else {
         add_e820_entry(
             &mut params,
             himem_start.raw_value(),
-            mmio_gap_end
+            mmio_gap_start
                 .checked_offset_from(himem_start)
-                .ok_or(Error::HimemStartPastMmioGapEnd)?,
+                .ok_or(Error::HimemStartPastMmioGapStart)?,
             E820_RAM,
         )?;
 
@@ -110,6 +121,9 @@ pub fn build_bootparams(
             add_e820_entry(
                 &mut params,
                 mmio_gap_end.raw_value(),
+                // The unchecked + 1 is safe because:
+                // * overflow could only occur if last_addr == u64::MAX and mmio_gap_end == 0
+                // * mmio_gap_end > mmio_gap_start, which is a valid u64 => mmio_gap_end > 0
                 last_addr
                     .checked_offset_from(mmio_gap_end)
                     .ok_or(Error::HimemStartPastMmioGapEnd)?
