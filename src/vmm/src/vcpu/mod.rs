@@ -4,20 +4,37 @@
 use std::result;
 use std::sync::Arc;
 
-use kvm_bindings::{CpuId, Msrs};
+use kvm_bindings::{kvm_fpu, kvm_regs, kvm_sregs, CpuId, Msrs};
 use kvm_ioctls::{VcpuFd, VmFd};
 use vm_device::bus::PioAddress;
 use vm_device::device_manager::{IoManager, PioManager};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
 pub(crate) mod cpuid;
+mod gdt;
+use gdt::*;
 pub(crate) mod mpspec;
 pub(crate) mod mptable;
 pub(crate) mod msr_index;
 pub(crate) mod msrs;
 
+/// Initial stack for the boot CPU.
+const BOOT_STACK_POINTER: u64 = 0x8ff0;
+
+// Initial pagetables.
+const PML4_START: u64 = 0x9000;
+const PDPTE_START: u64 = 0xa000;
+const PDE_START: u64 = 0xb000;
+
+const X86_CR0_PE: u64 = 0x1;
+const X86_CR0_PG: u64 = 0x8000_0000;
+const X86_CR4_PAE: u64 = 0x20;
+
 /// Errors encountered during vCPU operation.
 #[derive(Debug)]
 pub enum Error {
+    /// Failed to operate on guest memory.
+    GuestMemory(GuestMemoryError),
     /// Error issuing an ioctl to KVM.
     KvmIoctl(kvm_ioctls::Error),
     /// Failed to configure mptables.
@@ -71,5 +88,101 @@ impl Vcpu {
                     Ok(())
                 }
             })
+    }
+
+    /// Configure regs.
+    pub fn configure_regs(&self, kernel_load: GuestAddress) -> Result<()> {
+        let regs = kvm_regs {
+            rflags: 0x0000_0000_0000_0002u64,
+            rip: kernel_load.raw_value(),
+            // Frame pointer. It gets a snapshot of the stack pointer (rsp) so that when adjustments are
+            // made to rsp (i.e. reserving space for local variables or pushing values on to the stack),
+            // local variables and function parameters are still accessible from a constant offset from rbp.
+            rsp: BOOT_STACK_POINTER,
+            // Starting stack pointer.
+            rbp: BOOT_STACK_POINTER,
+            // Must point to zero page address per Linux ABI. This is x86_64 specific.
+            rsi: crate::ZEROPG_START,
+            ..Default::default()
+        };
+        self.vcpu_fd.set_regs(&regs).map_err(Error::KvmIoctl)
+    }
+
+    /// Configure sregs.
+    pub fn configure_sregs(&self, guest_memory: &GuestMemoryMmap) -> Result<()> {
+        let mut sregs = self.vcpu_fd.get_sregs().map_err(Error::KvmIoctl)?;
+
+        // Global descriptor tables.
+        let gdt_table: [u64; BOOT_GDT_MAX as usize] = [
+            gdt_entry(0, 0, 0),            // NULL
+            gdt_entry(0xa09b, 0, 0xfffff), // CODE
+            gdt_entry(0xc093, 0, 0xfffff), // DATA
+            gdt_entry(0x808b, 0, 0xfffff), // TSS
+        ];
+
+        let code_seg = kvm_segment_from_gdt(gdt_table[1], 1);
+        let data_seg = kvm_segment_from_gdt(gdt_table[2], 2);
+        let tss_seg = kvm_segment_from_gdt(gdt_table[3], 3);
+
+        // Write segments to guest memory.
+        write_gdt_table(&gdt_table[..], guest_memory).map_err(Error::GuestMemory)?;
+        sregs.gdt.base = BOOT_GDT_OFFSET as u64;
+        sregs.gdt.limit = std::mem::size_of_val(&gdt_table) as u16 - 1;
+
+        write_idt_value(0, guest_memory).map_err(Error::GuestMemory)?;
+        sregs.idt.base = BOOT_IDT_OFFSET as u64;
+        sregs.idt.limit = std::mem::size_of::<u64>() as u16 - 1;
+
+        sregs.cs = code_seg;
+        sregs.ds = data_seg;
+        sregs.es = data_seg;
+        sregs.fs = data_seg;
+        sregs.gs = data_seg;
+        sregs.ss = data_seg;
+        sregs.tr = tss_seg;
+
+        // 64-bit protected mode.
+        sregs.cr0 |= X86_CR0_PE;
+        sregs.efer |= (msr_index::EFER_LME | msr_index::EFER_LMA) as u64;
+
+        // Start page table configuration.
+        // Puts PML4 right after zero page but aligned to 4k.
+        let boot_pml4_addr = GuestAddress(PML4_START);
+        let boot_pdpte_addr = GuestAddress(PDPTE_START);
+        let boot_pde_addr = GuestAddress(PDE_START);
+
+        // Entry covering VA [0..512GB).
+        guest_memory
+            .write_obj(boot_pdpte_addr.raw_value() as u64 | 0x03, boot_pml4_addr)
+            .map_err(Error::GuestMemory)?;
+
+        // Entry covering VA [0..1GB).
+        guest_memory
+            .write_obj(boot_pde_addr.raw_value() as u64 | 0x03, boot_pdpte_addr)
+            .map_err(Error::GuestMemory)?;
+
+        // 512 2MB entries together covering VA [0..1GB).
+        // This assumes that the CPU supports 2MB pages (/proc/cpuinfo has 'pse').
+        for i in 0..512 {
+            guest_memory
+                .write_obj((i << 21) + 0x83u64, boot_pde_addr.unchecked_add(i * 8))
+                .map_err(Error::GuestMemory)?;
+        }
+
+        sregs.cr3 = boot_pml4_addr.raw_value() as u64;
+        sregs.cr4 |= X86_CR4_PAE;
+        sregs.cr0 |= X86_CR0_PG;
+
+        self.vcpu_fd.set_sregs(&sregs).map_err(Error::KvmIoctl)
+    }
+
+    /// Configure FPU.
+    pub fn configure_fpu(&self) -> Result<()> {
+        let fpu = kvm_fpu {
+            fcw: 0x37f,
+            mxcsr: 0x1f80,
+            ..Default::default()
+        };
+        self.vcpu_fd.set_fpu(&fpu).map_err(Error::KvmIoctl)
     }
 }
