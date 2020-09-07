@@ -62,6 +62,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vm-superio"
+version = "0.1.0"
+source = "git+https://github.com/rust-vmm/vm-superio#9d04e75c038259ff96bf8b95a894ddf1af838330"
+dependencies = [
+ "vmm-sys-util",
+]
+
+[[package]]
 name = "vmm"
 version = "0.1.0"
 dependencies = [
@@ -71,6 +79,7 @@ dependencies = [
  "libc",
  "linux-loader",
  "vm-memory",
+ "vm-superio",
  "vmm-sys-util",
 ]
 
