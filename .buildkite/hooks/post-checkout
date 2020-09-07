@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2 OR BSD-3-Clause
+
+# This hook builds the kernel image(s) used in the integration tests.
+
+REPO_PATH="${BUILDKITE_BUILD_CHECKOUT_PATH}"
+RESDIR="resources/kernel"
+
+# Build vmlinux-hello-busybox-halt.
+# This is an ELF image with a baked-in busybox initramfs that halts after boot.
+build_vmlinux_hello_busybox_halt() {
+    docker run                                          \
+        --security-opt seccomp=unconfined               \
+        --volume ${REPO_PATH}/resources:/resources      \
+        rustvmm/dev:v7                                  \
+        /resources/kernel/make_busybox.sh -h
+}
+
+arch=$(dpkg --print-architecture)
+if [ "$arch" == "amd64" ]; then
+    build_vmlinux_hello_busybox_halt
+fi
