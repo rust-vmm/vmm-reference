@@ -19,11 +19,21 @@ extern crate vmm_sys_util;
 use std::convert::TryFrom;
 use std::path::PathBuf;
 
-use kvm_bindings::KVM_API_VERSION;
+use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
 use kvm_ioctls::{
     Cap::{self, Ioeventfd, Irqchip, Irqfd, UserMemory},
     Kvm, VmFd,
 };
+use vm_memory::{
+    Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryRegion,
+};
+
+/// First address past 32 bits.
+const FIRST_ADDR_PAST_32BITS: u64 = 1 << 32;
+/// Size if the MMIO gap.
+const MEM_32BIT_GAP_SIZE: u64 = 768 << 20;
+/// The start of the memory area reserved for MMIO devices.
+const MMIO_MEM_START: u64 = FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE;
 
 #[derive(Default)]
 /// Guest memory configurations.
@@ -60,6 +70,17 @@ pub struct VMMConfig {
 }
 
 #[derive(Debug)]
+/// VMM memory related errors.
+pub enum MemoryError {
+    /// Failure during guest memory operation.
+    GuestMemory(GuestMemoryError),
+    /// Not enough memory slots.
+    NotEnoughMemorySlots,
+    /// Failed to configure guest memory.
+    VmMemory(vm_memory::Error),
+}
+
+#[derive(Debug)]
 /// VMM errors.
 pub enum Error {
     /// Invalid KVM API version.
@@ -68,6 +89,8 @@ pub enum Error {
     KvmCap(Cap),
     /// Error issuing an ioctl to KVM.
     KvmIoctl(kvm_ioctls::Error),
+    /// Memory error.
+    Memory(MemoryError),
 }
 
 /// Dedicated [`Result`](https://doc.rust-lang.org/std/result/) type.
@@ -77,6 +100,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct VMM {
     vm_fd: VmFd,
     kvm: Kvm,
+    guest_memory: GuestMemoryMmap,
 }
 
 impl VMM {
@@ -93,7 +117,11 @@ impl VMM {
         // Create fd for interacting with kvm-vm specific functions.
         let vm_fd = kvm.create_vm().map_err(Error::KvmIoctl)?;
 
-        let vmm = VMM { vm_fd, kvm };
+        let vmm = VMM {
+            vm_fd,
+            kvm,
+            guest_memory: GuestMemoryMmap::default(),
+        };
 
         vmm.check_kvm_capabilities()?;
 
@@ -107,7 +135,50 @@ impl VMM {
     /// * `guest_mem_cfg` - [`MemoryConfig`](struct.MemoryConfig.html) struct containing guest
     ///                     memory configurations.
     pub fn configure_guest_memory(&mut self, guest_mem_cfg: MemoryConfig) -> Result<()> {
-        unimplemented!();
+        let mem_size = ((guest_mem_cfg.mem_size_mib as u64) << 20) as usize;
+
+        // Create guest memory regions.
+        // On x86_64, they surround the MMIO gap (dedicated space for MMIO device slots) if the
+        // configured memory size exceeds the latter's starting address.
+        let mem_regions = match mem_size.checked_sub(MMIO_MEM_START as usize) {
+            // Guest memory fits before the MMIO gap.
+            None | Some(0) => vec![(GuestAddress(0), mem_size)],
+            // Guest memory extends beyond the MMIO gap.
+            Some(remaining) => vec![
+                (GuestAddress(0), MMIO_MEM_START as usize),
+                (GuestAddress(FIRST_ADDR_PAST_32BITS), remaining),
+            ],
+        };
+
+        // Create guest memory from regions.
+        let guest_memory = GuestMemoryMmap::from_ranges(&mem_regions)
+            .map_err(|e| Error::Memory(MemoryError::VmMemory(e)))?;
+
+        if guest_memory.num_regions() > self.kvm.get_nr_memslots() {
+            return Err(Error::Memory(MemoryError::NotEnoughMemorySlots));
+        }
+
+        // Register guest memory regions with KVM.
+        guest_memory
+            .with_regions(|index, region| {
+                let memory_region = kvm_userspace_memory_region {
+                    slot: index as u32,
+                    guest_phys_addr: region.start_addr().raw_value() as u64,
+                    memory_size: region.len() as u64,
+                    // It's safe to unwrap because the guest address is valid.
+                    userspace_addr: guest_memory.get_host_address(region.start_addr()).unwrap()
+                        as u64,
+                    flags: 0,
+                };
+
+                // Safe because the fd is a valid KVM file descriptor.
+                unsafe { self.vm_fd.set_user_memory_region(memory_region) }
+            })
+            .map_err(Error::KvmIoctl)?;
+
+        self.guest_memory = guest_memory;
+
+        Ok(())
     }
 
     /// Configure guest vCPUs.
