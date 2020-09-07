@@ -17,6 +17,9 @@ extern crate vm_memory;
 extern crate vmm_sys_util;
 
 use std::convert::TryFrom;
+use std::ffi::CString;
+use std::fs::File;
+use std::io;
 use std::path::PathBuf;
 
 use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
@@ -24,16 +27,29 @@ use kvm_ioctls::{
     Cap::{self, Ioeventfd, Irqchip, Irqfd, UserMemory},
     Kvm, VmFd,
 };
+use linux_loader::bootparam::boot_params;
+use linux_loader::cmdline::{self, Cmdline};
+use linux_loader::configurator::{
+    self, linux::LinuxBootConfigurator, BootConfigurator, BootParams,
+};
+use linux_loader::loader::{self, elf::Elf, load_cmdline, KernelLoader, KernelLoaderResult};
 use vm_memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryRegion,
 };
 
+mod boot;
+use boot::*;
+
 /// First address past 32 bits.
 const FIRST_ADDR_PAST_32BITS: u64 = 1 << 32;
-/// Size if the MMIO gap.
+/// Size of the MMIO gap.
 const MEM_32BIT_GAP_SIZE: u64 = 768 << 20;
 /// The start of the memory area reserved for MMIO devices.
 const MMIO_MEM_START: u64 = FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE;
+/// Address of the zeropage, where Linux kernel boot parameters are written.
+const ZEROPG_START: u64 = 0x7000;
+/// Address where the kernel command line is written.
+const CMDLINE_START: u64 = 0x0002_0000;
 
 #[derive(Default)]
 /// Guest memory configurations.
@@ -52,6 +68,8 @@ pub struct VcpuConfig {
 #[derive(Default)]
 /// Guest kernel configurations.
 pub struct KernelConfig {
+    /// Kernel command line.
+    pub cmdline: String,
     /// Path to the kernel image.
     pub path: PathBuf,
     /// Start address for high memory.
@@ -83,6 +101,16 @@ pub enum MemoryError {
 #[derive(Debug)]
 /// VMM errors.
 pub enum Error {
+    /// Failed to write boot parameters to guest memory.
+    BootConfigure(configurator::Error),
+    /// Error configuring boot parameters.
+    BootParam(boot::Error),
+    /// Error configuring the kernel command line.
+    Cmdline(cmdline::Error),
+    /// I/O error.
+    IO(io::Error),
+    /// Failed to load kernel.
+    KernelLoad(loader::Error),
     /// Invalid KVM API version.
     KvmApiVersion(i32),
     /// Unsupported KVM capability.
@@ -186,7 +214,11 @@ impl VMM {
     /// # Arguments
     ///
     /// * `vcpu_cfg` - [`VcpuConfig`](struct.VcpuConfig.html) struct containing vCPU configurations.
-    pub fn configure_vcpus(&mut self, vcpu_cfg: VcpuConfig) -> Result<()> {
+    pub fn configure_vcpus(
+        &mut self,
+        vcpu_cfg: VcpuConfig,
+        kernel_load: KernelLoaderResult,
+    ) -> Result<()> {
         unimplemented!();
     }
 
@@ -196,8 +228,53 @@ impl VMM {
     ///
     /// * `kernel_cfg` - [`KernelConfig`](struct.KernelConfig.html) struct containing kernel
     ///                  configurations.
-    pub fn configure_kernel(&mut self, kernel_cfg: KernelConfig) -> Result<()> {
-        unimplemented!();
+    pub fn configure_kernel(&mut self, kernel_cfg: KernelConfig) -> Result<KernelLoaderResult> {
+        let mut kernel_image = File::open(kernel_cfg.path).map_err(Error::IO)?;
+        let zero_page_addr = GuestAddress(ZEROPG_START);
+
+        // Load the kernel into guest memory.
+        let kernel_load = Elf::load(
+            &self.guest_memory,
+            None,
+            &mut kernel_image,
+            Some(GuestAddress(kernel_cfg.himem_start)),
+        )
+        .map_err(Error::KernelLoad)?;
+
+        // Generate boot parameters.
+        let mut bootparams = build_bootparams(
+            &self.guest_memory,
+            GuestAddress(kernel_cfg.himem_start),
+            GuestAddress(MMIO_MEM_START),
+            GuestAddress(FIRST_ADDR_PAST_32BITS),
+        )
+        .map_err(Error::BootParam)?;
+
+        // Add the kernel command line to the boot parameters.
+        bootparams.hdr.cmd_line_ptr = CMDLINE_START as u32;
+        bootparams.hdr.cmdline_size = kernel_cfg.cmdline.len() as u32 + 1;
+
+        // Load the kernel command line into guest memory.
+        let mut cmdline = Cmdline::new(kernel_cfg.cmdline.len() + 1);
+        cmdline
+            .insert_str(kernel_cfg.cmdline)
+            .map_err(Error::Cmdline)?;
+        load_cmdline(
+            &self.guest_memory,
+            GuestAddress(CMDLINE_START),
+            // Safe because the command line is valid.
+            unsafe { &CString::from_vec_unchecked(cmdline.into()) },
+        )
+        .map_err(Error::KernelLoad)?;
+
+        // Write the boot parameters in the zeropage.
+        LinuxBootConfigurator::write_bootparams::<GuestMemoryMmap>(
+            &BootParams::new::<boot_params>(&bootparams, zero_page_addr),
+            &self.guest_memory,
+        )
+        .map_err(Error::BootConfigure)?;
+
+        Ok(kernel_load)
     }
 
     /// Configure PIO devices.
@@ -235,9 +312,9 @@ impl TryFrom<VMMConfig> for VMM {
     fn try_from(config: VMMConfig) -> Result<Self> {
         let mut vmm = VMM::new()?;
         vmm.configure_guest_memory(config.memory_config)?;
-        vmm.configure_vcpus(config.vcpu_config)?;
-        vmm.configure_kernel(config.kernel_config)?;
+        let kernel_load = vmm.configure_kernel(config.kernel_config)?;
         vmm.configure_pio_devices()?;
+        vmm.configure_vcpus(config.vcpu_config, kernel_load)?;
         Ok(vmm)
     }
 }

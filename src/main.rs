@@ -20,6 +20,7 @@ fn default_kernel_config() -> KernelConfig {
         path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("resources/kernel/vmlinux-hello-busybox"),
         himem_start: 0x0010_0000, // 1 MB
+        cmdline: "console=ttyS0 i8042.nokbd reboot=k panic=1 pci=off".to_string(),
     }
 }
 
