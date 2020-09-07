@@ -1,14 +1,16 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
+use std::io::{self, stdin};
 use std::result;
 use std::sync::Arc;
 
 use kvm_bindings::{kvm_fpu, kvm_regs, kvm_sregs, CpuId, Msrs};
-use kvm_ioctls::{VcpuFd, VmFd};
+use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
 use vm_device::bus::PioAddress;
 use vm_device::device_manager::{IoManager, PioManager};
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
+use vmm_sys_util::terminal::Terminal;
 
 pub(crate) mod cpuid;
 mod gdt;
@@ -37,6 +39,8 @@ const X86_CR4_PAE: u64 = 0x20;
 pub enum Error {
     /// Failed to operate on guest memory.
     GuestMemory(GuestMemoryError),
+    /// I/O Error.
+    IO(io::Error),
     /// Error issuing an ioctl to KVM.
     KvmIoctl(kvm_ioctls::Error),
     /// Failed to configure mptables.
@@ -206,5 +210,50 @@ impl Vcpu {
         );
 
         self.vcpu_fd.set_lapic(&klapic).map_err(Error::KvmIoctl)
+    }
+
+    /// vCPU emulation loop.
+    pub fn run(&mut self) {
+        match self.vcpu_fd.run() {
+            Ok(exit_reason) => {
+                match exit_reason {
+                    VcpuExit::Shutdown | VcpuExit::Hlt => {
+                        println!("Guest shutdown: {:?}. Bye!", exit_reason);
+                        if let Err(e) = stdin().lock().set_canon_mode() {
+                            eprintln!("Failed to set canon mode. Stdin will not echo.");
+                        }
+                        unsafe { libc::exit(0) };
+                    }
+                    VcpuExit::IoOut(addr, data) => {
+                        if 0x3f8 <= addr && addr < (0x3f8 + 8) {
+                            // Write at the serial port.
+                            if self.device_mgr.pio_write(PioAddress(addr), data).is_err() {
+                                eprintln!("Failed to write to serial port");
+                            }
+                        } else if 0x060 <= addr && addr < (0x060 + 5) {
+                            // Write at the i8042 port.
+                        } else if 0x070 <= addr && addr <= 0x07f {
+                            // Write at the RTC port.
+                        } else {
+                            // Write at some other port.
+                        }
+                    }
+                    VcpuExit::IoIn(addr, data) => {
+                        if 0x3f8 <= addr && addr < (0x3f8 + 8) {
+                            // Read from the serial port.
+                            if self.device_mgr.pio_read(PioAddress(addr), data).is_err() {
+                                eprintln!("Failed to read from serial port");
+                            }
+                        } else {
+                            // Read from some other port.
+                        }
+                    }
+                    _ => {
+                        // Unhandled KVM exit.
+                    }
+                }
+            }
+            Err(e) => eprintln!("Emulation error: {}", e),
+        }
     }
 }
