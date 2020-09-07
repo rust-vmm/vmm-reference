@@ -15,7 +15,7 @@ use vm_superio::Serial;
 use vmm_sys_util::{epoll::EventSet, eventfd::EventFd};
 
 /// Newtype for implementing `event-manager` functionalities.
-pub struct SerialWrapper<W: Write>(pub Serial<W>);
+pub(crate) struct SerialWrapper<W: Write>(pub Serial<W>);
 
 impl<W: Write> MutEventSubscriber for SerialWrapper<W> {
     fn process(&mut self, events: Events, ops: &mut EventOps) {

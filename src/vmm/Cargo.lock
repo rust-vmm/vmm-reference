@@ -8,9 +8,9 @@ checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
 name = "event-manager"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab51191fac8e0027ceaf43fa0154393856f768f8c159453c876544e224685dbb"
+checksum = "631837e6fd74d3abbe311d9495d180e8eb83a0015f837007e902c620d3a17e2a"
 dependencies = [
  "libc",
  "vmm-sys-util",
@@ -48,8 +48,13 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eae752ac96ab8f65323eb7e699850237f374161981452af4a53ba093fe1894ed"
 dependencies = [
- "vm-memory",
+ "vm-memory 0.2.2",
 ]
+
+[[package]]
+name = "vm-device"
+version = "0.1.0"
+source = "git+https://github.com/aghecenco/vm-device.git?branch=send#359ddf304baece61635a0538595e0a53fcc9e76b"
 
 [[package]]
 name = "vm-memory"
@@ -62,10 +67,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "vm-superio"
-version = "0.1.0"
-source = "git+https://github.com/rust-vmm/vm-superio#9d04e75c038259ff96bf8b95a894ddf1af838330"
+name = "vm-memory"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "013d6d0701ad7c68a58e752a8a9736dff957073af5a567c2cbbe0e382657059d"
 dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
+name = "vm-superio"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d690c241393f2b9cbe4d37279c8b994fdf244faa15c71f4a7196632880324c77"
+dependencies = [
+ "libc",
  "vmm-sys-util",
 ]
 
@@ -78,7 +95,8 @@ dependencies = [
  "kvm-ioctls",
  "libc",
  "linux-loader",
- "vm-memory",
+ "vm-device",
+ "vm-memory 0.3.0",
  "vm-superio",
  "vmm-sys-util",
 ]
