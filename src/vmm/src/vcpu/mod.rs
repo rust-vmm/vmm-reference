@@ -5,7 +5,7 @@ use std::io::{self, stdin};
 use std::result;
 use std::sync::Arc;
 
-use kvm_bindings::{kvm_fpu, kvm_regs, kvm_sregs, CpuId, Msrs};
+use kvm_bindings::{kvm_fpu, kvm_regs, CpuId, Msrs};
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
 use vm_device::bus::PioAddress;
 use vm_device::device_manager::{IoManager, PioManager};
@@ -57,8 +57,6 @@ pub type Result<T> = result::Result<T, Error>;
 /// This struct is a temporary (and quite terrible) placeholder until the
 /// [`vmm-vcpu`](https://github.com/rust-vmm/vmm-vcpu) crate is stabilized.
 pub(crate) struct Vcpu {
-    /// Index.
-    pub index: u8,
     /// KVM file descriptor for a vCPU.
     pub vcpu_fd: VcpuFd,
     /// Device manager for bus accesses.
@@ -69,7 +67,6 @@ impl Vcpu {
     /// Create a new vCPU.
     pub fn new(vm_fd: &VmFd, index: u8, device_mgr: Arc<IoManager>) -> Result<Self> {
         Ok(Vcpu {
-            index,
             vcpu_fd: vm_fd.create_vcpu(index).map_err(Error::KvmIoctl)?,
             device_mgr,
         })
@@ -159,12 +156,12 @@ impl Vcpu {
 
         // Entry covering VA [0..512GB).
         guest_memory
-            .write_obj(boot_pdpte_addr.raw_value() as u64 | 0x03, boot_pml4_addr)
+            .write_obj(boot_pdpte_addr.raw_value() | 0x03, boot_pml4_addr)
             .map_err(Error::GuestMemory)?;
 
         // Entry covering VA [0..1GB).
         guest_memory
-            .write_obj(boot_pde_addr.raw_value() as u64 | 0x03, boot_pdpte_addr)
+            .write_obj(boot_pde_addr.raw_value() | 0x03, boot_pdpte_addr)
             .map_err(Error::GuestMemory)?;
 
         // 512 2MB entries together covering VA [0..1GB).
@@ -175,7 +172,7 @@ impl Vcpu {
                 .map_err(Error::GuestMemory)?;
         }
 
-        sregs.cr3 = boot_pml4_addr.raw_value() as u64;
+        sregs.cr3 = boot_pml4_addr.raw_value();
         sregs.cr4 |= X86_CR4_PAE;
         sregs.cr0 |= X86_CR0_PG;
 
@@ -219,7 +216,7 @@ impl Vcpu {
                 match exit_reason {
                     VcpuExit::Shutdown | VcpuExit::Hlt => {
                         println!("Guest shutdown: {:?}. Bye!", exit_reason);
-                        if let Err(e) = stdin().lock().set_canon_mode() {
+                        if stdin().lock().set_canon_mode().is_err() {
                             eprintln!("Failed to set canon mode. Stdin will not echo.");
                         }
                         unsafe { libc::exit(0) };

@@ -6,7 +6,6 @@
 // found in the THIRD-PARTY file.
 
 use kvm_bindings::kvm_lapic_state;
-use kvm_ioctls::VcpuFd;
 
 // Yanked from byte_order
 macro_rules! generate_read_fn {
@@ -35,31 +34,8 @@ macro_rules! generate_write_fn {
     };
 }
 
-generate_read_fn!(read_le_u16, u16, u8, 2, from_le_bytes);
-generate_read_fn!(read_le_u32, u32, u8, 4, from_le_bytes);
-generate_read_fn!(read_le_u64, u64, u8, 8, from_le_bytes);
 generate_read_fn!(read_le_i32, i32, i8, 4, from_le_bytes);
-
-generate_read_fn!(read_be_u16, u16, u8, 2, from_be_bytes);
-generate_read_fn!(read_be_u32, u32, u8, 4, from_be_bytes);
-
-generate_write_fn!(write_le_u16, u16, u8, to_le_bytes);
-generate_write_fn!(write_le_u32, u32, u8, to_le_bytes);
-generate_write_fn!(write_le_u64, u64, u8, to_le_bytes);
 generate_write_fn!(write_le_i32, i32, i8, to_le_bytes);
-
-generate_write_fn!(write_be_u16, u16, u8, to_be_bytes);
-generate_write_fn!(write_be_u32, u32, u8, to_be_bytes);
-
-/// Errors thrown while configuring the LAPIC.
-#[derive(Debug)]
-pub enum Error {
-    /// Failure in retrieving the LAPIC configuration.
-    GetLapic(kvm_ioctls::Error),
-    /// Failure in modifying the LAPIC configuration.
-    SetLapic(kvm_ioctls::Error),
-}
-type Result<T> = std::result::Result<T, Error>;
 
 // Defines poached from apicdef.h kernel header.
 pub const APIC_LVT0: usize = 0x350;
@@ -80,5 +56,5 @@ pub fn set_klapic_reg(klapic: &mut kvm_lapic_state, reg_offset: usize, value: u3
 }
 
 pub fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
-    (((reg) & !0x700) | ((mode) << 8))
+    ((reg) & !0x700) | ((mode) << 8)
 }

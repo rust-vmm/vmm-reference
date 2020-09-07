@@ -12,7 +12,7 @@ use vm_device::{
     MutDevicePio,
 };
 use vm_superio::Serial;
-use vmm_sys_util::{epoll::EventSet, eventfd::EventFd};
+use vmm_sys_util::epoll::EventSet;
 
 /// Newtype for implementing `event-manager` functionalities.
 pub(crate) struct SerialWrapper<W: Write>(pub Serial<W>);

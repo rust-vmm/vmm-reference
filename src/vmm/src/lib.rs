@@ -3,9 +3,8 @@
 
 #![cfg(target_arch = "x86_64")]
 
-//! Reference VMM build with rust-vmm components and minimal glue.
+//! Reference VMM built with rust-vmm components and minimal glue.
 #![deny(missing_docs)]
-#![allow(dead_code, unused)]
 
 extern crate libc;
 
@@ -20,12 +19,12 @@ extern crate vmm_sys_util;
 use std::convert::TryFrom;
 use std::ffi::CString;
 use std::fs::File;
-use std::io::{self, stdin, stdout, Stdout};
+use std::io::{self, stdin, stdout};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use event_manager::{EventManager, EventOps, Events, MutEventSubscriber, SubscriberOps};
+use event_manager::{EventManager, MutEventSubscriber, SubscriberOps};
 use kvm_bindings::{
     kvm_pit_config, kvm_userspace_memory_region, KVM_API_VERSION, KVM_MAX_CPUID_ENTRIES,
     KVM_PIT_SPEAKER_DUMMY,
@@ -382,7 +381,7 @@ impl VMM {
         let shared_device_mgr = Arc::new(self.device_mgr.take().expect("Missing device manager"));
 
         for index in 0..vcpu_cfg.num_vcpus {
-            let mut vcpu =
+            let vcpu =
                 Vcpu::new(&self.vm_fd, index, shared_device_mgr.clone()).map_err(Error::Vcpu)?;
 
             // Set CPUID.
@@ -416,7 +415,7 @@ impl VMM {
 
     /// Run the VMM.
     pub fn run(&mut self) {
-        if let Err(r) = stdin().lock().set_raw_mode() {
+        if stdin().lock().set_raw_mode().is_err() {
             eprintln!("Failed to set raw mode on terminal. Stdin will echo.");
         }
 
