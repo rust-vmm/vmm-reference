@@ -1,0 +1,15 @@
+[package]
+name = "vmm"
+version = "0.1.0"
+authors = ["Alexandra Iordache <aghecen@amazon.com>"]
+edition = "2018"
+
+[dependencies]
+event-manager = "0.1.0"
+kvm-bindings = { version = "0.3.0", features = ["fam-wrappers"] }
+kvm-ioctls = "0.5.0"
+linux-loader = "0.2.0"
+vm-memory = { version = "0.2.2", features = ["backend-mmap"] }
+vmm-sys-util = "0.6.1"
+
+libc = "0.2.76"
