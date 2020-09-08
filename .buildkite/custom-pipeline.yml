@@ -1,0 +1,13 @@
+steps:
+  - label: "run-x86"
+    commands:
+     - pytest tests/test_run_reference_vmm.py
+    retry:
+      automatic: false
+    agents:
+      platform: x86_64.metal
+      os: linux
+    plugins:
+      - docker#v3.0.1:
+          image: "rustvmm/dev:v6"
+          always-pull: true
