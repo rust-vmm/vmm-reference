@@ -25,8 +25,9 @@ impl CLI {
     /// # Arguments
     ///
     /// * `app_name` - name of the running program.
-    pub fn new(app_name: String) -> result::Result<VMMConfig, String> {
+    pub fn launch(app_name: String) -> result::Result<VMMConfig, String> {
         let matches = App::new(app_name)
+
             .arg(
                 Arg::with_name("memory")
                     .long("memory")

@@ -13,7 +13,7 @@ use vmm::VMM;
 
 fn main() {
     let vmm_config =
-        CLI::new("reference-vmm".to_string()).expect("Failed to parse command line options");
+        CLI::launch("reference-vmm".to_string()).expect("Failed to parse command line options");
     let mut vmm = VMM::try_from(vmm_config).expect("Failed to create VMM from configurations");
     vmm.run();
 }
