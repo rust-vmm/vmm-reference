@@ -25,7 +25,7 @@ impl TryFrom<String> for MemoryConfig {
     fn try_from(mem_cfg_str: String) -> result::Result<Self, Self::Error> {
         // Supported options: `size=<u32>`
         let mem_cfg_str_lower = mem_cfg_str.to_lowercase();
-        let tokens: Vec<&str> = mem_cfg_str_lower.split("=").collect();
+        let tokens: Vec<&str> = mem_cfg_str_lower.split('=').collect();
         if tokens.len() != 2 {
             return Err(ConversionError::Parse(mem_cfg_str));
         }
@@ -52,7 +52,7 @@ impl TryFrom<String> for VcpuConfig {
     fn try_from(vcpu_cfg_str: String) -> result::Result<Self, Self::Error> {
         // Supported options: `num_vcpus=<u8>`
         let vcpu_cfg_str_lower = vcpu_cfg_str.to_lowercase();
-        let tokens: Vec<&str> = vcpu_cfg_str_lower.split("=").collect();
+        let tokens: Vec<&str> = vcpu_cfg_str_lower.split('=').collect();
         if tokens.len() != 2 {
             return Err(ConversionError::Parse(vcpu_cfg_str));
         }
@@ -84,7 +84,7 @@ impl TryFrom<String> for KernelConfig {
         // Supported options:
         // `cmdline=<"string">,path=/path/to/kernel,himem_start=<u64>`
         // Required: all
-        let options: Vec<&str> = kernel_cfg_str.split(",").collect();
+        let options: Vec<&str> = kernel_cfg_str.split(',').collect();
         if options.len() != 3 {
             return Err(ConversionError::Parse(kernel_cfg_str));
         }
@@ -94,7 +94,7 @@ impl TryFrom<String> for KernelConfig {
         let mut himem_start: Option<u64> = None;
 
         for opt in options {
-            let tokens: Vec<&str> = opt.split("=").collect();
+            let tokens: Vec<&str> = opt.split('=').collect();
             match tokens[0] {
                 "cmdline" => cmdline = Some(tokens[1..].join("=")),
                 "path" => {
@@ -118,9 +118,10 @@ impl TryFrom<String> for KernelConfig {
         }
 
         Ok(KernelConfig {
-            cmdline: cmdline.ok_or(ConversionError::Parse(kernel_cfg_str.to_string()))?,
-            path: path.ok_or(ConversionError::Parse(kernel_cfg_str.to_string()))?,
-            himem_start: himem_start.ok_or(ConversionError::Parse(kernel_cfg_str.to_string()))?,
+            cmdline: cmdline.ok_or_else(|| ConversionError::Parse(kernel_cfg_str.to_string()))?,
+            path: path.ok_or_else(|| ConversionError::Parse(kernel_cfg_str.to_string()))?,
+            himem_start: himem_start
+                .ok_or_else(|| ConversionError::Parse(kernel_cfg_str.to_string()))?,
         })
     }
 }

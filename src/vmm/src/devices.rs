@@ -32,7 +32,7 @@ impl<W: Write> MutEventSubscriber for SerialWrapper<W> {
                 let unregister_condition =
                     event_set.contains(EventSet::ERROR) | event_set.contains(EventSet::HANG_UP);
                 if count > 0 {
-                    if let Err(_) = self.0.enqueue_raw_bytes(&out[..count]) {
+                    if self.0.enqueue_raw_bytes(&out[..count]).is_err() {
                         eprintln!("Failed to send bytes to the guest via serial input");
                     }
                 } else if unregister_condition {

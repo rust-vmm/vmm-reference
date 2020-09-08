@@ -8,7 +8,7 @@
  * 806276b7f07a39a1cc3f38bb1ef5c573d4594a38
  */
 
-#![allow(non_upper_case_globals, unused)]
+#![allow(non_upper_case_globals, unused, clippy::unreadable_literal)]
 
 pub const MSR_EFER: ::std::os::raw::c_uint = 0xc0000080;
 pub const MSR_STAR: ::std::os::raw::c_uint = 0xc0000081;
