@@ -1,7 +1,8 @@
 steps:
-  - label: "run-x86"
+  - label: "build-deps-x86"
     commands:
-     - pytest tests/test_run_reference_vmm.py
+      - resources/kernel/make_busybox.sh -j 2
+      - resources/kernel/make_busybox.sh -h -j 2
     retry:
       automatic: false
     agents:
@@ -9,7 +10,7 @@ steps:
       os: linux
     plugins:
       - docker#v3.0.1:
-          privileged: true
           image: "rustvmm/dev:v7"
           always-pull: true
-    timeout_in_minutes: 5
+          volumes:
+            - "/tmp:/tmp"

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
 # This script illustrates the build steps for `vmlinux-hello-busybox`.
 
@@ -27,8 +27,6 @@ HALT=
 MAKEPROCS=1
 # Flag for optionally cleaning the workdir and recompiling the kernel.
 CLEAN=
-# File marker that somebody else is building the kernel.
-BUILD_IN_PROGRESS="$WORKDIR/.buildinprogress"
 
 # Supported arguments:
 # * `-h`: build a guest that halts.
@@ -55,8 +53,6 @@ cleanup() {
 }
 
 extract_kernel_srcs() {
-    # Racy. Worst case scenario, multiple Buildkite steps will build the kernel.
-    touch "$BUILD_IN_PROGRESS"
     echo "Starting kernel build."
     # Download kernel sources.
     echo "Downloading kernel..."
@@ -141,8 +137,8 @@ make_initramfs() {
     # Make a block device and a console.
     pushd initramfs/dev &>/dev/null
     echo "Creating device nodes..."
-    mknod sda b 8 0
-    mknod console c 5 1
+    rm -f sda && mknod sda b 8 0
+    rm -f console && mknod console c 5 1
 
     make_init "$halt"
 
@@ -199,29 +195,17 @@ fi
 # Step 2.b): start from scratch.
 mkdir -p "$WORKDIR" && cd "$WORKDIR"
 
-# During the execution of the Buildkite pipeline, another step might have
-# already started to build the kernel and left a marker.
-# If so, wait for the kernel binary to show up.
-if [ -f "$BUILD_IN_PROGRESS" ]; then
-    echo "Kernel build is in progress. Waiting for it to finish..."
-    until [ -f "$TEST_RESOURCE_DIR/$VMLINUX" ]; do
-        sleep 1
-    done
-    echo "Done"
-else
-    echo "Kernel build not started."
-    # Step 3: acquire kernel sources & config.
-    extract_kernel_srcs
-    make_kernel_config "$KERNEL"
+# Step 3: acquire kernel sources & config.
+extract_kernel_srcs
+make_kernel_config "$KERNEL"
 
-    # Step 4: make the initramfs.
-    make_busybox "$KERNEL" "$MAKEPROCS"
-    make_initramfs "$KERNEL" "$HALT"
+# Step 4: make the initramfs.
+make_busybox "$KERNEL" "$MAKEPROCS"
+make_initramfs "$KERNEL" "$HALT"
 
-    # Step 5: put them together.
-    make_kernel "$KERNEL" "$MAKEPROCS" "$VMLINUX"
-    cp "$WORKDIR/$KERNEL/$VMLINUX" "$TEST_RESOURCE_DIR"
-fi
+# Step 5: put them together.
+make_kernel "$KERNEL" "$MAKEPROCS" "$VMLINUX"
+cp "$WORKDIR/$KERNEL/$VMLINUX" "$TEST_RESOURCE_DIR"
 
 # Final step: profit!
 echo "Done!"
