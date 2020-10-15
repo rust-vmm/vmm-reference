@@ -27,7 +27,12 @@ use linux_loader::cmdline::{self, Cmdline};
 use linux_loader::configurator::{
     self, linux::LinuxBootConfigurator, BootConfigurator, BootParams,
 };
-use linux_loader::loader::{self, elf::Elf, load_cmdline, KernelLoader, KernelLoaderResult};
+use linux_loader::loader::{
+    self,
+    bzimage::BzImage,
+    elf::{self, Elf},
+    load_cmdline, KernelLoader, KernelLoaderResult,
+};
 use vm_device::device_manager::IoManager;
 use vm_device::resources::Resource;
 use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
@@ -210,17 +215,29 @@ impl VMM {
         let zero_page_addr = GuestAddress(ZEROPG_START);
 
         // Load the kernel into guest memory.
-        let kernel_load = Elf::load(
+        let kernel_load = match Elf::load(
             &self.guest_memory,
             None,
             &mut kernel_image,
             Some(GuestAddress(kernel_cfg.himem_start)),
-        )
-        .map_err(Error::KernelLoad)?;
+        ) {
+            Ok(result) => result,
+            Err(loader::Error::Elf(elf::Error::InvalidElfMagicNumber)) => BzImage::load(
+                &self.guest_memory,
+                None,
+                &mut kernel_image,
+                Some(GuestAddress(kernel_cfg.himem_start)),
+            )
+            .map_err(Error::KernelLoad)?,
+            Err(e) => {
+                return Err(Error::KernelLoad(e));
+            }
+        };
 
         // Generate boot parameters.
         let mut bootparams = build_bootparams(
             &self.guest_memory,
+            &kernel_load,
             GuestAddress(kernel_cfg.himem_start),
             GuestAddress(MMIO_MEM_START),
             GuestAddress(FIRST_ADDR_PAST_32BITS),
@@ -314,12 +331,15 @@ impl VMM {
     ///
     /// # Arguments
     ///
-    /// * `vcpu_cfg` - [`VcpuConfig`](struct.VcpuConfig.html) struct containing vCPU configurations.
-    /// * `kernel_load` - address where the kernel is loaded in guest memory.
+    /// * `vcpu_cfg` - [`VcpuConfig`] struct containing vCPU configurations.
+    /// * `kernel_load` - [`KernelLoaderResult`] struct, result of loading the kernel in guest memory.
+    ///
+    /// [`KernelLoaderResult`]: https://docs.rs/linux-loader/latest/linux_loader/loader/struct.KernelLoaderResult.html
+    /// [`VcpuConfig`]: struct.VcpuConfig.html
     pub fn configure_vcpus(
         &mut self,
         vcpu_cfg: VcpuConfig,
-        kernel_load: GuestAddress,
+        kernel_load: &KernelLoaderResult,
     ) -> Result<()> {
         mptable::setup_mptable(&self.guest_memory, vcpu_cfg.num_vcpus)
             .map_err(|e| Error::Vcpu(vcpu::Error::Mptable(e)))?;
@@ -392,7 +412,7 @@ impl VMM {
         &self,
         vcpu: &Vcpu,
         cpuid: &CpuId,
-        kernel_load: GuestAddress,
+        kernel_load: &KernelLoaderResult,
     ) -> vcpu::Result<()> {
         // Configure CPUID.
         vcpu.configure_cpuid(cpuid)?;
@@ -401,7 +421,7 @@ impl VMM {
         vcpu.configure_msrs()?;
 
         // Configure regs, sregs and fpu.
-        vcpu.configure_regs(kernel_load)?;
+        vcpu.configure_regs(kernel_load, &self.guest_memory)?;
         vcpu.configure_sregs(&self.guest_memory)?;
         vcpu.configure_fpu()?;
 
@@ -418,7 +438,7 @@ impl TryFrom<VMMConfig> for VMM {
         vmm.configure_guest_memory(config.memory_config)?;
         let kernel_load = vmm.configure_kernel(config.kernel_config)?;
         vmm.configure_pio_devices()?;
-        vmm.configure_vcpus(config.vcpu_config, kernel_load.kernel_load)?;
+        vmm.configure_vcpus(config.vcpu_config, &kernel_load)?;
         Ok(vmm)
     }
 }

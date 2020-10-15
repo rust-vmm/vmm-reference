@@ -8,7 +8,7 @@ edition = "2018"
 event-manager = "0.2.0"
 kvm-bindings = { version = "0.3.0", features = ["fam-wrappers"] }
 kvm-ioctls = "0.5.0"
-linux-loader = "0.2.0"
+linux-loader = { version = "0.2.0", features = ["bzimage", "elf"] }
 vm-device = { git = "https://github.com/aghecenco/vm-device.git", branch = "send" }
 vm-memory = { version = "0.3.0", features = ["backend-mmap"] }
 vm-superio = "0.1.1"

@@ -18,6 +18,7 @@ KERNEL_BINS=(
 arch=$(dpkg --print-architecture)
 if [ "$arch" == "amd64" ]; then
     for bin in "${KERNEL_BINS[@]}"; do
-        cp "$WORKDIR/$KERNEL/$bin" "$RESDIR"
+        path="$WORKDIR/$KERNEL/$bin"
+        ([ -f "$path" ] && cp "$path" "$RESDIR") || true
     done
 fi

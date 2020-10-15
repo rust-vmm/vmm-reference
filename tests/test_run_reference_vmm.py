@@ -7,6 +7,9 @@ import pytest
 from subprocess import PIPE, STDOUT
 
 
+KERNELS = ["vmlinux-hello-busybox", "bzimage-hello-busybox"]
+
+
 def process_exists(pid):
     try:
         os.kill(pid, 0)
@@ -16,7 +19,8 @@ def process_exists(pid):
         return True
 
 
-def test_reference_vmm():
+@pytest.mark.parametrize("kernel", KERNELS)
+def test_reference_vmm(kernel):
     """Start the reference VMM and trust that it works."""
 
     # Memory config
@@ -27,7 +31,7 @@ def test_reference_vmm():
     kernel_path = os.path.abspath(os.path.join(
         os.path.dirname(os.path.realpath(__file__)),
         "..",
-        "resources/kernel/vmlinux-hello-busybox"
+        "resources/kernel/{}".format(kernel)
     ))
     himem_start = 1048576
 

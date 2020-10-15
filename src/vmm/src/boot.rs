@@ -3,7 +3,7 @@
 
 use std::result;
 
-use linux_loader::bootparam::boot_params;
+use linux_loader::{bootparam::boot_params, loader::KernelLoaderResult};
 use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 // x86_64 boot constants. See https://www.kernel.org/doc/Documentation/x86/boot.txt for the full
@@ -67,12 +67,14 @@ fn add_e820_entry(
 ///
 /// # Arguments
 ///
-/// * `guest_memory` - guest memory
+/// * `guest_memory` - guest memory.
+/// * `kernel_load` - result of loading the kernel in guest memory.
 /// * `himem_start` - address where high memory starts.
 /// * `mmio_gap_start` - address where the MMIO gap starts.
 /// * `mmio_gap_end` - address where the MMIO gap ends.
 pub fn build_bootparams(
     guest_memory: &GuestMemoryMmap,
+    kernel_load: &KernelLoaderResult,
     himem_start: GuestAddress,
     mmio_gap_start: GuestAddress,
     mmio_gap_end: GuestAddress,
@@ -83,10 +85,20 @@ pub fn build_bootparams(
 
     let mut params = boot_params::default();
 
-    params.hdr.boot_flag = KERNEL_BOOT_FLAG_MAGIC;
-    params.hdr.header = KERNEL_HDR_MAGIC;
-    params.hdr.kernel_alignment = KERNEL_MIN_ALIGNMENT_BYTES;
-    params.hdr.type_of_loader = KERNEL_LOADER_OTHER;
+    if let Some(hdr) = kernel_load.setup_header {
+        params.hdr = hdr;
+    } else {
+        params.hdr.boot_flag = KERNEL_BOOT_FLAG_MAGIC;
+        params.hdr.header = KERNEL_HDR_MAGIC;
+        params.hdr.kernel_alignment = KERNEL_MIN_ALIGNMENT_BYTES;
+    }
+    // If the header copied from the bzImage file didn't set type_of_loader,
+    // force it to "undefined" so that the guest can boot normally.
+    // See: https://github.com/cloud-hypervisor/cloud-hypervisor/issues/918
+    // and: https://www.kernel.org/doc/html/latest/x86/boot.html#details-of-header-fields
+    if params.hdr.type_of_loader == 0 {
+        params.hdr.type_of_loader = KERNEL_LOADER_OTHER;
+    }
 
     // Add an entry for EBDA itself.
     add_e820_entry(&mut params, 0, EBDA_START, E820_RAM)?;
