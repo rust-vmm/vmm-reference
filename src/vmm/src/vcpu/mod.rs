@@ -7,9 +7,10 @@ use std::sync::Arc;
 
 use kvm_bindings::{kvm_fpu, kvm_regs, CpuId, Msrs};
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
+use linux_loader::loader::KernelLoaderResult;
 use vm_device::bus::PioAddress;
 use vm_device::device_manager::{IoManager, PioManager};
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap};
 use vmm_sys_util::terminal::Terminal;
 
 pub(crate) mod cpuid;
@@ -45,6 +46,8 @@ pub enum Error {
     KvmIoctl(kvm_ioctls::Error),
     /// Failed to configure mptables.
     Mptable(mptable::Error),
+    /// Address stored in the rip registry does not fit in guest memory.
+    RipOutOfGuestMemory,
     /// Failed to configure MSRs.
     SetModelSpecificRegistersCount,
 }
@@ -94,15 +97,36 @@ impl Vcpu {
     }
 
     /// Configure regs.
-    pub fn configure_regs(&self, kernel_load: GuestAddress) -> Result<()> {
+    pub fn configure_regs(
+        &self,
+        kernel_load: &KernelLoaderResult,
+        guest_memory: &GuestMemoryMmap,
+    ) -> Result<()> {
+        // If the kernel format is bzImage, the real-mode code is offset by
+        // 0x200, so that's where we have to point the rip register for the
+        // first instructions to execute.
+        // See https://www.kernel.org/doc/html/latest/x86/boot.html#memory-layout
+        //
+        // The kernel is a bzImage kernel if the protocol >= 2.00 and the 0x01
+        // bit (LOAD_HIGH) in the loadflags field is set.
+        let mut rip = kernel_load.kernel_load;
+        if let Some(hdr) = kernel_load.setup_header {
+            if hdr.version >= 0x200 && hdr.loadflags & 0x1 == 0x1 {
+                // Yup, it's bzImage.
+                rip = guest_memory
+                    .checked_offset(rip, 0x200)
+                    .ok_or(Error::RipOutOfGuestMemory)?;
+            }
+        }
+
         let regs = kvm_regs {
             rflags: 0x0000_0000_0000_0002u64,
-            rip: kernel_load.raw_value(),
+            rip: rip.raw_value(),
+            // Starting stack pointer.
+            rsp: BOOT_STACK_POINTER,
             // Frame pointer. It gets a snapshot of the stack pointer (rsp) so that when adjustments are
             // made to rsp (i.e. reserving space for local variables or pushing values on to the stack),
             // local variables and function parameters are still accessible from a constant offset from rbp.
-            rsp: BOOT_STACK_POINTER,
-            // Starting stack pointer.
             rbp: BOOT_STACK_POINTER,
             // Must point to zero page address per Linux ABI. This is x86_64 specific.
             rsi: crate::ZEROPG_START,
