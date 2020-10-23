@@ -60,6 +60,7 @@ pub type Result<T> = result::Result<T, Error>;
 /// This struct is a temporary (and quite terrible) placeholder until the
 /// [`vmm-vcpu`](https://github.com/rust-vmm/vmm-vcpu) crate is stabilized.
 pub(crate) struct Vcpu {
+    id: u8,
     /// KVM file descriptor for a vCPU.
     pub vcpu_fd: VcpuFd,
     /// Device manager for bus accesses.
@@ -70,9 +71,14 @@ impl Vcpu {
     /// Create a new vCPU.
     pub fn new(vm_fd: &VmFd, index: u8, device_mgr: Arc<IoManager>) -> Result<Self> {
         Ok(Vcpu {
+            id: index,
             vcpu_fd: vm_fd.create_vcpu(index).map_err(Error::KvmIoctl)?,
             device_mgr,
         })
+    }
+
+    pub fn id(&self) -> u8 {
+        self.id
     }
 
     /// Set CPUID.
