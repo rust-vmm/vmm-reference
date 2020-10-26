@@ -1,9 +1,19 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-# SPDX-License-Identifier: Apache-2.0
-"""Run the reference VMM."""
+# SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
+"""Run the reference VMM and shut it down through a command on the serial."""
 
 import os, signal, subprocess, time
 import pytest
+from subprocess import PIPE, STDOUT
+
+
+def process_exists(pid):
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    else:
+        return True
 
 
 def test_reference_vmm():
@@ -32,15 +42,24 @@ def test_reference_vmm():
         ),
         "--vcpus", "num_vcpus={}".format(num_vcpus)
     ]
-    
-    # We can't talk to the reference VMM yet, and it can't talk back.
-    # If we try to capture the output, Python doesn't return control to the
-    # test until the child process ends, which it doesn't. So we have to trust
-    # that the output is there, let the VMM run for a bit, then kill it.
-    # In the future, it will communicate via metrics / devices.
-    vmm_process = subprocess.Popen(vmm_cmd)
-    vmm_pid = vmm_process.pid
 
-    time.sleep(3)
+    vmm_process = subprocess.Popen(vmm_cmd, stdout=PIPE, stdin=PIPE)
+    # While the process is still running, the vmm_process.returncode is None.
+    assert(vmm_process.returncode == None)
+    assert(process_exists(vmm_process.pid))
 
-    os.kill(vmm_pid, signal.SIGHUP)
+    # Poll process for new output until we find the hello world message.
+    # If we do not find the expected message, this loop will not break and the
+    # test will fail when the timeout expires.
+    expected_string = "Hello, world, from the rust-vmm reference VMM!"
+    while True:
+        nextline = vmm_process.stdout.readline()
+        if expected_string in nextline.decode():
+            break
+
+    vmm_process.stdin.write(b'reboot -f\n')
+    vmm_process.stdin.flush()
+
+    # If the process hasn't ended within 3 seconds, this will raise a
+    # TimeoutExpired exception and fail the test.
+    vmm_process.wait(timeout=3)
