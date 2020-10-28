@@ -27,7 +27,9 @@ fn main() {
             Ok(vmm_config) => {
                 let mut vmm =
                     VMM::try_from(vmm_config).expect("Failed to create VMM from configurations");
-                vmm.run();
+                // For now we are just unwrapping here, in the future we might use a nicer way of
+                // handling errors such as pretty printing them.
+                vmm.run().unwrap();
             }
             Err(e) => {
                 eprintln!("Failed to parse command line options. {}", e);
