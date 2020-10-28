@@ -358,12 +358,12 @@ impl VMM {
     }
 
     /// Run the VMM.
-    pub fn run(&mut self) {
+    pub fn run(&mut self) -> Result<()> {
         if stdin().lock().set_raw_mode().is_err() {
             eprintln!("Failed to set raw mode on terminal. Stdin will echo.");
         }
 
-        self.vm.run();
+        self.vm.run().map_err(Error::Vm)?;
 
         loop {
             match self.event_mgr.run() {

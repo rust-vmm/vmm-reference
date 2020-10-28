@@ -1,8 +1,9 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
+use std::io;
 use std::sync::Arc;
-use std::thread;
+use std::thread::{self, JoinHandle};
 
 use kvm_bindings::{kvm_pit_config, kvm_userspace_memory_region, KVM_PIT_SPEAKER_DUMMY};
 use kvm_ioctls::{Kvm, VmFd};
@@ -17,7 +18,11 @@ use crate::vcpu::{self, Vcpu};
 /// this type will become on of the concrete implementations.
 pub struct KvmVm {
     fd: VmFd,
+    // Only one of `vcpus` or `vcpu_handles` can be active at a time.
+    // To create the `vcpu_handles` the `vcpu` vector is drained.
+    // A better abstraction should be used to represent this behavior.
     pub(crate) vcpus: Vec<Vcpu>,
+    vcpu_handles: Vec<JoinHandle<Vcpu>>,
 }
 
 #[derive(Debug)]
@@ -32,6 +37,8 @@ pub enum Error {
     CreateVcpu(vcpu::Error),
     /// Failed to register IRQ event.
     RegisterIrqEvent(kvm_ioctls::Error),
+    /// Failed to run the vcpus.
+    RunVcpus(io::Error),
 }
 
 // TODO: Implement std::error::Error for Error.
@@ -46,6 +53,7 @@ impl KvmVm {
         Ok(KvmVm {
             fd,
             vcpus: Vec::new(),
+            vcpu_handles: Vec::new(),
         })
     }
     /// Set the user memory region.
@@ -101,11 +109,16 @@ impl KvmVm {
     /// Run the `Vm` based on the passed `vcpu` configuration.
     ///
     /// When no vcpus are created, the function has no side effects.
-    pub fn run(&mut self) {
+    pub fn run(&mut self) -> Result<()> {
         for mut vcpu in self.vcpus.drain(..) {
-            let _ = thread::Builder::new().spawn(move || loop {
-                vcpu.run();
-            });
+            let vcpu_handle: JoinHandle<Vcpu> = thread::Builder::new()
+                .spawn(move || loop {
+                    vcpu.run();
+                })
+                .map_err(Error::RunVcpus)?;
+            self.vcpu_handles.push(vcpu_handle);
         }
+
+        Ok(())
     }
 }

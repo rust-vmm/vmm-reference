@@ -44,7 +44,7 @@ pub fn run_vmm(pid: i32, vmm_config: VMMConfig) {
             set_panic_hook();
             match VMM::try_from(vmm_config) {
                 Ok(mut vmm) => {
-                    vmm.run();
+                    vmm.run().unwrap();
                     // Shouldn't get here with this guest image.
                     unsafe { _exit(-1) };
                 }
