@@ -34,18 +34,26 @@ def test_reference_vmm():
     # vCPU config
     num_vcpus = 1
 
+    build_cmd = "cargo build --release"
+    subprocess.run(build_cmd, shell=True, check=True)
     vmm_cmd = [
-        "cargo", "run", "--",
+        "target/release/vmm-reference",
         "--memory", "mem_size_mib={}".format(mem_size_mib),
         "--kernel", "cmdline=\"{}\",path={},himem_start={}".format(
             cmdline, kernel_path, himem_start
         ),
         "--vcpus", "num_vcpus={}".format(num_vcpus)
     ]
-
     vmm_process = subprocess.Popen(vmm_cmd, stdout=PIPE, stdin=PIPE)
-    # While the process is still running, the vmm_process.returncode is None.
-    assert(vmm_process.returncode == None)
+
+    # Let's quickly check if the process died (i.e. because of invalid vmm
+    # configuration). We need to wait here because otherwise the returncode
+    # will be None even if the `vmm_process` died.
+    try:
+        vmm_process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        # The process is still alive.
+        pass
     assert(process_exists(vmm_process.pid))
 
     # Poll process for new output until we find the hello world message.
