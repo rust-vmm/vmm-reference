@@ -3,97 +3,71 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
-# This script illustrates the build steps for `vmlinux-hello-busybox`.
+# This script contains functions for compiling a Busybox initramfs.
 
-set -e
-
-WORKDIR="/tmp/vmlinux_busybox"
-SOURCE=$(readlink -f "$0")
-TEST_RESOURCE_DIR="$(dirname "$SOURCE")"
-
-KERNEL="linux-4.14.176"
-KERNEL_ARCHIVE="$KERNEL.tar.xz"
-KERNEL_URL="https://cdn.kernel.org/pub/linux/kernel/v4.x/$KERNEL_ARCHIVE"
-
-BUSYBOX="busybox-1.26.0"
-BUSYBOX_ARCHIVE="$BUSYBOX.tar.bz2"
-BUSYBOX_URL="https://busybox.net/downloads/$BUSYBOX_ARCHIVE"
-
-# Reset index for cmdline arguments for the following `getopts`.
-OPTIND=1
-# Flag for optionally building a guest that halts.
-HALT=
-# Number of CPUs to use during the kernel build process.
-MAKEPROCS=1
-# Flag for optionally cleaning the workdir and recompiling the kernel.
-CLEAN=
-
-# Supported arguments:
-# * `-h`: build a guest that halts.
-# * `-j`: compile with `make -j` (on all available CPUs).
-#         TODO: pass the value for `-j`.
-while getopts "chj:" opt; do
-    case "$opt" in
-    c)  CLEAN=1
-        ;;
-    h)  HALT=1
-        ;;
-    j)  MAKEPROCS=$OPTARG
-        ;;
-    *)  ;; # Ignore other flags for now.
-    esac
-done
-shift $((OPTIND-1))
-
-cleanup() {
-    if [ -n "$CLEAN" ]; then
-        echo "Cleaning $WORKDIR..."
-        rm -rf "$WORKDIR"
-    fi
+die() {
+    echo "[ERROR] $1"
+    echo "$USAGE" # To be filled by the caller.
+    # Kill the caller.
+    if [ -n "$TOP_PID" ]; then kill -s TERM "$TOP_PID"; else exit 1; fi
 }
 
-extract_kernel_srcs() {
-    echo "Starting kernel build."
-    # Download kernel sources.
-    echo "Downloading kernel..."
-    curl "$KERNEL_URL" > "$KERNEL_ARCHIVE"
-    echo "Extracting kernel sources..."
-    tar xf "$KERNEL_ARCHIVE"
+pushd_quiet() {
+    pushd "$1" &>/dev/null || die "Failed to enter $1."
 }
 
-make_kernel_config() {
-    # Copy base kernel config.
-    # Add any custom config options, if necessary (currently N/A).
-    kernel_dir="$1"
-    echo "Copying kernel config..."
-    cp "$TEST_RESOURCE_DIR/microvm-kernel-initramfs-hello-x86_64.config" "$kernel_dir/.config"
+popd_quiet() {
+    popd &>/dev/null || die "Failed to return to previous directory."
 }
 
+# Usage: 
+#   make_busybox                    \
+#       /path/to/busybox/workdir    \
+#       /path/to/busybox/config     \
+#       busybox_version             \
+#       [num_cpus_build]
 make_busybox() {
-    kernel_dir="$1"
-    nprocs="$2"
-    # Move to the directory with the kernel sources.
-    pushd "$kernel_dir" &>/dev/null
+    workdir="$1"
+    config="$2"
+    busybox_version="$3"
+    nprocs="$4"
+
+    [ -z "$workdir" ] && die "Workdir for busybox build not specified."
+    [ -z "$config" ] && die "Busybox config file not specified."
+    [ ! -f "$config" ] && die "Busybox config file not found."
+    [ -z "$busybox_version" ] && die "Busybox version not specified."
+    [ -z "$nprocs" ] && nprocs=1
+
+    busybox="busybox-$busybox_version"
+    busybox_archive="$busybox.tar.bz2"
+    busybox_url="https://busybox.net/downloads/$busybox_archive"
+
+    # Move to the work directory.
+    mkdir -p "$workdir"
+    pushd_quiet "$workdir"
     # Prepare busybox.
     echo "Downloading busybox..."
     mkdir -p busybox_rootfs
-    curl "$BUSYBOX_URL" > "$BUSYBOX_ARCHIVE"
+    [ -f "$busybox_archive" ] || curl "$busybox_url" > "$busybox_archive"
     echo "Extracting busybox..."
-    tar xf "$BUSYBOX_ARCHIVE"
-    pushd "$BUSYBOX" &>/dev/null
+    tar --skip-old-files -xf "$busybox_archive"
+    # Move to the busybox sources directory.
+    pushd_quiet "$busybox"
     # Build statically linked busybox.
-    cp "$TEST_RESOURCE_DIR/busybox_static_config" .config
+    cp "$config" .config
     echo "Building busybox..."
     make -j "$nprocs"
     # Package all artefacts somewhere else.
     echo "Packaging busybox..."
     make CONFIG_PREFIX=../busybox_rootfs install
-    # Back to kernel dir.
-    popd &>/dev/null
+    # Back to workdir.
+    popd_quiet
     # Back to wherever we were before.
-    popd &>/dev/null
+    popd_quiet
 }
 
+# Usage: 
+#   make_init [halt_value]
 make_init() {
     halt="$1"
     # Make an init script.
@@ -120,87 +94,3 @@ EOF
         echo "exec /sbin/halt" >>init
     fi
 }
-
-make_initramfs() {
-    kernel_dir="$1"
-    halt="$2"
-
-    # Move to the directory with the kernel sources.
-    pushd "$kernel_dir" &>/dev/null
-
-    # Prepare initramfs directory.
-    mkdir -p initramfs/{bin,dev,etc,home,mnt,proc,sys,usr}
-    # Copy busybox.
-    echo "Copying busybox to the initramfs directory..."
-    cp -r busybox_rootfs/* initramfs/
-
-    # Make a block device and a console.
-    pushd initramfs/dev &>/dev/null
-    echo "Creating device nodes..."
-    rm -f sda && mknod sda b 8 0
-    rm -f console && mknod console c 5 1
-    rm -f ttyS0 && mknod ttyS0 c 4 64
-
-    make_init "$halt"
-
-    chmod +x init
-    fakeroot chown root init
-
-    # Pack it up...
-    echo "Packing initramfs.cpio..."
-    find . | cpio -H newc -o > ../initramfs.cpio
-    fakeroot chown root ../initramfs.cpio
-
-    # Return to kernel srcdir.
-    popd &>/dev/null
-    # Return to previous directory.
-    popd &>/dev/null
-}
-
-make_kernel() {
-    kernel_dir="$1"
-    nprocs="$2"
-    dst="$3"
-
-    # Move to the directory with the kernel sources.
-    pushd "$kernel_dir" &>/dev/null
-
-    # Build kernel.
-    echo "Building kernel..."
-    make -j "$nprocs" vmlinux
-    # Copy to destination.
-    cp vmlinux "$dst"
-
-    # Return to previous directory.
-    popd &>/dev/null
-}
-
-# Step 0: clean up the workdir, if the user wants to.
-cleanup
-
-# Step 1: what are we building?
-if [ -n "$HALT" ]; then
-    VMLINUX="vmlinux-hello-busybox-halt"
-else
-    VMLINUX="vmlinux-hello-busybox"
-fi
-
-# Step 2: start from scratch.
-mkdir -p "$WORKDIR" && cd "$WORKDIR"
-
-# Step 3: acquire kernel sources & config.
-extract_kernel_srcs
-make_kernel_config "$KERNEL"
-
-# Step 4: make the initramfs.
-make_busybox "$KERNEL" "$MAKEPROCS"
-make_initramfs "$KERNEL" "$HALT"
-
-# Step 5: put them together.
-make_kernel "$KERNEL" "$MAKEPROCS" "$VMLINUX"
-cp "$WORKDIR/$KERNEL/$VMLINUX" "$TEST_RESOURCE_DIR"
-
-# Final step: profit!
-echo "Done!"
-cleanup
-exit 0

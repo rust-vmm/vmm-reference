@@ -8,7 +8,12 @@
 RESDIR="resources/kernel"
 WORKDIR="/tmp/vmlinux_busybox"
 KERNEL="linux-4.14.176"
-KERNEL_BINS=(vmlinux-hello-busybox vmlinux-hello-busybox-halt)
+KERNEL_BINS=(
+    "vmlinux-hello-busybox"
+    "vmlinux-hello-busybox-halt"
+    "bzimage-hello-busybox"
+    "bzimage-hello-busybox-halt"
+)
 
 arch=$(dpkg --print-architecture)
 if [ "$arch" == "amd64" ]; then
