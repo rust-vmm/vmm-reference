@@ -115,7 +115,7 @@ mount -t sysfs none /sys
 EOF
 
     if [ -z "$halt" ]; then
-        echo "exec /bin/sh" >>init
+        echo "setsid /bin/sh -c 'exec /bin/sh </dev/ttyS0 >/dev/ttyS0 2>&1'" >>init
     else
         echo "exec /sbin/halt" >>init
     fi
@@ -139,6 +139,7 @@ make_initramfs() {
     echo "Creating device nodes..."
     rm -f sda && mknod sda b 8 0
     rm -f console && mknod console c 5 1
+    rm -f ttyS0 && mknod ttyS0 c 4 64
 
     make_init "$halt"
 
