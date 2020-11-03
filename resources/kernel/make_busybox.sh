@@ -185,15 +185,7 @@ else
     VMLINUX="vmlinux-hello-busybox"
 fi
 
-# Step 2.a): we have it cached locally.
-if [ -f "$WORKDIR/$KERNEL/$VMLINUX" ]; then
-    echo "Found $VMLINUX in $WORKDIR/$KERNEL."
-    cp "$WORKDIR/$KERNEL/$VMLINUX" "$TEST_RESOURCE_DIR"
-    echo "Copied to $TEST_RESOURCE_DIR."
-    exit 0
-fi
-
-# Step 2.b): start from scratch.
+# Step 2: start from scratch.
 mkdir -p "$WORKDIR" && cd "$WORKDIR"
 
 # Step 3: acquire kernel sources & config.
