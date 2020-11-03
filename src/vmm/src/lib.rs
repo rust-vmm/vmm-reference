@@ -30,9 +30,7 @@ use linux_loader::configurator::{
 use linux_loader::loader::{self, elf::Elf, load_cmdline, KernelLoader, KernelLoaderResult};
 use vm_device::device_manager::IoManager;
 use vm_device::resources::Resource;
-use vm_memory::{
-    Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryRegion,
-};
+use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use vm_superio::Serial;
 use vmm_sys_util::{eventfd::EventFd, terminal::Terminal};
 
@@ -62,8 +60,6 @@ const CMDLINE_START: u64 = 0x0002_0000;
 /// VMM memory related errors.
 #[derive(Debug)]
 pub enum MemoryError {
-    /// Failure during guest memory operation.
-    GuestMemory(GuestMemoryError),
     /// Not enough memory slots.
     NotEnoughMemorySlots,
     /// Failed to configure guest memory.
