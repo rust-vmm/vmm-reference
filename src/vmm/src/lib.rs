@@ -40,8 +40,8 @@ use boot::*;
 mod config;
 pub use config::*;
 
-mod devices;
-use devices::SerialWrapper;
+mod serial;
+use serial::SerialWrapper;
 
 mod vcpu;
 use vcpu::{cpuid, mpspec, mptable, Vcpu};
@@ -76,7 +76,7 @@ pub enum Error {
     /// Error configuring the kernel command line.
     Cmdline(cmdline::Error),
     /// Error setting up devices.
-    Device(devices::Error),
+    Device(serial::Error),
     /// Event management error.
     EventManager(event_manager::Error),
     /// I/O error.
