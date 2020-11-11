@@ -43,8 +43,8 @@ use boot::build_bootparams;
 mod config;
 pub use config::*;
 
-mod devices;
-use devices::SerialWrapper;
+mod serial;
+use serial::SerialWrapper;
 
 /// First address past 32 bits is where the MMIO gap ends.
 pub(crate) const MMIO_GAP_END: u64 = 1 << 32;
@@ -82,7 +82,7 @@ pub enum Error {
     /// Error configuring the kernel command line.
     Cmdline(cmdline::Error),
     /// Error setting up devices.
-    Device(devices::Error),
+    Device(serial::Error),
     /// Event management error.
     EventManager(event_manager::Error),
     /// I/O error.
