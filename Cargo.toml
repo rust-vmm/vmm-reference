@@ -19,5 +19,11 @@ codegen-units = 1
 lto = true
 panic = "abort"
 
+[patch.crates-io]
+event-manager = { git = "https://github.com/alexandruag/event-manager.git", branch = "fix" }
+
 [patch."https://github.com/rust-vmm/vm-device.git"]
 vm-device = { git = "https://github.com/aghecenco/vm-device.git", branch = "send" }
+
+[patch."https://github.com/rust-vmm/vm-virtio.git"]
+vm-virtio = { git = "https://github.com/alexandruag/vm-virtio.git", branch = "proto_wip2" }
