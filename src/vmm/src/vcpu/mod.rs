@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use kvm_bindings::{kvm_fpu, kvm_regs, CpuId, Msrs};
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
-use vm_device::bus::PioAddress;
-use vm_device::device_manager::{IoManager, PioManager};
+use vm_device::bus::{MmioAddress, PioAddress};
+use vm_device::device_manager::{IoManager, MmioManager, PioManager};
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 use vmm_sys_util::terminal::Terminal;
 
@@ -245,6 +245,16 @@ impl Vcpu {
                             }
                         } else {
                             // Read from some other port.
+                        }
+                    }
+                    VcpuExit::MmioRead(addr, data) => {
+                        if self.device_mgr.mmio_read(MmioAddress(addr), data).is_err() {
+                            eprintln!("Failed to read from mmio");
+                        }
+                    }
+                    VcpuExit::MmioWrite(addr, data) => {
+                        if self.device_mgr.mmio_write(MmioAddress(addr), data).is_err() {
+                            eprintln!("Failed to write to mmio");
                         }
                     }
                     _ => {

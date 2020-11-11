@@ -28,11 +28,15 @@ use linux_loader::configurator::{
     self, linux::LinuxBootConfigurator, BootConfigurator, BootParams,
 };
 use linux_loader::loader::{self, elf::Elf, load_cmdline, KernelLoader, KernelLoaderResult};
-use vm_device::device_manager::IoManager;
+use vm_device::bus::{MmioAddress, MmioRange};
+use vm_device::device_manager::{IoManager, MmioManager};
 use vm_device::resources::Resource;
 use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use vm_superio::Serial;
 use vmm_sys_util::{eventfd::EventFd, terminal::Terminal};
+
+use devices::virtio::block::{Block, BlockArgs};
+use devices::virtio::MmioConfig;
 
 mod boot;
 use boot::*;
@@ -100,17 +104,18 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// A live VMM.
 pub struct VMM {
-    vm_fd: VmFd,
+    vm_fd: Arc<VmFd>,
     kvm: Kvm,
     guest_memory: GuestMemoryMmap,
     // An Option, of all things, because it needs to be mutable while adding devices (so it can't
     // be in an Arc), then it needs to be packed in an Arc to share it across vCPUs. An Option
     // allows us to .take() it when starting the vCPUs.
     device_mgr: Option<IoManager>,
-    // Arc<Mutex<>> because the same device (a dyn DevicePio/DeviceMmio from IoManager's
-    // perspective, and a dyn MutEventSubscriber from EventManager's) is managed by the 2 entities,
-    // and isn't Copy-able; so once one of them gets ownership, the other one can't anymore.
-    event_mgr: EventManager<Arc<Mutex<dyn MutEventSubscriber>>>,
+    // Temporarily switching the generic type param to Box<dyn MutEventSubscriber> while
+    // checking whether there's a difference between this case, and using Arc<Mutex<>> for the
+    // device queue handlers as well. Will try to find an answer here before actually merging
+    // the PR.
+    event_mgr: EventManager<Box<dyn MutEventSubscriber + Send>>,
     vcpus: Vec<Vcpu>,
 }
 
@@ -126,7 +131,7 @@ impl VMM {
         }
 
         // Create fd for interacting with kvm-vm specific functions.
-        let vm_fd = kvm.create_vm().map_err(Error::KvmIoctl)?;
+        let vm_fd = Arc::new(kvm.create_vm().map_err(Error::KvmIoctl)?);
 
         let vmm = VMM {
             vm_fd,
@@ -205,7 +210,7 @@ impl VMM {
     ///
     /// * `kernel_cfg` - [`KernelConfig`](struct.KernelConfig.html) struct containing kernel
     ///                  configurations.
-    pub fn configure_kernel(&mut self, kernel_cfg: KernelConfig) -> Result<KernelLoaderResult> {
+    pub fn configure_kernel(&mut self, mut kernel_cfg: KernelConfig) -> Result<KernelLoaderResult> {
         let mut kernel_image = File::open(kernel_cfg.path).map_err(Error::IO)?;
         let zero_page_addr = GuestAddress(ZEROPG_START);
 
@@ -232,10 +237,20 @@ impl VMM {
         bootparams.hdr.cmdline_size = kernel_cfg.cmdline.len() as u32 + 1;
 
         // Load the kernel command line into guest memory.
+
+        // Temporary hardcoded snippet used to enable the discovery of a virtio MMIO block
+        // device, and mark /dev/vda as the root device, using irq 5.
+        kernel_cfg.cmdline.push_str(&format!(
+            " virtio_mmio.device=4K@0x{:x}:5 root=/dev/vda",
+            MMIO_MEM_START
+        ));
+
         let mut cmdline = Cmdline::new(kernel_cfg.cmdline.len() + 1);
+
         cmdline
             .insert_str(kernel_cfg.cmdline)
             .map_err(Error::Cmdline)?;
+
         load_cmdline(
             &self.guest_memory,
             GuestAddress(CMDLINE_START),
@@ -265,7 +280,10 @@ impl VMM {
         // It sets up the virtual IOAPIC, virtual PIC, and sets up the future vCPUs for local APIC.
         // When in doubt, look in the kernel for `KVM_CREATE_IRQCHIP`.
         // https://elixir.bootlin.com/linux/latest/source/arch/x86/kvm/x86.c
-        self.vm_fd.create_irq_chip().map_err(Error::KvmIoctl)?;
+
+        // For now, irqchip creation has been moved earlier as part of the VMM::try_from method.
+        // There are some more comments there about this.
+        // self.vm_fd.create_irq_chip().map_err(Error::KvmIoctl)?;
 
         // Set up the speaker PIT, because some kernels are musical and access the speaker port
         // during boot. Without this, KVM would continuously exit to userspace.
@@ -305,7 +323,39 @@ impl VMM {
             .unwrap();
 
         // Hook it to event management.
-        self.event_mgr.add_subscriber(serial);
+        self.event_mgr.add_subscriber(Box::new(serial));
+
+        Ok(())
+    }
+
+    // Temporary fn to add hard coded devices until we figure out the cmdline/interface story
+    // while the RFC is up.
+    fn temp_add_devs(&mut self) -> Result<()> {
+        let mem = Arc::new(self.guest_memory.clone());
+
+        // Insert a hardcoded block.
+        {
+            let range = MmioRange::new(MmioAddress(MMIO_MEM_START), 0x1000).unwrap();
+            let mmio_cfg = MmioConfig { range, gsi: 5 };
+
+            let args = BlockArgs {
+                mem: mem.clone(),
+                endpoint: self.event_mgr.remote_endpoint(),
+                vm_fd: self.vm_fd.clone(),
+                mmio_cfg,
+                file_path: "disk.ext4".to_owned(),
+            };
+
+            let b = Arc::new(Mutex::new(
+                Block::new(args).expect("failed to create block"),
+            ));
+
+            self.device_mgr
+                .as_mut()
+                .unwrap()
+                .register_mmio(range, b)
+                .unwrap();
+        }
 
         Ok(())
     }
@@ -416,6 +466,13 @@ impl TryFrom<VMMConfig> for VMM {
     fn try_from(config: VMMConfig) -> Result<Self> {
         let mut vmm = VMM::new()?;
         vmm.configure_guest_memory(config.memory_config)?;
+        // Moving irqchip creation earlier here, because we use the vm_fd to register irqfds
+        // for virtio devices as part of their construction, and the register_irqfd operation
+        // fails if the irqchip hasn't been created (or so it seems).
+        // TODO: Is it ok to create the irqchip early? Does this generate issues on any arch?
+        vmm.vm_fd.create_irq_chip().map_err(Error::KvmIoctl)?;
+        // Temporary call to temp method.
+        vmm.temp_add_devs().unwrap();
         let kernel_load = vmm.configure_kernel(config.kernel_config)?;
         vmm.configure_pio_devices()?;
         vmm.configure_vcpus(config.vcpu_config, kernel_load.kernel_load)?;
