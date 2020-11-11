@@ -10,3 +10,14 @@ vmm = { path = "src/vmm" }
 cli = { path = "src/cli" }
 
 [workspace]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+codegen-units = 1
+lto = true
+panic = "abort"
+
+[patch."https://github.com/rust-vmm/vm-device.git"]
+vm-device = { git = "https://github.com/aghecenco/vm-device.git", branch = "send" }
