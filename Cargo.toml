@@ -10,3 +10,11 @@ vmm = { path = "src/vmm" }
 api = { path = "src/api" }
 
 [workspace]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+codegen-units = 1
+lto = true
+panic = "abort"
