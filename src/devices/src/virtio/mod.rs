@@ -4,6 +4,7 @@
 // We're only providing virtio over MMIO devices for now, but we aim to add PCI support as well.
 
 pub mod block;
+pub mod net;
 
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
