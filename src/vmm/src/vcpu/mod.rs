@@ -7,10 +7,9 @@ use std::sync::Arc;
 
 use kvm_bindings::{kvm_fpu, kvm_regs, CpuId, Msrs};
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
-use linux_loader::loader::KernelLoaderResult;
 use vm_device::bus::PioAddress;
 use vm_device::device_manager::{IoManager, PioManager};
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 use vmm_sys_util::terminal::Terminal;
 
 pub(crate) mod cpuid;
@@ -46,8 +45,6 @@ pub enum Error {
     KvmIoctl(kvm_ioctls::Error),
     /// Failed to configure mptables.
     Mptable(mptable::Error),
-    /// Address stored in the rip registry does not fit in guest memory.
-    RipOutOfGuestMemory,
     /// Failed to configure MSRs.
     SetModelSpecificRegistersCount,
 }
@@ -55,39 +52,55 @@ pub enum Error {
 /// Dedicated Result type.
 pub type Result<T> = result::Result<T, Error>;
 
+pub(crate) struct VcpuState {
+    pub id: u8,
+    pub cpuid: CpuId,
+    pub kernel_load_addr: GuestAddress,
+}
+
 /// Struct for interacting with vCPUs.
 ///
 /// This struct is a temporary (and quite terrible) placeholder until the
 /// [`vmm-vcpu`](https://github.com/rust-vmm/vmm-vcpu) crate is stabilized.
 pub(crate) struct Vcpu {
-    id: u8,
     /// KVM file descriptor for a vCPU.
-    pub vcpu_fd: VcpuFd,
+    vcpu_fd: VcpuFd,
     /// Device manager for bus accesses.
-    pub device_mgr: Arc<IoManager>,
+    device_mgr: Arc<IoManager>,
+    state: VcpuState,
 }
 
 impl Vcpu {
     /// Create a new vCPU.
-    pub fn new(vm_fd: &VmFd, index: u8, device_mgr: Arc<IoManager>) -> Result<Self> {
-        Ok(Vcpu {
-            id: index,
-            vcpu_fd: vm_fd.create_vcpu(index).map_err(Error::KvmIoctl)?,
+    pub fn new(
+        vm_fd: &VmFd,
+        device_mgr: Arc<IoManager>,
+        state: VcpuState,
+        memory: &GuestMemoryMmap,
+    ) -> Result<Self> {
+        println!("{}", state.id);
+        let vcpu = Vcpu {
+            vcpu_fd: vm_fd.create_vcpu(state.id).map_err(Error::KvmIoctl)?,
             device_mgr,
-        })
-    }
+            state,
+        };
 
-    pub fn id(&self) -> u8 {
-        self.id
+        vcpu.configure_cpuid(&vcpu.state.cpuid)?;
+        vcpu.configure_msrs()?;
+        vcpu.configure_regs(vcpu.state.kernel_load_addr)?;
+        vcpu.configure_sregs(memory)?;
+        vcpu.configure_lapic()?;
+        vcpu.configure_fpu()?;
+        Ok(vcpu)
     }
 
     /// Set CPUID.
-    pub fn configure_cpuid(&self, cpuid: &CpuId) -> Result<()> {
+    fn configure_cpuid(&self, cpuid: &CpuId) -> Result<()> {
         self.vcpu_fd.set_cpuid2(cpuid).map_err(Error::KvmIoctl)
     }
 
     /// Configure MSRs.
-    pub fn configure_msrs(&self) -> Result<()> {
+    fn configure_msrs(&self) -> Result<()> {
         let entry_vec = msrs::create_boot_msr_entries();
         let msrs = Msrs::from_entries(&entry_vec);
         self.vcpu_fd
@@ -103,36 +116,13 @@ impl Vcpu {
     }
 
     /// Configure regs.
-    pub fn configure_regs(
-        &self,
-        kernel_load: &KernelLoaderResult,
-        guest_memory: &GuestMemoryMmap,
-    ) -> Result<()> {
-        // If the kernel format is bzImage, the real-mode code is offset by
-        // 0x200, so that's where we have to point the rip register for the
-        // first instructions to execute.
-        // See https://www.kernel.org/doc/html/latest/x86/boot.html#memory-layout
-        //
-        // The kernel is a bzImage kernel if the protocol >= 2.00 and the 0x01
-        // bit (LOAD_HIGH) in the loadflags field is set.
-        let mut rip = guest_memory
-            .check_address(kernel_load.kernel_load)
-            .ok_or(Error::RipOutOfGuestMemory)?;
-        if let Some(hdr) = kernel_load.setup_header {
-            if hdr.version >= 0x200 && hdr.loadflags & 0x1 == 0x1 {
-                // Yup, it's bzImage.
-                rip = guest_memory
-                    .checked_offset(rip, 0x200)
-                    .ok_or(Error::RipOutOfGuestMemory)?;
-            }
-        }
-
+    fn configure_regs(&self, kernel_load: GuestAddress) -> Result<()> {
         let regs = kvm_regs {
             // EFLAGS (RFLAGS in 64-bit mode) always has bit 1 set.
             // See https://software.intel.com/sites/default/files/managed/39/c5/325462-sdm-vol-1-2abcd-3abcd.pdf#page=79
             // Section "EFLAGS Register"
             rflags: 0x0000_0000_0000_0002u64,
-            rip: rip.raw_value(),
+            rip: kernel_load.raw_value(),
             // Starting stack pointer.
             rsp: BOOT_STACK_POINTER,
             // Frame pointer. It gets a snapshot of the stack pointer (rsp) so that when adjustments are
@@ -147,7 +137,7 @@ impl Vcpu {
     }
 
     /// Configure sregs.
-    pub fn configure_sregs(&self, guest_memory: &GuestMemoryMmap) -> Result<()> {
+    fn configure_sregs(&self, guest_memory: &GuestMemoryMmap) -> Result<()> {
         let mut sregs = self.vcpu_fd.get_sregs().map_err(Error::KvmIoctl)?;
 
         // Global descriptor tables.
@@ -215,7 +205,7 @@ impl Vcpu {
     }
 
     /// Configure FPU.
-    pub fn configure_fpu(&self) -> Result<()> {
+    fn configure_fpu(&self) -> Result<()> {
         let fpu = kvm_fpu {
             fcw: 0x37f,
             mxcsr: 0x1f80,
@@ -225,7 +215,7 @@ impl Vcpu {
     }
 
     /// Configures LAPICs. LAPIC0 is set for external interrupts, LAPIC1 is set for NMI.
-    pub fn configure_lapic(&self) -> Result<()> {
+    fn configure_lapic(&self) -> Result<()> {
         let mut klapic = self.vcpu_fd.get_lapic().map_err(Error::KvmIoctl)?;
 
         let lvt_lint0 = get_klapic_reg(&klapic, APIC_LVT0);
@@ -289,88 +279,5 @@ impl Vcpu {
             }
             Err(e) => eprintln!("Emulation error: {}", e),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    use kvm_bindings::kvm_regs;
-    use kvm_ioctls::Kvm;
-    use linux_loader::bootparam::setup_header;
-    use linux_loader::loader::elf::PvhBootCapability;
-    use linux_loader::loader::KernelLoaderResult;
-    use vm_device::device_manager::IoManager;
-    use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
-
-    const MEM_SIZE: usize = 0x4000_0000; // 1 GiB.
-
-    #[test]
-    fn test_configure_regs() {
-        let kvm = Kvm::new().unwrap();
-        let vm_fd = kvm.create_vm().unwrap();
-        let vcpu = Vcpu::new(&vm_fd, 0, Arc::new(IoManager::new())).unwrap();
-        let guest_memory = GuestMemoryMmap::from_ranges(&[(GuestAddress(0x0), MEM_SIZE)]).unwrap();
-
-        // ELF (vmlinux) kernel scenario: happy case
-        let mut kern_load = KernelLoaderResult {
-            kernel_load: GuestAddress(0x0100_0000), // 1 MiB.
-            kernel_end: 0x0223_B000,                // 1 MiB + size of a vmlinux test image.
-            setup_header: None,
-            pvh_boot_cap: PvhBootCapability::PvhEntryNotPresent,
-        };
-        assert!(vcpu.configure_regs(&kern_load, &guest_memory).is_ok());
-
-        let expected_regs = kvm_regs {
-            rflags: 0x0000_0000_0000_0002u64,
-            rip: kern_load.kernel_load.raw_value(),
-            rsp: BOOT_STACK_POINTER,
-            rbp: BOOT_STACK_POINTER,
-            rsi: crate::ZEROPG_START,
-            ..Default::default()
-        };
-        let actual_regs = vcpu.vcpu_fd.get_regs().unwrap();
-        assert_eq!(expected_regs, actual_regs);
-
-        // ELF kernel scenario: error case (kernel load address past guest memory)
-        kern_load.kernel_load = GuestAddress(guest_memory.last_addr().raw_value() + 1);
-
-        assert!(matches!(
-            vcpu.configure_regs(&kern_load, &guest_memory),
-            Err(Error::RipOutOfGuestMemory)
-        ));
-
-        // bzImage kernel scenario: happy case
-        // The difference is that kernel_load.setup_header is no longer None, because we found one
-        // while parsing the bzImage file.
-        kern_load.kernel_load = GuestAddress(0x0100_0000); // 1 MiB.
-        kern_load.setup_header = Some(setup_header {
-            version: 0x0200, // 0x200 (v2.00) is the minimum.
-            loadflags: 1,
-            ..Default::default()
-        });
-        assert!(vcpu.configure_regs(&kern_load, &guest_memory).is_ok());
-
-        let expected_regs = kvm_regs {
-            rflags: 0x0000_0000_0000_0002u64,
-            rip: kern_load.kernel_load.unchecked_add(0x200).raw_value(),
-            rsp: BOOT_STACK_POINTER,
-            rbp: BOOT_STACK_POINTER,
-            rsi: crate::ZEROPG_START,
-            ..Default::default()
-        };
-
-        let actual_regs = vcpu.vcpu_fd.get_regs().unwrap();
-        assert_eq!(expected_regs, actual_regs);
-
-        // bzImage kernel scenario: error case: kernel_load + 0x200 (512 - size of bzImage header)
-        // falls out of guest memory
-        kern_load.kernel_load = GuestAddress(guest_memory.last_addr().raw_value() - 511);
-
-        assert!(matches!(
-            vcpu.configure_regs(&kern_load, &guest_memory),
-            Err(Error::RipOutOfGuestMemory)
-        ));
     }
 }

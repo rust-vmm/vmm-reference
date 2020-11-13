@@ -13,7 +13,7 @@ use std::io::{self, stdin, stdout};
 use std::sync::{Arc, Mutex};
 
 use event_manager::{EventManager, MutEventSubscriber, SubscriberOps};
-use kvm_bindings::{kvm_userspace_memory_region, CpuId, KVM_API_VERSION, KVM_MAX_CPUID_ENTRIES};
+use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION, KVM_MAX_CPUID_ENTRIES};
 use kvm_ioctls::{
     Cap::{self, Ioeventfd, Irqchip, Irqfd, UserMemory},
     Kvm,
@@ -46,7 +46,9 @@ use devices::SerialWrapper;
 
 mod vcpu;
 mod vm;
-use vcpu::{cpuid, mpspec, mptable, Vcpu};
+use crate::vcpu::cpuid::filter_cpuid;
+use crate::vcpu::VcpuState;
+use vcpu::{mpspec, mptable};
 use vm::KvmVm;
 
 /// First address past 32 bits.
@@ -86,6 +88,8 @@ pub enum Error {
     IO(io::Error),
     /// Failed to load kernel.
     KernelLoad(loader::Error),
+    /// Address stored in the rip registry does not fit in guest memory.
+    RipOutOfGuestMemory,
     /// Invalid KVM API version.
     KvmApiVersion(i32),
     /// Unsupported KVM capability.
@@ -311,7 +315,34 @@ impl VMM {
         Ok(())
     }
 
-    /// Configure guest vCPUs.
+    // Helper function that computes the kernel_load_addr needed by the
+    // VcpuState when creating the Vcpus.
+    fn compute_kernel_load_addr(&self, kernel_load: &KernelLoaderResult) -> Result<GuestAddress> {
+        // If the kernel format is bzImage, the real-mode code is offset by
+        // 0x200, so that's where we have to point the rip register for the
+        // first instructions to execute.
+        // See https://www.kernel.org/doc/html/latest/x86/boot.html#memory-layout
+        //
+        // The kernel is a bzImage kernel if the protocol >= 2.00 and the 0x01
+        // bit (LOAD_HIGH) in the loadflags field is set.
+        let mut kernel_load_addr = self
+            .guest_memory
+            .check_address(kernel_load.kernel_load)
+            .ok_or(Error::RipOutOfGuestMemory)?;
+        if let Some(hdr) = kernel_load.setup_header {
+            if hdr.version >= 0x200 && hdr.loadflags & 0x1 == 0x1 {
+                // Yup, it's bzImage.
+                kernel_load_addr = self
+                    .guest_memory
+                    .checked_offset(kernel_load_addr, 0x200)
+                    .ok_or(Error::RipOutOfGuestMemory)?;
+            }
+        }
+
+        Ok(kernel_load_addr)
+    }
+
+    /// Create guest vCPUs.
     ///
     /// # Arguments
     ///
@@ -320,7 +351,7 @@ impl VMM {
     ///
     /// [`KernelLoaderResult`]: https://docs.rs/linux-loader/latest/linux_loader/loader/struct.KernelLoaderResult.html
     /// [`VcpuConfig`]: struct.VcpuConfig.html
-    pub fn configure_vcpus(
+    pub fn create_vcpus(
         &mut self,
         vcpu_cfg: VcpuConfig,
         kernel_load: &KernelLoaderResult,
@@ -328,30 +359,33 @@ impl VMM {
         mptable::setup_mptable(&self.guest_memory, vcpu_cfg.num_vcpus)
             .map_err(|e| Error::Vcpu(vcpu::Error::Mptable(e)))?;
 
+        let kernel_load_addr = self.compute_kernel_load_addr(kernel_load)?;
+
         // Safe to use expect() because the device manager is instantiated in new(), there's no
         // default implementation, and the field is private inside the VMM struct.
         let shared_device_mgr = Arc::new(self.device_mgr.take().expect("Missing device manager"));
-
-        for index in 0..vcpu_cfg.num_vcpus {
-            // Set CPUID.
-            self.vm.create_vcpu(index, shared_device_mgr.clone())?;
-        }
-        // Set CPUID.
         let base_cpuid = self
             .kvm
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
             .map_err(Error::KvmIoctl)?;
-        for vcpu in self.vm.vcpus.iter() {
-            let mut vcpu_cpuid = base_cpuid.clone();
-            cpuid::filter_cpuid(
+
+        for index in 0..vcpu_cfg.num_vcpus {
+            // Set CPUID.
+            let mut cpuid = base_cpuid.clone();
+            filter_cpuid(
                 &self.kvm,
-                vcpu.id() as usize,
+                index as usize,
                 vcpu_cfg.num_vcpus as usize,
-                &mut vcpu_cpuid,
+                &mut cpuid,
             );
 
-            self.configure_vcpu(&vcpu, &vcpu_cpuid, kernel_load)
-                .map_err(Error::Vcpu)?;
+            let vcpu_state = VcpuState {
+                kernel_load_addr,
+                cpuid,
+                id: index,
+            };
+            self.vm
+                .create_vcpu(shared_device_mgr.clone(), vcpu_state, &self.guest_memory)?;
         }
 
         Ok(())
@@ -386,27 +420,6 @@ impl VMM {
             Ok(())
         }
     }
-
-    fn configure_vcpu(
-        &self,
-        vcpu: &Vcpu,
-        cpuid: &CpuId,
-        kernel_load: &KernelLoaderResult,
-    ) -> vcpu::Result<()> {
-        // Configure CPUID.
-        vcpu.configure_cpuid(cpuid)?;
-
-        // Configure MSRs (model specific registers).
-        vcpu.configure_msrs()?;
-
-        // Configure regs, sregs and fpu.
-        vcpu.configure_regs(kernel_load, &self.guest_memory)?;
-        vcpu.configure_sregs(&self.guest_memory)?;
-        vcpu.configure_fpu()?;
-
-        // Configure LAPICs.
-        vcpu.configure_lapic()
-    }
 }
 
 impl TryFrom<VMMConfig> for VMM {
@@ -417,7 +430,7 @@ impl TryFrom<VMMConfig> for VMM {
         vmm.configure_guest_memory(config.memory_config)?;
         let kernel_load = vmm.configure_kernel(config.kernel_config)?;
         vmm.configure_pio_devices()?;
-        vmm.configure_vcpus(config.vcpu_config, &kernel_load)?;
+        vmm.create_vcpus(config.vcpu_config, &kernel_load)?;
         Ok(vmm)
     }
 }
@@ -429,6 +442,8 @@ mod tests {
     use std::io::ErrorKind;
     use std::path::PathBuf;
 
+    use linux_loader::loader::bootparam::setup_header;
+    use linux_loader::loader::elf::PvhBootCapability;
     use vmm_sys_util::tempfile::TempFile;
 
     const MEM_SIZE_MIB: u32 = 1024;
@@ -461,7 +476,6 @@ mod tests {
                 vmm.guest_memory.last_addr(),
                 GuestAddress(((MEM_SIZE_MIB as u64) << 20) - 1)
             );
-            assert_eq!(vmm.vm.vcpus.len(), 1);
         }
 
         // Error case: missing kernel file.
@@ -471,5 +485,60 @@ mod tests {
                 matches!(VMM::try_from(vmm_config), Err(Error::IO(e)) if e.kind() == ErrorKind::NotFound)
             );
         }
+    }
+
+    #[test]
+    fn test_create_vcpus() {
+        let mut vmm = VMM::new().unwrap();
+
+        let memory_config = MemoryConfig {
+            mem_size_mib: MEM_SIZE_MIB,
+        };
+        let vcpu_config = VcpuConfig { num_vcpus: 1 };
+        vmm.configure_guest_memory(memory_config).unwrap();
+
+        // ELF (vmlinux) kernel scenario: happy case
+        let mut kern_load = KernelLoaderResult {
+            kernel_load: GuestAddress(0x0100_0000), // 1 MiB.
+            kernel_end: 0x0223_B000,                // 1 MiB + size of a vmlinux test image.
+            setup_header: None,
+            pvh_boot_cap: PvhBootCapability::PvhEntryNotPresent,
+        };
+        let actual_kernel_load_addr = vmm.compute_kernel_load_addr(&kern_load).unwrap();
+        let expected_load_addr = kern_load.kernel_load;
+        assert_eq!(actual_kernel_load_addr, expected_load_addr);
+        vmm.create_vcpus(vcpu_config.clone(), &kern_load).unwrap();
+        // assert!(vmm.create_vcpus().is_ok());
+
+        // ELF kernel scenario: error case (kernel load address past guest memory).
+        // Since we don't need to check the load_address, we can test this directly with
+        // create_vcpu.
+        kern_load.kernel_load = GuestAddress(vmm.guest_memory.last_addr().raw_value() + 1);
+        assert!(matches!(
+            vmm.create_vcpus(vcpu_config.clone(), &kern_load),
+            Err(Error::RipOutOfGuestMemory)
+        ));
+
+        // bzImage kernel scenario: happy case
+        // The difference is that kernel_load.setup_header is no longer None, because we found one
+        // while parsing the bzImage file.
+        kern_load.kernel_load = GuestAddress(0x0100_0000); // 1 MiB.
+        kern_load.setup_header = Some(setup_header {
+            version: 0x0200, // 0x200 (v2.00) is the minimum.
+            loadflags: 1,
+            ..Default::default()
+        });
+        let expected_load_addr = kern_load.kernel_load.unchecked_add(0x200);
+        let actual_kernel_load_addr = vmm.compute_kernel_load_addr(&kern_load).unwrap();
+        assert_eq!(expected_load_addr, actual_kernel_load_addr);
+        assert!(vmm.create_vcpus(vcpu_config.clone(), &kern_load).is_ok());
+
+        // bzImage kernel scenario: error case: kernel_load + 0x200 (512 - size of bzImage header)
+        // falls out of guest memory
+        kern_load.kernel_load = GuestAddress(vmm.guest_memory.last_addr().raw_value() - 511);
+        assert!(matches!(
+            vmm.create_vcpus(vcpu_config, &kern_load),
+            Err(Error::RipOutOfGuestMemory)
+        ));
     }
 }
