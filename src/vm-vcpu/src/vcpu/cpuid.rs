@@ -15,7 +15,7 @@ const ECX_TSC_DEADLINE_TIMER_SHIFT: u32 = 24; // TSC deadline mode of APIC timer
 const ECX_HYPERVISOR_SHIFT: u32 = 31; // Flag to be set when the cpu is running on a hypervisor.
 const EDX_HTT_SHIFT: u32 = 28; // Hyper Threading Enabled.
 
-pub(crate) fn filter_cpuid(kvm: &Kvm, vcpu_id: usize, cpu_count: usize, cpuid: &mut CpuId) {
+pub fn filter_cpuid(kvm: &Kvm, vcpu_id: usize, cpu_count: usize, cpuid: &mut CpuId) {
     for entry in cpuid.as_mut_slice().iter_mut() {
         match entry.function {
             1 => {

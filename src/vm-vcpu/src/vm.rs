@@ -93,7 +93,7 @@ impl KvmVm {
     }
 
     /// Create a Vcpu based on the passed configuration.
-    pub(crate) fn create_vcpu(
+    pub fn create_vcpu(
         &mut self,
         bus: Arc<IoManager>,
         vcpu_state: VcpuState,
