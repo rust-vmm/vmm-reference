@@ -8,8 +8,8 @@ use std::thread::{self, JoinHandle};
 use kvm_bindings::{kvm_pit_config, kvm_userspace_memory_region, KVM_PIT_SPEAKER_DUMMY};
 use kvm_ioctls::{Kvm, VmFd};
 use vm_device::device_manager::IoManager;
-use vm_memory::GuestMemoryMmap;
 use vmm_sys_util::eventfd::EventFd;
+use vm_memory::GuestMemory;
 
 use crate::vcpu::{self, Vcpu, VcpuState};
 
@@ -93,11 +93,11 @@ impl KvmVm {
     }
 
     /// Create a Vcpu based on the passed configuration.
-    pub fn create_vcpu(
+    pub fn create_vcpu<M: GuestMemory>(
         &mut self,
         bus: Arc<IoManager>,
         vcpu_state: VcpuState,
-        memory: &GuestMemoryMmap,
+        memory: &M,
     ) -> Result<()> {
         let vcpu = Vcpu::new(&self.fd, bus, vcpu_state, memory).map_err(Error::CreateVcpu)?;
         self.vcpus.push(vcpu);

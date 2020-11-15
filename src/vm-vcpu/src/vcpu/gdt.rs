@@ -8,7 +8,7 @@
 // For GDT details see arch/x86/include/asm/segment.h
 
 use kvm_bindings::kvm_segment;
-use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+use vm_memory::{Bytes, GuestAddress, GuestMemory};
 
 use std::mem;
 
@@ -93,9 +93,9 @@ pub fn kvm_segment_from_gdt(entry: u64, table_index: u8) -> kvm_segment {
     }
 }
 
-pub fn write_gdt_table(
+pub fn write_gdt_table<T: GuestMemory>(
     table: &[u64],
-    guest_mem: &GuestMemoryMmap,
+    guest_mem: &T,
 ) -> std::result::Result<(), vm_memory::GuestMemoryError> {
     let boot_gdt_addr = GuestAddress(BOOT_GDT_OFFSET);
     for (index, entry) in table.iter().enumerate() {
@@ -109,9 +109,9 @@ pub fn write_gdt_table(
     Ok(())
 }
 
-pub fn write_idt_value(
+pub fn write_idt_value<T:GuestMemory>(
     val: u64,
-    guest_mem: &GuestMemoryMmap,
+    guest_mem: &T,
 ) -> std::result::Result<(), vm_memory::GuestMemoryError> {
     let boot_idt_addr = GuestAddress(BOOT_IDT_OFFSET);
     guest_mem.write_obj(val, boot_idt_addr)

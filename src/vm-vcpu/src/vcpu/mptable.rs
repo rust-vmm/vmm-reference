@@ -12,7 +12,7 @@ use std::slice;
 
 use crate::vcpu::mpspec;
 use libc::c_char;
-use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory};
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
 // trait (in this case `ByteValued`) where:
 // *    the type that is implementing the trait is foreign or
@@ -123,7 +123,7 @@ fn compute_mp_size(num_cpus: u8) -> usize {
 }
 
 /// Performs setup of the MP table for the given `num_cpus`.
-pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<()> {
+pub fn setup_mptable<M: GuestMemory>(mem: &M, num_cpus: u8) -> Result<()> {
     if u32::from(num_cpus) > MAX_SUPPORTED_CPUS {
         return Err(Error::TooManyCpus);
     }
@@ -284,7 +284,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vm_memory::Bytes;
+    use vm_memory::{Bytes, GuestMemoryMmap};
 
     fn table_entry_size(type_: u8) -> usize {
         match u32::from(type_) {
