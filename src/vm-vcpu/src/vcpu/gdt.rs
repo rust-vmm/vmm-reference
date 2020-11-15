@@ -109,7 +109,7 @@ pub fn write_gdt_table<T: GuestMemory>(
     Ok(())
 }
 
-pub fn write_idt_value<T:GuestMemory>(
+pub fn write_idt_value<T: GuestMemory>(
     val: u64,
     guest_mem: &T,
 ) -> std::result::Result<(), vm_memory::GuestMemoryError> {
