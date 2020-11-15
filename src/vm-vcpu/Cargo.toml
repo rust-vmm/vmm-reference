@@ -14,5 +14,8 @@ kvm-ioctls = "0.5.0"
 # To make sure that breaking changes to vm-device are not breaking the
 # vm-vcpu build, we're using a fixed revision.
 vm-device = { git = "https://github.com/rust-vmm/vm-device", rev = "5847f12" }
-vm-memory = { version = "0.3.0", features = ["backend-mmap"] }
+vm-memory = { version = "0.3.0" }
 vmm-sys-util = "0.6.1"
+
+[dev-dependencies]
+vm-memory = { version = "0.3.0", features = ["backend-mmap"] }

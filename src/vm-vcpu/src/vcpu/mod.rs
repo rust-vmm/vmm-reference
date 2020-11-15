@@ -9,7 +9,7 @@ use kvm_bindings::{kvm_fpu, kvm_regs, CpuId, Msrs};
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
 use vm_device::bus::PioAddress;
 use vm_device::device_manager::{IoManager, PioManager};
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryError, GuestMemory};
 use vmm_sys_util::terminal::Terminal;
 
 mod gdt;
@@ -74,11 +74,11 @@ pub struct Vcpu {
 
 impl Vcpu {
     /// Create a new vCPU.
-    pub fn new(
+    pub fn new<M: GuestMemory>(
         vm_fd: &VmFd,
         device_mgr: Arc<IoManager>,
         state: VcpuState,
-        memory: &GuestMemoryMmap,
+        memory: &M,
     ) -> Result<Self> {
         let vcpu = Vcpu {
             vcpu_fd: vm_fd.create_vcpu(state.id).map_err(Error::KvmIoctl)?,
@@ -142,7 +142,7 @@ impl Vcpu {
     }
 
     /// Configure sregs.
-    fn configure_sregs(&self, guest_memory: &GuestMemoryMmap) -> Result<()> {
+    fn configure_sregs<M: GuestMemory>(&self, guest_memory: &M) -> Result<()> {
         let mut sregs = self.vcpu_fd.get_sregs().map_err(Error::KvmIoctl)?;
 
         // Global descriptor tables.
