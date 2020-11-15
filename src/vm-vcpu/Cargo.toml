@@ -1,23 +1,18 @@
 [package]
-name = "vmm"
+name = "vm-vcpu"
 version = "0.1.0"
 authors = ["rust-vmm AWS maintainers <rust-vmm-maintainers@amazon.com>"]
 edition = "2018"
 
-[dependencies]
-vm-vcpu = { path = "../vm-vcpu" }
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-event-manager = "0.2.0"
+[dependencies]
+libc = "0.2.76"
 kvm-bindings = { version = "0.3.0", features = ["fam-wrappers"] }
 kvm-ioctls = "0.5.0"
-linux-loader = { version = "0.2.0", features = ["bzimage", "elf"] }
 # vm-device is not yet published on crates.io.
 # To make sure that breaking changes to vm-device are not breaking the
 # vm-vcpu build, we're using a fixed revision.
 vm-device = { git = "https://github.com/rust-vmm/vm-device", rev = "5847f12" }
-
 vm-memory = { version = "0.3.0", features = ["backend-mmap"] }
-vm-superio = "0.1.1"
 vmm-sys-util = "0.6.1"
-
-libc = "0.2.76"

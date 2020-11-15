@@ -12,15 +12,16 @@ use vm_device::device_manager::{IoManager, PioManager};
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 use vmm_sys_util::terminal::Terminal;
 
-pub(crate) mod cpuid;
 mod gdt;
 use gdt::*;
 mod interrupts;
 use interrupts::*;
-pub(crate) mod mpspec;
-pub(crate) mod mptable;
-pub(crate) mod msr_index;
-pub(crate) mod msrs;
+
+pub mod cpuid;
+pub mod mpspec;
+pub mod mptable;
+pub mod msr_index;
+pub mod msrs;
 
 /// Initial stack for the boot CPU.
 const BOOT_STACK_POINTER: u64 = 0x8ff0;
@@ -52,17 +53,18 @@ pub enum Error {
 /// Dedicated Result type.
 pub type Result<T> = result::Result<T, Error>;
 
-pub(crate) struct VcpuState {
+pub struct VcpuState {
     pub id: u8,
     pub cpuid: CpuId,
     pub kernel_load_addr: GuestAddress,
+    pub zero_page_start: GuestAddress,
 }
 
 /// Struct for interacting with vCPUs.
 ///
 /// This struct is a temporary (and quite terrible) placeholder until the
 /// [`vmm-vcpu`](https://github.com/rust-vmm/vmm-vcpu) crate is stabilized.
-pub(crate) struct Vcpu {
+pub struct Vcpu {
     /// KVM file descriptor for a vCPU.
     vcpu_fd: VcpuFd,
     /// Device manager for bus accesses.
@@ -78,7 +80,6 @@ impl Vcpu {
         state: VcpuState,
         memory: &GuestMemoryMmap,
     ) -> Result<Self> {
-        println!("{}", state.id);
         let vcpu = Vcpu {
             vcpu_fd: vm_fd.create_vcpu(state.id).map_err(Error::KvmIoctl)?,
             device_mgr,
@@ -87,7 +88,7 @@ impl Vcpu {
 
         vcpu.configure_cpuid(&vcpu.state.cpuid)?;
         vcpu.configure_msrs()?;
-        vcpu.configure_regs(vcpu.state.kernel_load_addr)?;
+        vcpu.configure_regs(vcpu.state.kernel_load_addr, vcpu.state.zero_page_start)?;
         vcpu.configure_sregs(memory)?;
         vcpu.configure_lapic()?;
         vcpu.configure_fpu()?;
@@ -116,7 +117,11 @@ impl Vcpu {
     }
 
     /// Configure regs.
-    fn configure_regs(&self, kernel_load: GuestAddress) -> Result<()> {
+    fn configure_regs(
+        &self,
+        kernel_load: GuestAddress,
+        zero_page_start: GuestAddress,
+    ) -> Result<()> {
         let regs = kvm_regs {
             // EFLAGS (RFLAGS in 64-bit mode) always has bit 1 set.
             // See https://software.intel.com/sites/default/files/managed/39/c5/325462-sdm-vol-1-2abcd-3abcd.pdf#page=79
@@ -130,7 +135,7 @@ impl Vcpu {
             // local variables and function parameters are still accessible from a constant offset from rbp.
             rbp: BOOT_STACK_POINTER,
             // Must point to zero page address per Linux ABI. This is x86_64 specific.
-            rsi: crate::ZEROPG_START,
+            rsi: zero_page_start.raw_value(),
             ..Default::default()
         };
         self.vcpu_fd.set_regs(&regs).map_err(Error::KvmIoctl)

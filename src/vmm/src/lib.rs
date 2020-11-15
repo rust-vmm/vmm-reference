@@ -33,6 +33,8 @@ use vm_device::device_manager::IoManager;
 use vm_device::resources::Resource;
 use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use vm_superio::Serial;
+use vm_vcpu::vcpu::{self, cpuid::filter_cpuid, mptable, VcpuState};
+use vm_vcpu::vm::{self, KvmVm};
 use vmm_sys_util::{eventfd::EventFd, terminal::Terminal};
 
 mod boot;
@@ -43,13 +45,6 @@ pub use config::*;
 
 mod devices;
 use devices::SerialWrapper;
-
-mod vcpu;
-mod vm;
-use crate::vcpu::cpuid::filter_cpuid;
-use crate::vcpu::VcpuState;
-use vcpu::{mpspec, mptable};
-use vm::KvmVm;
 
 /// First address past 32 bits.
 const FIRST_ADDR_PAST_32BITS: u64 = 1 << 32;
@@ -383,6 +378,7 @@ impl VMM {
                 kernel_load_addr,
                 cpuid,
                 id: index,
+                zero_page_start: GuestAddress(ZEROPG_START),
             };
             self.vm
                 .create_vcpu(shared_device_mgr.clone(), vcpu_state, &self.guest_memory)?;

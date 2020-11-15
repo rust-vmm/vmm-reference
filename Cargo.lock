@@ -133,7 +133,7 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 [[package]]
 name = "vm-device"
 version = "0.1.0"
-source = "git+https://github.com/rust-vmm/vm-device.git#5847f1286492b7191f1400e6647fb220f8941f89"
+source = "git+https://github.com/rust-vmm/vm-device?rev=5847f12#5847f1286492b7191f1400e6647fb220f8941f89"
 
 [[package]]
 name = "vm-memory"
@@ -156,6 +156,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vm-vcpu"
+version = "0.1.0"
+dependencies = [
+ "kvm-bindings",
+ "kvm-ioctls",
+ "libc",
+ "vm-device",
+ "vm-memory",
+ "vmm-sys-util",
+]
+
+[[package]]
 name = "vmm"
 version = "0.1.0"
 dependencies = [
@@ -167,6 +179,7 @@ dependencies = [
  "vm-device",
  "vm-memory",
  "vm-superio",
+ "vm-vcpu",
  "vmm-sys-util",
 ]
 
