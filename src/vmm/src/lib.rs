@@ -13,7 +13,7 @@ use std::io::{self, stdin, stdout};
 use std::sync::{Arc, Mutex};
 
 use event_manager::{EventManager, MutEventSubscriber, SubscriberOps};
-use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION, KVM_MAX_CPUID_ENTRIES};
+use kvm_bindings::{KVM_API_VERSION, KVM_MAX_CPUID_ENTRIES};
 use kvm_ioctls::{
     Cap::{self, Ioeventfd, Irqchip, Irqfd, UserMemory},
     Kvm,
@@ -31,10 +31,10 @@ use linux_loader::loader::{
 };
 use vm_device::device_manager::IoManager;
 use vm_device::resources::Resource;
-use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 use vm_superio::Serial;
-use vm_vcpu::vcpu::{self, cpuid::filter_cpuid, mptable, VcpuState};
-use vm_vcpu::vm::{self, KvmVm};
+use vm_vcpu::vcpu::{cpuid::filter_cpuid, VcpuState};
+use vm_vcpu::vm::{self, KvmVm, VmState};
 use vmm_sys_util::{eventfd::EventFd, terminal::Terminal};
 
 mod boot;
@@ -93,8 +93,6 @@ pub enum Error {
     KvmIoctl(kvm_ioctls::Error),
     /// Memory error.
     Memory(MemoryError),
-    /// vCPU errors.
-    Vcpu(vcpu::Error),
     /// VM errors.
     Vm(vm::Error),
 }
@@ -125,43 +123,42 @@ pub struct VMM {
 
 impl VMM {
     /// Create a new VMM.
-    pub fn new() -> Result<Self> {
+    pub fn new(config: &VMMConfig) -> Result<Self> {
         let kvm = Kvm::new().map_err(Error::KvmIoctl)?;
 
-        // Check that KVM has the correct version.
+        // Check that the KVM on the host is supported.
         let kvm_api_ver = kvm.get_api_version();
         if kvm_api_ver != KVM_API_VERSION as i32 {
             return Err(Error::KvmApiVersion(kvm_api_ver));
         }
+        VMM::check_kvm_capabilities(&kvm)?;
 
-        // Create fd for interacting with kvm-vm specific functions.
-        let vm = KvmVm::new(&kvm)?;
+        let guest_memory = VMM::create_guest_memory(&config.memory_config)?;
 
-        let vmm = VMM {
+        // Create the KvmVm.
+        let vm_state = VmState {
+            num_vcpus: config.vcpu_config.num_vcpus,
+        };
+        let vm = KvmVm::new(&kvm, vm_state, &guest_memory)?;
+
+        let mut vmm = VMM {
             vm,
             kvm,
-            guest_memory: GuestMemoryMmap::default(),
+            guest_memory,
             device_mgr: Some(IoManager::new()),
             event_mgr: EventManager::new().map_err(Error::EventManager)?,
         };
 
-        vmm.check_kvm_capabilities()?;
+        vmm.configure_pio_devices()?;
 
         Ok(vmm)
     }
 
-    /// Configure guest memory.
-    ///
-    /// # Arguments
-    ///
-    /// * `guest_mem_cfg` - [`MemoryConfig`](struct.MemoryConfig.html) struct containing guest
-    ///                     memory configurations.
-    pub fn configure_guest_memory(&mut self, guest_mem_cfg: MemoryConfig) -> Result<()> {
-        let mem_size = ((guest_mem_cfg.mem_size_mib as u64) << 20) as usize;
-
-        // Create guest memory regions.
-        // On x86_64, they surround the MMIO gap (dedicated space for MMIO device slots) if the
-        // configured memory size exceeds the latter's starting address.
+    // Create guest memory regions.
+    // On x86_64, they surround the MMIO gap (dedicated space for MMIO device slots) if the
+    // configured memory size exceeds the latter's starting address.
+    fn create_guest_memory(memory_config: &MemoryConfig) -> Result<GuestMemoryMmap> {
+        let mem_size = ((memory_config.mem_size_mib as u64) << 20) as usize;
         let mem_regions = match mem_size.checked_sub(MMIO_MEM_START as usize) {
             // Guest memory fits before the MMIO gap.
             None | Some(0) => vec![(GuestAddress(0), mem_size)],
@@ -173,35 +170,8 @@ impl VMM {
         };
 
         // Create guest memory from regions.
-        let guest_memory = GuestMemoryMmap::from_ranges(&mem_regions)
-            .map_err(|e| Error::Memory(MemoryError::VmMemory(e)))?;
-
-        if guest_memory.num_regions() > self.kvm.get_nr_memslots() {
-            return Err(Error::Memory(MemoryError::NotEnoughMemorySlots));
-        }
-
-        // Register guest memory regions with KVM.
-        guest_memory.with_regions(|index, region| {
-            let memory_region = kvm_userspace_memory_region {
-                slot: index as u32,
-                guest_phys_addr: region.start_addr().raw_value(),
-                memory_size: region.len() as u64,
-                // It's safe to unwrap because the guest address is valid.
-                userspace_addr: guest_memory.get_host_address(region.start_addr()).unwrap() as u64,
-                flags: 0,
-            };
-
-            // Safe because:
-            // * userspace_addr is a valid address for a memory region, obtained by calling
-            //   get_host_address() on a valid region's start address;
-            // * the memory regions do not overlap - there's either a single region spanning
-            //   the whole guest memory, or 2 regions with the MMIO gap in between.
-            unsafe { self.vm.set_user_memory_region(memory_region) }
-        })?;
-
-        self.guest_memory = guest_memory;
-
-        Ok(())
+        GuestMemoryMmap::from_ranges(&mem_regions)
+            .map_err(|e| Error::Memory(MemoryError::VmMemory(e)))
     }
 
     /// Configure guest kernel.
@@ -276,8 +246,7 @@ impl VMM {
     /// This sets up the following PIO devices:
     /// * `x86_64`: serial console
     /// * `aarch64`: N/A
-    pub fn configure_pio_devices(&mut self) -> Result<()> {
-        self.vm.setup_irq_controller()?;
+    fn configure_pio_devices(&mut self) -> Result<()> {
         // Create the serial console.
         let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::IO)?;
         let serial = Arc::new(Mutex::new(SerialWrapper(Serial::new(
@@ -351,9 +320,6 @@ impl VMM {
         vcpu_cfg: VcpuConfig,
         kernel_load: &KernelLoaderResult,
     ) -> Result<()> {
-        mptable::setup_mptable(&self.guest_memory, vcpu_cfg.num_vcpus)
-            .map_err(|e| Error::Vcpu(vcpu::Error::Mptable(e)))?;
-
         let kernel_load_addr = self.compute_kernel_load_addr(kernel_load)?;
 
         // Safe to use expect() because the device manager is instantiated in new(), there's no
@@ -403,13 +369,13 @@ impl VMM {
         }
     }
 
-    fn check_kvm_capabilities(&self) -> Result<()> {
+    fn check_kvm_capabilities(kvm: &Kvm) -> Result<()> {
         let capabilities = vec![Irqchip, Ioeventfd, Irqfd, UserMemory];
 
         // Check that all desired capabilities are supported.
         if let Some(c) = capabilities
             .iter()
-            .find(|&capability| !self.kvm.check_extension(*capability))
+            .find(|&capability| !kvm.check_extension(*capability))
         {
             Err(Error::KvmCap(*c))
         } else {
@@ -422,10 +388,8 @@ impl TryFrom<VMMConfig> for VMM {
     type Error = Error;
 
     fn try_from(config: VMMConfig) -> Result<Self> {
-        let mut vmm = VMM::new()?;
-        vmm.configure_guest_memory(config.memory_config)?;
+        let mut vmm = VMM::new(&config)?;
         let kernel_load = vmm.configure_kernel(config.kernel_config)?;
-        vmm.configure_pio_devices()?;
         vmm.create_vcpus(config.vcpu_config, &kernel_load)?;
         Ok(vmm)
     }
@@ -440,15 +404,15 @@ mod tests {
 
     use linux_loader::loader::bootparam::setup_header;
     use linux_loader::loader::elf::PvhBootCapability;
+    use vm_memory::{Address, GuestMemory};
     use vmm_sys_util::tempfile::TempFile;
 
     const MEM_SIZE_MIB: u32 = 1024;
     const NUM_VCPUS: u8 = 1;
     const HIMEM_START_ADDR: u64 = 0x0010_0000; // 1 MB
 
-    #[test]
-    fn test_try_from() {
-        let mut vmm_config = VMMConfig {
+    fn default_vmm_config() -> VMMConfig {
+        VMMConfig {
             kernel_config: KernelConfig {
                 path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                     .join("../../resources/kernel/vmlinux-hello-busybox"),
@@ -461,7 +425,12 @@ mod tests {
             vcpu_config: VcpuConfig {
                 num_vcpus: NUM_VCPUS,
             },
-        };
+        }
+    }
+
+    #[test]
+    fn test_try_from() {
+        let mut vmm_config = default_vmm_config();
 
         // Test happy case.
         {
@@ -485,13 +454,8 @@ mod tests {
 
     #[test]
     fn test_create_vcpus() {
-        let mut vmm = VMM::new().unwrap();
-
-        let memory_config = MemoryConfig {
-            mem_size_mib: MEM_SIZE_MIB,
-        };
-        let vcpu_config = VcpuConfig { num_vcpus: 1 };
-        vmm.configure_guest_memory(memory_config).unwrap();
+        let vmm_config = default_vmm_config();
+        let mut vmm = VMM::new(&vmm_config).unwrap();
 
         // ELF (vmlinux) kernel scenario: happy case
         let mut kern_load = KernelLoaderResult {
@@ -503,21 +467,24 @@ mod tests {
         let actual_kernel_load_addr = vmm.compute_kernel_load_addr(&kern_load).unwrap();
         let expected_load_addr = kern_load.kernel_load;
         assert_eq!(actual_kernel_load_addr, expected_load_addr);
-        vmm.create_vcpus(vcpu_config.clone(), &kern_load).unwrap();
-        // assert!(vmm.create_vcpus().is_ok());
+        assert!(vmm
+            .create_vcpus(vmm_config.vcpu_config.clone(), &kern_load)
+            .is_ok());
 
         // ELF kernel scenario: error case (kernel load address past guest memory).
         // Since we don't need to check the load_address, we can test this directly with
         // create_vcpu.
+        let mut vmm = VMM::new(&vmm_config).unwrap();
         kern_load.kernel_load = GuestAddress(vmm.guest_memory.last_addr().raw_value() + 1);
         assert!(matches!(
-            vmm.create_vcpus(vcpu_config.clone(), &kern_load),
+            vmm.create_vcpus(vmm_config.vcpu_config.clone(), &kern_load),
             Err(Error::RipOutOfGuestMemory)
         ));
 
         // bzImage kernel scenario: happy case
         // The difference is that kernel_load.setup_header is no longer None, because we found one
         // while parsing the bzImage file.
+        let mut vmm = VMM::new(&vmm_config).unwrap();
         kern_load.kernel_load = GuestAddress(0x0100_0000); // 1 MiB.
         kern_load.setup_header = Some(setup_header {
             version: 0x0200, // 0x200 (v2.00) is the minimum.
@@ -527,13 +494,16 @@ mod tests {
         let expected_load_addr = kern_load.kernel_load.unchecked_add(0x200);
         let actual_kernel_load_addr = vmm.compute_kernel_load_addr(&kern_load).unwrap();
         assert_eq!(expected_load_addr, actual_kernel_load_addr);
-        assert!(vmm.create_vcpus(vcpu_config.clone(), &kern_load).is_ok());
+        assert!(vmm
+            .create_vcpus(vmm_config.vcpu_config.clone(), &kern_load)
+            .is_ok());
 
         // bzImage kernel scenario: error case: kernel_load + 0x200 (512 - size of bzImage header)
         // falls out of guest memory
+        let mut vmm = VMM::new(&vmm_config).unwrap();
         kern_load.kernel_load = GuestAddress(vmm.guest_memory.last_addr().raw_value() - 511);
         assert!(matches!(
-            vmm.create_vcpus(vcpu_config, &kern_load),
+            vmm.create_vcpus(vmm_config.vcpu_config, &kern_load),
             Err(Error::RipOutOfGuestMemory)
         ));
     }
