@@ -109,7 +109,9 @@ impl Vcpu {
         //
         // The kernel is a bzImage kernel if the protocol >= 2.00 and the 0x01
         // bit (LOAD_HIGH) in the loadflags field is set.
-        let mut rip = kernel_load.kernel_load;
+        let mut rip = guest_memory
+            .check_address(kernel_load.kernel_load)
+            .ok_or(Error::RipOutOfGuestMemory)?;
         if let Some(hdr) = kernel_load.setup_header {
             if hdr.version >= 0x200 && hdr.loadflags & 0x1 == 0x1 {
                 // Yup, it's bzImage.
@@ -120,6 +122,9 @@ impl Vcpu {
         }
 
         let regs = kvm_regs {
+            // EFLAGS (RFLAGS in 64-bit mode) always has bit 1 set.
+            // See https://software.intel.com/sites/default/files/managed/39/c5/325462-sdm-vol-1-2abcd-3abcd.pdf#page=79
+            // Section "EFLAGS Register"
             rflags: 0x0000_0000_0000_0002u64,
             rip: rip.raw_value(),
             // Starting stack pointer.
@@ -278,5 +283,88 @@ impl Vcpu {
             }
             Err(e) => eprintln!("Emulation error: {}", e),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use kvm_bindings::kvm_regs;
+    use kvm_ioctls::Kvm;
+    use linux_loader::bootparam::setup_header;
+    use linux_loader::loader::elf::PvhBootCapability;
+    use linux_loader::loader::KernelLoaderResult;
+    use vm_device::device_manager::IoManager;
+    use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
+
+    const MEM_SIZE: usize = 0x4000_0000; // 1 GiB.
+
+    #[test]
+    fn test_configure_regs() {
+        let kvm = Kvm::new().unwrap();
+        let vm_fd = kvm.create_vm().unwrap();
+        let vcpu = Vcpu::new(&vm_fd, 0, Arc::new(IoManager::new())).unwrap();
+        let guest_memory = GuestMemoryMmap::from_ranges(&[(GuestAddress(0x0), MEM_SIZE)]).unwrap();
+
+        // ELF (vmlinux) kernel scenario: happy case
+        let mut kern_load = KernelLoaderResult {
+            kernel_load: GuestAddress(0x0100_0000), // 1 MiB.
+            kernel_end: 0x0223_B000,                // 1 MiB + size of a vmlinux test image.
+            setup_header: None,
+            pvh_boot_cap: PvhBootCapability::PvhEntryNotPresent,
+        };
+        assert!(vcpu.configure_regs(&kern_load, &guest_memory).is_ok());
+
+        let expected_regs = kvm_regs {
+            rflags: 0x0000_0000_0000_0002u64,
+            rip: kern_load.kernel_load.raw_value(),
+            rsp: BOOT_STACK_POINTER,
+            rbp: BOOT_STACK_POINTER,
+            rsi: crate::ZEROPG_START,
+            ..Default::default()
+        };
+        let actual_regs = vcpu.vcpu_fd.get_regs().unwrap();
+        assert_eq!(expected_regs, actual_regs);
+
+        // ELF kernel scenario: error case (kernel load address past guest memory)
+        kern_load.kernel_load = GuestAddress(guest_memory.last_addr().raw_value() + 1);
+
+        assert!(matches!(
+            vcpu.configure_regs(&kern_load, &guest_memory),
+            Err(Error::RipOutOfGuestMemory)
+        ));
+
+        // bzImage kernel scenario: happy case
+        // The difference is that kernel_load.setup_header is no longer None, because we found one
+        // while parsing the bzImage file.
+        kern_load.kernel_load = GuestAddress(0x0100_0000); // 1 MiB.
+        kern_load.setup_header = Some(setup_header {
+            version: 0x0200, // 0x200 (v2.00) is the minimum.
+            loadflags: 1,
+            ..Default::default()
+        });
+        assert!(vcpu.configure_regs(&kern_load, &guest_memory).is_ok());
+
+        let expected_regs = kvm_regs {
+            rflags: 0x0000_0000_0000_0002u64,
+            rip: kern_load.kernel_load.unchecked_add(0x200).raw_value(),
+            rsp: BOOT_STACK_POINTER,
+            rbp: BOOT_STACK_POINTER,
+            rsi: crate::ZEROPG_START,
+            ..Default::default()
+        };
+
+        let actual_regs = vcpu.vcpu_fd.get_regs().unwrap();
+        assert_eq!(expected_regs, actual_regs);
+
+        // bzImage kernel scenario: error case: kernel_load + 0x200 (512 - size of bzImage header)
+        // falls out of guest memory
+        kern_load.kernel_load = GuestAddress(guest_memory.last_addr().raw_value() - 511);
+
+        assert!(matches!(
+            vcpu.configure_regs(&kern_load, &guest_memory),
+            Err(Error::RipOutOfGuestMemory)
+        ));
     }
 }
