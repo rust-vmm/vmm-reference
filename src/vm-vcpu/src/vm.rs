@@ -12,6 +12,7 @@ use vm_memory::{Address, GuestMemory, GuestMemoryRegion};
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::vcpu::{self, mptable, KvmVcpu, VcpuState};
+use std::io::ErrorKind;
 
 /// Defines the state from which a `KvmVm` is initialized.
 pub struct VmState {
@@ -156,8 +157,13 @@ impl KvmVm {
 
     /// Run the `Vm` based on the passed `vcpu` configuration.
     ///
-    /// When no vcpus are created, the function has no side effects.
+    /// Returns an error when the number of configured vcpus is not the same as the number
+    /// of created vcpus (using the `create_vcpu` function).
     pub fn run(&mut self) -> Result<()> {
+        if self.vcpus.len() != self.state.num_vcpus as usize {
+            return Err(Error::RunVcpus(io::Error::from(ErrorKind::InvalidInput)))
+        }
+
         for mut vcpu in self.vcpus.drain(..) {
             let vcpu_handle: JoinHandle<KvmVcpu> = thread::Builder::new()
                 .spawn(move || loop {
