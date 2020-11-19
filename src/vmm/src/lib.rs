@@ -40,7 +40,7 @@ use vm_superio::Serial;
 use vmm_sys_util::{eventfd::EventFd, terminal::Terminal};
 
 mod boot;
-use boot::*;
+use boot::build_bootparams;
 
 mod config;
 pub use config::*;
@@ -440,5 +440,57 @@ impl TryFrom<VMMConfig> for VMM {
         vmm.configure_pio_devices()?;
         vmm.configure_vcpus(config.vcpu_config, &kernel_load)?;
         Ok(vmm)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::io::ErrorKind;
+    use std::path::PathBuf;
+
+    use vmm_sys_util::tempfile::TempFile;
+
+    const MEM_SIZE_MIB: u32 = 1024;
+    const NUM_VCPUS: u8 = 1;
+    const HIMEM_START_ADDR: u64 = 0x0010_0000; // 1 MB
+
+    #[test]
+    fn test_try_from() {
+        let mut vmm_config = VMMConfig {
+            kernel_config: KernelConfig {
+                path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../resources/kernel/vmlinux-hello-busybox"),
+                himem_start: HIMEM_START_ADDR,
+                cmdline: "foo=bar".to_string(),
+            },
+            memory_config: MemoryConfig {
+                mem_size_mib: MEM_SIZE_MIB,
+            },
+            vcpu_config: VcpuConfig {
+                num_vcpus: NUM_VCPUS,
+            },
+        };
+
+        // Test happy case.
+        {
+            let vmm = VMM::try_from(vmm_config.clone()).unwrap();
+            // This is None because it's taken out of the Option when the vCPUs start.
+            assert!(vmm.device_mgr.is_none());
+            assert_eq!(
+                vmm.guest_memory.last_addr(),
+                GuestAddress(((MEM_SIZE_MIB as u64) << 20) - 1)
+            );
+            assert_eq!(vmm.vcpus.len(), 1);
+        }
+
+        // Error case: missing kernel file.
+        {
+            vmm_config.kernel_config.path = PathBuf::from(TempFile::new().unwrap().as_path());
+            assert!(
+                matches!(VMM::try_from(vmm_config), Err(Error::IO(e)) if e.kind() == ErrorKind::NotFound)
+            );
+        }
     }
 }

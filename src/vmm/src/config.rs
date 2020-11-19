@@ -28,7 +28,7 @@ impl fmt::Display for ConversionError {
 }
 
 /// Guest memory configurations.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct MemoryConfig {
     /// Guest memory size in MiB.
     pub mem_size_mib: u32,
@@ -58,7 +58,7 @@ impl TryFrom<String> for MemoryConfig {
 }
 
 /// vCPU configurations.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct VcpuConfig {
     /// Number of vCPUs.
     pub num_vcpus: u8,
@@ -88,7 +88,7 @@ impl TryFrom<String> for VcpuConfig {
 }
 
 /// Guest kernel configurations.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct KernelConfig {
     /// Kernel command line.
     pub cmdline: String,
@@ -149,7 +149,7 @@ impl TryFrom<String> for KernelConfig {
 }
 
 /// VMM configuration.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct VMMConfig {
     /// Guest memory configuration.
     pub memory_config: MemoryConfig,
