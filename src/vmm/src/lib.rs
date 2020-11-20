@@ -117,19 +117,19 @@ pub struct VMM {
     kvm: Kvm,
     vm: KvmVm,
     guest_memory: GuestMemoryMmap,
-    // An Option, of all things, because it needs to be mutable while adding devices (so it can't
-    // be in an Arc), then it needs to be packed in an Arc to share it across vCPUs. An Option
-    // allows us to .take() it when starting the vCPUs.
-    device_mgr: Option<IoManager>,
+    // The `device_mgr` is an Arc<Mutex> so that it can be shared between
+    // the Vcpu threads, and modified when new devices are added.
+    device_mgr: Arc<Mutex<IoManager>>,
     // Arc<Mutex<>> because the same device (a dyn DevicePio/DeviceMmio from IoManager's
     // perspective, and a dyn MutEventSubscriber from EventManager's) is managed by the 2 entities,
     // and isn't Copy-able; so once one of them gets ownership, the other one can't anymore.
     event_mgr: EventManager<Arc<Mutex<dyn MutEventSubscriber>>>,
 }
 
-impl VMM {
-    /// Create a new VMM.
-    pub fn new(config: &VMMConfig) -> Result<Self> {
+impl TryFrom<VMMConfig> for VMM {
+    type Error = Error;
+
+    fn try_from(config: VMMConfig) -> Result<Self> {
         let kvm = Kvm::new().map_err(Error::KvmIoctl)?;
 
         // Check that the KVM on the host is supported.
@@ -151,13 +151,33 @@ impl VMM {
             vm,
             kvm,
             guest_memory,
-            device_mgr: Some(IoManager::new()),
+            device_mgr: Arc::new(Mutex::new(IoManager::new())),
             event_mgr: EventManager::new().map_err(Error::EventManager)?,
         };
 
-        vmm.configure_pio_devices()?;
+        vmm.add_serial_console()?;
+        let load_result = vmm.load_kernel(&config.kernel_config)?;
+        vmm.create_vcpus(&config.vcpu_config, &load_result)?;
 
         Ok(vmm)
+    }
+}
+
+impl VMM {
+    /// Run the VMM.
+    pub fn run(&mut self) -> Result<()> {
+        if stdin().lock().set_raw_mode().is_err() {
+            eprintln!("Failed to set raw mode on terminal. Stdin will echo.");
+        }
+
+        self.vm.run().map_err(Error::Vm)?;
+
+        loop {
+            match self.event_mgr.run() {
+                Ok(_) => (),
+                Err(e) => eprintln!("Failed to handle events: {:?}", e),
+            }
+        }
     }
 
     // Create guest memory regions.
@@ -186,8 +206,8 @@ impl VMM {
     ///
     /// * `kernel_cfg` - [`KernelConfig`](struct.KernelConfig.html) struct containing kernel
     ///                  configurations.
-    pub fn load_kernel(&mut self, kernel_cfg: KernelConfig) -> Result<KernelLoaderResult> {
-        let mut kernel_image = File::open(kernel_cfg.path).map_err(Error::IO)?;
+    fn load_kernel(&mut self, kernel_cfg: &KernelConfig) -> Result<KernelLoaderResult> {
+        let mut kernel_image = File::open(&kernel_cfg.path).map_err(Error::IO)?;
         let zero_page_addr = GuestAddress(ZEROPG_START);
 
         // Load the kernel into guest memory.
@@ -227,7 +247,7 @@ impl VMM {
         // Load the kernel command line into guest memory.
         let mut cmdline = Cmdline::new(kernel_cfg.cmdline.len() + 1);
         cmdline
-            .insert_str(kernel_cfg.cmdline)
+            .insert_str(kernel_cfg.cmdline.clone())
             .map_err(Error::Cmdline)?;
         load_cmdline(
             &self.guest_memory,
@@ -247,12 +267,8 @@ impl VMM {
         Ok(kernel_load)
     }
 
-    /// Configure PIO devices.
-    ///
-    /// This sets up the following PIO devices:
-    /// * `x86_64`: serial console
-    /// * `aarch64`: N/A
-    fn configure_pio_devices(&mut self) -> Result<()> {
+    /// Create and add a serial console to the VMM.
+    fn add_serial_console(&mut self) -> Result<()> {
         // Create the serial console.
         let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::IO)?;
         let serial = Arc::new(Mutex::new(SerialWrapper(Serial::new(
@@ -268,8 +284,8 @@ impl VMM {
         // Safe to use expect() because the device manager is instantiated in new(), there's no
         // default implementation, and the field is private inside the VMM struct.
         self.device_mgr
-            .as_mut()
-            .expect("Missing device manager")
+            .lock()
+            .unwrap()
             .register_pio_resources(
                 serial.clone(),
                 &[Resource::PioAddressRange {
@@ -321,16 +337,13 @@ impl VMM {
     ///
     /// [`KernelLoaderResult`]: https://docs.rs/linux-loader/latest/linux_loader/loader/struct.KernelLoaderResult.html
     /// [`VcpuConfig`]: struct.VcpuConfig.html
-    pub fn create_vcpus(
+    fn create_vcpus(
         &mut self,
-        vcpu_cfg: VcpuConfig,
+        vcpu_cfg: &VcpuConfig,
         kernel_load: &KernelLoaderResult,
     ) -> Result<()> {
         let kernel_load_addr = self.compute_kernel_load_addr(kernel_load)?;
 
-        // Safe to use expect() because the device manager is instantiated in new(), there's no
-        // default implementation, and the field is private inside the VMM struct.
-        let shared_device_mgr = Arc::new(self.device_mgr.take().expect("Missing device manager"));
         let base_cpuid = self
             .kvm
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
@@ -348,26 +361,10 @@ impl VMM {
                 zero_page_start: GuestAddress(ZEROPG_START),
             };
             self.vm
-                .create_vcpu(shared_device_mgr.clone(), vcpu_state, &self.guest_memory)?;
+                .create_vcpu(self.device_mgr.clone(), vcpu_state, &self.guest_memory)?;
         }
 
         Ok(())
-    }
-
-    /// Run the VMM.
-    pub fn run(&mut self) -> Result<()> {
-        if stdin().lock().set_raw_mode().is_err() {
-            eprintln!("Failed to set raw mode on terminal. Stdin will echo.");
-        }
-
-        self.vm.run().map_err(Error::Vm)?;
-
-        loop {
-            match self.event_mgr.run() {
-                Ok(_) => (),
-                Err(e) => eprintln!("Failed to handle events: {:?}", e),
-            }
-        }
     }
 
     fn check_kvm_capabilities(kvm: &Kvm) -> Result<()> {
@@ -382,17 +379,6 @@ impl VMM {
         } else {
             Ok(())
         }
-    }
-}
-
-impl TryFrom<VMMConfig> for VMM {
-    type Error = Error;
-
-    fn try_from(config: VMMConfig) -> Result<Self> {
-        let mut vmm = VMM::new(&config)?;
-        let kernel_load = vmm.load_kernel(config.kernel_config)?;
-        vmm.create_vcpus(config.vcpu_config, &kernel_load)?;
-        Ok(vmm)
     }
 }
 
@@ -427,6 +413,27 @@ mod tests {
         }
     }
 
+    // Returns a VMM which only has the memory configured. The purpose of the mock VMM
+    // is to give a finer grained control to test individual private functions in the VMM.
+    fn mock_vmm(vmm_config: VMMConfig) -> VMM {
+        let kvm = Kvm::new().unwrap();
+        let guest_memory = VMM::create_guest_memory(&vmm_config.memory_config).unwrap();
+
+        // Create the KvmVm.
+        let vm_state = VmState {
+            num_vcpus: vmm_config.vcpu_config.num,
+        };
+        let vm = KvmVm::new(&kvm, vm_state, &guest_memory).unwrap();
+
+        VMM {
+            vm,
+            kvm,
+            guest_memory,
+            device_mgr: Arc::new(Mutex::new(IoManager::new())),
+            event_mgr: EventManager::new().unwrap(),
+        }
+    }
+
     #[test]
     fn test_try_from() {
         let mut vmm_config = default_vmm_config();
@@ -434,8 +441,6 @@ mod tests {
         // Test happy case.
         {
             let vmm = VMM::try_from(vmm_config.clone()).unwrap();
-            // This is None because it's taken out of the Option when the vCPUs start.
-            assert!(vmm.device_mgr.is_none());
             assert_eq!(
                 vmm.guest_memory.last_addr(),
                 GuestAddress(((MEM_SIZE_MIB as u64) << 20) - 1)
@@ -454,7 +459,7 @@ mod tests {
     #[test]
     fn test_create_vcpus() {
         let vmm_config = default_vmm_config();
-        let mut vmm = VMM::new(&vmm_config).unwrap();
+        let mut vmm = mock_vmm(vmm_config.clone());
 
         // ELF (vmlinux) kernel scenario: happy case
         let mut kern_load = KernelLoaderResult {
@@ -467,23 +472,23 @@ mod tests {
         let expected_load_addr = kern_load.kernel_load;
         assert_eq!(actual_kernel_load_addr, expected_load_addr);
         assert!(vmm
-            .create_vcpus(vmm_config.vcpu_config.clone(), &kern_load)
+            .create_vcpus(&vmm_config.vcpu_config.clone(), &kern_load)
             .is_ok());
 
         // ELF kernel scenario: error case (kernel load address past guest memory).
         // Since we don't need to check the load_address, we can test this directly with
         // create_vcpu.
-        let mut vmm = VMM::new(&vmm_config).unwrap();
+        let mut vmm = mock_vmm(vmm_config.clone());
         kern_load.kernel_load = GuestAddress(vmm.guest_memory.last_addr().raw_value() + 1);
         assert!(matches!(
-            vmm.create_vcpus(vmm_config.vcpu_config.clone(), &kern_load),
+            vmm.create_vcpus(&vmm_config.vcpu_config.clone(), &kern_load),
             Err(Error::RipOutOfGuestMemory)
         ));
 
         // bzImage kernel scenario: happy case
         // The difference is that kernel_load.setup_header is no longer None, because we found one
         // while parsing the bzImage file.
-        let mut vmm = VMM::new(&vmm_config).unwrap();
+        let mut vmm = mock_vmm(vmm_config.clone());
         kern_load.kernel_load = GuestAddress(0x0100_0000); // 1 MiB.
         kern_load.setup_header = Some(setup_header {
             version: 0x0200, // 0x200 (v2.00) is the minimum.
@@ -494,15 +499,15 @@ mod tests {
         let actual_kernel_load_addr = vmm.compute_kernel_load_addr(&kern_load).unwrap();
         assert_eq!(expected_load_addr, actual_kernel_load_addr);
         assert!(vmm
-            .create_vcpus(vmm_config.vcpu_config.clone(), &kern_load)
+            .create_vcpus(&vmm_config.vcpu_config.clone(), &kern_load)
             .is_ok());
 
         // bzImage kernel scenario: error case: kernel_load + 0x200 (512 - size of bzImage header)
         // falls out of guest memory
-        let mut vmm = VMM::new(&vmm_config).unwrap();
+        let mut vmm = mock_vmm(vmm_config.clone());
         kern_load.kernel_load = GuestAddress(vmm.guest_memory.last_addr().raw_value() - 511);
         assert!(matches!(
-            vmm.create_vcpus(vmm_config.vcpu_config, &kern_load),
+            vmm.create_vcpus(&vmm_config.vcpu_config, &kern_load),
             Err(Error::RipOutOfGuestMemory)
         ));
     }

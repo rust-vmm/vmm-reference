@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
 use std::io;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 use kvm_bindings::{kvm_pit_config, kvm_userspace_memory_region, KVM_PIT_SPEAKER_DUMMY};
@@ -138,7 +138,7 @@ impl KvmVm {
     /// Create a Vcpu based on the passed configuration.
     pub fn create_vcpu<M: GuestMemory>(
         &mut self,
-        bus: Arc<IoManager>,
+        bus: Arc<Mutex<IoManager>>,
         vcpu_state: VcpuState,
         memory: &M,
     ) -> Result<()> {
@@ -253,7 +253,7 @@ mod tests {
         let num_vcpus = 2;
 
         let (mut vm, guest_memory) = default_vm(num_vcpus).unwrap();
-        let io_manager = Arc::new(IoManager::new());
+        let io_manager = Arc::new(Mutex::new(IoManager::new()));
 
         for i in 0..vm.state.num_vcpus {
             // We're creating a dummy Vcpu.
