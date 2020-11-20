@@ -3,7 +3,7 @@
 
 use std::io::{self, stdin};
 use std::result;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use kvm_bindings::{kvm_fpu, kvm_regs, CpuId, Msrs};
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
@@ -68,7 +68,7 @@ pub struct KvmVcpu {
     /// KVM file descriptor for a vCPU.
     vcpu_fd: VcpuFd,
     /// Device manager for bus accesses.
-    device_mgr: Arc<IoManager>,
+    device_mgr: Arc<Mutex<IoManager>>,
     state: VcpuState,
 }
 
@@ -76,7 +76,7 @@ impl KvmVcpu {
     /// Create a new vCPU.
     pub fn new<M: GuestMemory>(
         vm_fd: &VmFd,
-        device_mgr: Arc<IoManager>,
+        device_mgr: Arc<Mutex<IoManager>>,
         state: VcpuState,
         memory: &M,
     ) -> Result<Self> {
@@ -255,7 +255,13 @@ impl KvmVcpu {
                     VcpuExit::IoOut(addr, data) => {
                         if 0x3f8 <= addr && addr < (0x3f8 + 8) {
                             // Write at the serial port.
-                            if self.device_mgr.pio_write(PioAddress(addr), data).is_err() {
+                            if self
+                                .device_mgr
+                                .lock()
+                                .unwrap()
+                                .pio_write(PioAddress(addr), data)
+                                .is_err()
+                            {
                                 eprintln!("Failed to write to serial port");
                             }
                         } else if addr == 0x060 || addr == 0x061 || addr == 0x064 {
@@ -270,7 +276,13 @@ impl KvmVcpu {
                     VcpuExit::IoIn(addr, data) => {
                         if 0x3f8 <= addr && addr < (0x3f8 + 8) {
                             // Read from the serial port.
-                            if self.device_mgr.pio_read(PioAddress(addr), data).is_err() {
+                            if self
+                                .device_mgr
+                                .lock()
+                                .unwrap()
+                                .pio_read(PioAddress(addr), data)
+                                .is_err()
+                            {
                                 eprintln!("Failed to read from serial port");
                             }
                         } else {
