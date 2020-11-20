@@ -180,13 +180,13 @@ impl VMM {
             .map_err(|e| Error::Memory(MemoryError::VmMemory(e)))
     }
 
-    /// Configure guest kernel.
+    /// Load the kernel into guest memory.
     ///
     /// # Arguments
     ///
     /// * `kernel_cfg` - [`KernelConfig`](struct.KernelConfig.html) struct containing kernel
     ///                  configurations.
-    pub fn configure_kernel(&mut self, kernel_cfg: KernelConfig) -> Result<KernelLoaderResult> {
+    pub fn load_kernel(&mut self, kernel_cfg: KernelConfig) -> Result<KernelLoaderResult> {
         let mut kernel_image = File::open(kernel_cfg.path).map_err(Error::IO)?;
         let zero_page_addr = GuestAddress(ZEROPG_START);
 
@@ -390,7 +390,7 @@ impl TryFrom<VMMConfig> for VMM {
 
     fn try_from(config: VMMConfig) -> Result<Self> {
         let mut vmm = VMM::new(&config)?;
-        let kernel_load = vmm.configure_kernel(config.kernel_config)?;
+        let kernel_load = vmm.load_kernel(config.kernel_config)?;
         vmm.create_vcpus(config.vcpu_config, &kernel_load)?;
         Ok(vmm)
     }
