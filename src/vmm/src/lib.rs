@@ -137,7 +137,7 @@ impl VMM {
 
         // Create the KvmVm.
         let vm_state = VmState {
-            num_vcpus: config.vcpu_config.num_vcpus,
+            num_vcpus: config.vcpu_config.num,
         };
         let vm = KvmVm::new(&kvm, vm_state, &guest_memory)?;
 
@@ -158,7 +158,7 @@ impl VMM {
     // On x86_64, they surround the MMIO gap (dedicated space for MMIO device slots) if the
     // configured memory size exceeds the latter's starting address.
     fn create_guest_memory(memory_config: &MemoryConfig) -> Result<GuestMemoryMmap> {
-        let mem_size = ((memory_config.mem_size_mib as u64) << 20) as usize;
+        let mem_size = ((memory_config.size_mib as u64) << 20) as usize;
         let mem_regions = match mem_size.checked_sub(MMIO_MEM_START as usize) {
             // Guest memory fits before the MMIO gap.
             None | Some(0) => vec![(GuestAddress(0), mem_size)],
@@ -330,13 +330,13 @@ impl VMM {
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
             .map_err(Error::KvmIoctl)?;
 
-        for index in 0..vcpu_cfg.num_vcpus {
+        for index in 0..vcpu_cfg.num {
             // Set CPUID.
             let mut cpuid = base_cpuid.clone();
             filter_cpuid(
                 &self.kvm,
                 index as usize,
-                vcpu_cfg.num_vcpus as usize,
+                vcpu_cfg.num as usize,
                 &mut cpuid,
             );
 
@@ -420,10 +420,10 @@ mod tests {
                 cmdline: "foo=bar".to_string(),
             },
             memory_config: MemoryConfig {
-                mem_size_mib: MEM_SIZE_MIB,
+                size_mib: MEM_SIZE_MIB,
             },
             vcpu_config: VcpuConfig {
-                num_vcpus: NUM_VCPUS,
+                num: NUM_VCPUS,
             },
         }
     }

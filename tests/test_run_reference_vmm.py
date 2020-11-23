@@ -42,11 +42,11 @@ def test_reference_vmm(kernel):
     subprocess.run(build_cmd, shell=True, check=True)
     vmm_cmd = [
         "target/release/vmm-reference",
-        "--memory", "mem_size_mib={}".format(mem_size_mib),
+        "--memory", "size_mib={}".format(mem_size_mib),
         "--kernel", "cmdline=\"{}\",path={},himem_start={}".format(
             cmdline, kernel_path, himem_start
         ),
-        "--vcpus", "num_vcpus={}".format(num_vcpus)
+        "--vcpu", "num={}".format(num_vcpus)
     ]
     vmm_process = subprocess.Popen(vmm_cmd, stdout=PIPE, stdin=PIPE)
 
