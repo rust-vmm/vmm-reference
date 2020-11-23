@@ -78,13 +78,13 @@ stored, are as follows:
    creates and registers the guest memory with KVM.
     1. Requirements: KVM set up
     1. Inputs
-        1. guest memory size - user-defined
+        1. guest memory size
 1. Load the guest kernel into guest memory. This is done through `linux-loader`.
     1. Requirements: guest memory is configured
     1. Inputs:
-        1. path to kernel file - user defined
-        1. start of high memory (x86_64) - user defined
-        1. kernel command line - user defined
+        1. path to kernel file
+        1. start of high memory (x86_64)
+        1. kernel command line
         1. boot parameters - embedded in VMM
             1. Too complex to pass through the command line / other inputs:
                these are arch-dependent structs, built with `bindgen` and
@@ -156,8 +156,8 @@ effort.
 
 ```bash
 vmm-reference                                                           \
-    --memory mem_size_mib=1024                                          \
-    --vcpus num_vcpus=1                                                 \
+    --memory size_mib=1024                                          \
+    --vcpu num=1                                                 \
     --kernel path=/path/to/vmlinux,himem_start=1024,cmdline="pci=off"   \
     [--blk <blkdev_config> - TBD]
     [--net <netdev_config> - TBD]

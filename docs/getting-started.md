@@ -96,14 +96,14 @@ directly through `cargo`, passing on its specific
 ```wrap
 cargo run --release --            \
     --memory mem_size_mib=1024    \
-    --kernel path=${PWD}/resources/kernel/vmlinux-hello-busybox,cmdline="console=ttyS0 i8042.nokbd reboot=k panic=1 pci=off",himem_start=1048576  \
-    --vcpus num_vcpus=1
+    --kernel path=${PWD}/resources/kernel/vmlinux-hello-busybox  \
+    --vcpu num=1
 ```
 
 ```wrap
 cargo build --release
 target/release/vmm-reference      \
     --memory mem_size_mib=1024    \
-    --kernel path=${PWD}/resources/kernel/vmlinux-hello-busybox,cmdline="console=ttyS0 i8042.nokbd reboot=k panic=1 pci=off",himem_start=1048576  \
-    --vcpus num_vcpus=1
+    --kernel path=${PWD}/resources/kernel/vmlinux-hello-busybox \
+    --vcpu num=1
 ```

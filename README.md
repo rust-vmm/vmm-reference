@@ -45,14 +45,17 @@ For more details, see [`DESIGN.md`](docs/DESIGN.md).
 The reference VMM can be used out of the box as a `hello-world` example of a
 fully functional VMM built with `rust-vmm` crates.
 
+To start a basic VM with one vCPU and 256 MiB memory, you can use the following
+command:
 ```bash
-vmm-reference                                                           \
-    --memory mem_size_mib=1024                                          \
-    --vcpus num_vcpus=1                                                 \
-    --kernel path=/path/to/vmlinux,himem_start=1024,cmdline="console=ttyS0 pci=off"\
+vmm-reference                      \
+    --kernel path=/path/to/vmlinux \
     [--blk <blkdev_config> - TBD]
     [--net <netdev_config> - TBD]
 ```
+
+The default configuration can be updated through the
+[command line](#cli-reference).
 
 The crate's [`Cargo.toml`](Cargo.toml) controls which VMM functionalities are
 available. By default, all rust-vmm crates are listed as dependencies and
@@ -64,12 +67,32 @@ configurations. Advanced users can, of course, plug in their own front-end.
 
 * `memory` - guest memory configurations
   * `size_mib` - `u32`, guest memory size in MiB (decimal)
+    * default: 256 MiB
 * `kernel` - guest kernel configurations
   * `path` - `String`, path to the guest kernel image
   * `cmdline` - `String`, kernel command line
+    * default: "console=ttyS0 i8042.nokbd reboot=k panic=1 pci=off"
   * `himem_start` - `u64`, start address for high memory (decimal)
+    * default: 0x100000
 * `vcpus` - vCPU configurations
   * `num` - `u8`, number of vCPUs (decimal)
+    * default: 1
+
+### Example: Override the kernel command line
+
+```bash
+vmm-reference \
+    --kernel path=/path/to/kernel/image,cmdline="reboot=k panic=1 pci=off"
+```
+
+### Example: VM with 2 vCPUs and 1 GiB memory
+
+```bash
+vmm-reference                           \
+    --memory size_mib=1024          \
+    --vcpu num=2                        \
+    --kernel path=/path/to/kernel/image
+```
 
 ## License
 
