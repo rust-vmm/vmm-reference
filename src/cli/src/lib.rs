@@ -32,6 +32,7 @@ impl CLI {
                     .long("memory")
                     .required(true)
                     .takes_value(true)
+                    .default_value("size_mib=256")
                     .help("Guest memory configuration.\n\tFormat: \"size_mib=<u32>\""),
             )
             .arg(
@@ -39,6 +40,7 @@ impl CLI {
                     .long("vcpu")
                     .required(true)
                     .takes_value(true)
+                    .default_value("num=1")
                     .help("vCPU configuration.\n\tFormat: \"num=<u8>\""),
             )
             .arg(
@@ -46,7 +48,7 @@ impl CLI {
                     .long("kernel")
                     .required(true)
                     .takes_value(true)
-                    .help("Kernel configuration.\n\tFormat: \"path=<string>,cmdline=<string>,himem_start=<u64>\""),
+                    .help("Kernel configuration.\n\tFormat: \"path=<string>[,cmdline=<string>,himem_start=<u64>]\""),
             );
 
         // Save the usage beforehand as a string, because `get_matches` consumes the `App`.
@@ -237,16 +239,30 @@ mod tests {
                 "--vcpu",
                 "num=1",
                 "--kernel",
-                "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
+                "path=/foo/bar,cmdline=\"foo=bar bar=foo\",himem_start=42",
             ])
             .unwrap(),
             VMMConfig {
                 kernel_config: KernelConfig {
                     path: PathBuf::from("/foo/bar"),
-                    cmdline: "\"foo=bar\"".to_string(),
+                    cmdline: "\"foo=bar bar=foo\"".to_string(),
                     himem_start: 42,
                 },
                 memory_config: MemoryConfig { size_mib: 128 },
+                vcpu_config: VcpuConfig { num: 1 },
+            }
+        );
+
+        // Test default values.
+        assert_eq!(
+            CLI::launch(vec!["foobar", "--kernel", "path=/foo/bar",]).unwrap(),
+            VMMConfig {
+                kernel_config: KernelConfig {
+                    path: PathBuf::from("/foo/bar"),
+                    cmdline: "console=ttyS0 i8042.nokbd reboot=k panic=1 pci=off".to_string(),
+                    himem_start: 1048576,
+                },
+                memory_config: MemoryConfig { size_mib: 256 },
                 vcpu_config: VcpuConfig { num: 1 },
             }
         );

@@ -57,6 +57,12 @@ const ZEROPG_START: u64 = 0x7000;
 /// Address where the kernel command line is written.
 const CMDLINE_START: u64 = 0x0002_0000;
 
+/// Default high memory start.
+pub const HIGH_RAM_START: u64 = 0x100000;
+
+/// Default kernel command line.
+pub const DEFAULT_KERNEL_CMDLINE: &str = "console=ttyS0 i8042.nokbd reboot=k panic=1 pci=off";
+
 /// VMM memory related errors.
 #[derive(Debug)]
 pub enum MemoryError {
@@ -333,12 +339,7 @@ impl VMM {
         for index in 0..vcpu_cfg.num {
             // Set CPUID.
             let mut cpuid = base_cpuid.clone();
-            filter_cpuid(
-                &self.kvm,
-                index as usize,
-                vcpu_cfg.num as usize,
-                &mut cpuid,
-            );
+            filter_cpuid(&self.kvm, index as usize, vcpu_cfg.num as usize, &mut cpuid);
 
             let vcpu_state = VcpuState {
                 kernel_load_addr,
@@ -422,9 +423,7 @@ mod tests {
             memory_config: MemoryConfig {
                 size_mib: MEM_SIZE_MIB,
             },
-            vcpu_config: VcpuConfig {
-                num: NUM_VCPUS,
-            },
+            vcpu_config: VcpuConfig { num: NUM_VCPUS },
         }
     }
 

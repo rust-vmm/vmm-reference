@@ -6,6 +6,8 @@ use std::fmt;
 use std::path::PathBuf;
 use std::result;
 
+use super::{DEFAULT_KERNEL_CMDLINE, HIGH_RAM_START};
+
 /// Errors encountered converting the `*Config` objects.
 pub enum ConversionError {
     /// Failed to parse the string representation for the kernel.
@@ -52,7 +54,9 @@ impl TryFrom<String> for MemoryConfig {
         }
         tokens[1]
             .parse::<u32>()
-            .and_then(|mem_size_mib| Ok(MemoryConfig { size_mib: mem_size_mib }))
+            .map(|mem_size_mib| MemoryConfig {
+                size_mib: mem_size_mib,
+            })
             .map_err(|_| ConversionError::ParseMemory(tokens[1].to_string()))
     }
 }
@@ -82,7 +86,7 @@ impl TryFrom<String> for VcpuConfig {
         }
         tokens[1]
             .parse::<u8>()
-            .and_then(|num_vcpus| Ok(VcpuConfig { num: num_vcpus }))
+            .map(|num_vcpus| VcpuConfig { num: num_vcpus })
             .map_err(|_| ConversionError::ParseVcpus(tokens[1].to_string()))
     }
 }
@@ -104,11 +108,8 @@ impl TryFrom<String> for KernelConfig {
     fn try_from(kernel_cfg_str: String) -> result::Result<Self, Self::Error> {
         // Supported options:
         // `cmdline=<"string">,path=/path/to/kernel,himem_start=<u64>`
-        // Required: all
+        // Required: path
         let options: Vec<&str> = kernel_cfg_str.split(',').collect();
-        if options.len() != 3 {
-            return Err(ConversionError::ParseKernel(kernel_cfg_str));
-        }
 
         let mut cmdline: Option<String> = None;
         let mut path: Option<PathBuf> = None;
@@ -139,11 +140,9 @@ impl TryFrom<String> for KernelConfig {
         }
 
         Ok(KernelConfig {
-            cmdline: cmdline
-                .ok_or_else(|| ConversionError::ParseKernel(kernel_cfg_str.to_string()))?,
+            cmdline: cmdline.unwrap_or_else(|| DEFAULT_KERNEL_CMDLINE.to_string()),
             path: path.ok_or_else(|| ConversionError::ParseKernel(kernel_cfg_str.to_string()))?,
-            himem_start: himem_start
-                .ok_or_else(|| ConversionError::ParseKernel(kernel_cfg_str.to_string()))?,
+            himem_start: himem_start.unwrap_or(HIGH_RAM_START),
         })
     }
 }
