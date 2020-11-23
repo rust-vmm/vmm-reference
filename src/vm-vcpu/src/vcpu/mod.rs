@@ -25,6 +25,8 @@ pub mod msrs;
 
 /// Initial stack for the boot CPU.
 const BOOT_STACK_POINTER: u64 = 0x8ff0;
+/// Address of the zeropage, where Linux kernel boot parameters are written.
+const ZEROPG_START: u64 = 0x7000;
 
 // Initial pagetables.
 const PML4_START: u64 = 0x9000;
@@ -56,8 +58,6 @@ pub type Result<T> = result::Result<T, Error>;
 pub struct VcpuState {
     pub id: u8,
     pub cpuid: CpuId,
-    pub kernel_load_addr: GuestAddress,
-    pub zero_page_start: GuestAddress,
 }
 
 /// Struct for interacting with vCPUs.
@@ -70,6 +70,7 @@ pub struct KvmVcpu {
     /// Device manager for bus accesses.
     device_mgr: Arc<Mutex<IoManager>>,
     state: VcpuState,
+    running: bool,
 }
 
 impl KvmVcpu {
@@ -84,11 +85,11 @@ impl KvmVcpu {
             vcpu_fd: vm_fd.create_vcpu(state.id).map_err(Error::KvmIoctl)?,
             device_mgr,
             state,
+            running: false,
         };
 
         vcpu.configure_cpuid(&vcpu.state.cpuid)?;
         vcpu.configure_msrs()?;
-        vcpu.configure_regs(vcpu.state.kernel_load_addr, vcpu.state.zero_page_start)?;
         vcpu.configure_sregs(memory)?;
         vcpu.configure_lapic()?;
         vcpu.configure_fpu()?;
@@ -117,17 +118,13 @@ impl KvmVcpu {
     }
 
     /// Configure regs.
-    fn configure_regs(
-        &self,
-        kernel_load: GuestAddress,
-        zero_page_start: GuestAddress,
-    ) -> Result<()> {
+    fn configure_regs(&self, instruction_pointer: GuestAddress) -> Result<()> {
         let regs = kvm_regs {
             // EFLAGS (RFLAGS in 64-bit mode) always has bit 1 set.
             // See https://software.intel.com/sites/default/files/managed/39/c5/325462-sdm-vol-1-2abcd-3abcd.pdf#page=79
             // Section "EFLAGS Register"
             rflags: 0x0000_0000_0000_0002u64,
-            rip: kernel_load.raw_value(),
+            rip: instruction_pointer.raw_value(),
             // Starting stack pointer.
             rsp: BOOT_STACK_POINTER,
             // Frame pointer. It gets a snapshot of the stack pointer (rsp) so that when adjustments are
@@ -135,7 +132,7 @@ impl KvmVcpu {
             // local variables and function parameters are still accessible from a constant offset from rbp.
             rbp: BOOT_STACK_POINTER,
             // Must point to zero page address per Linux ABI. This is x86_64 specific.
-            rsi: zero_page_start.raw_value(),
+            rsi: ZEROPG_START,
             ..Default::default()
         };
         self.vcpu_fd.set_regs(&regs).map_err(Error::KvmIoctl)
@@ -241,7 +238,12 @@ impl KvmVcpu {
 
     /// vCPU emulation loop.
     #[allow(clippy::if_same_then_else)]
-    pub fn run(&mut self) {
+    pub fn run(&mut self, instruction_pointer: GuestAddress) -> Result<()> {
+        if !self.running {
+            self.configure_regs(instruction_pointer)?;
+            self.running = true;
+        }
+
         match self.vcpu_fd.run() {
             Ok(exit_reason) => {
                 match exit_reason {
@@ -296,5 +298,7 @@ impl KvmVcpu {
             }
             Err(e) => eprintln!("Emulation error: {}", e),
         }
+
+        Ok(())
     }
 }
