@@ -1,5 +1,5 @@
 [package]
-name = "cli"
+name = "api"
 version = "0.1.0"
 authors = ["rust-vmm AWS maintainers <rust-vmm-maintainers@amazon.com>"]
 edition = "2018"

@@ -1,7 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
-extern crate cli;
+extern crate api;
 extern crate vmm;
 
 #[cfg(target_arch = "x86_64")]
@@ -10,7 +10,7 @@ use std::convert::TryFrom;
 use std::env;
 
 #[cfg(target_arch = "x86_64")]
-use cli::CLI;
+use api::CLI;
 #[cfg(target_arch = "x86_64")]
 use vmm::VMM;
 
