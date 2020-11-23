@@ -8,7 +8,7 @@ use std::thread::{self, JoinHandle};
 use kvm_bindings::{kvm_pit_config, kvm_userspace_memory_region, KVM_PIT_SPEAKER_DUMMY};
 use kvm_ioctls::{Kvm, VmFd};
 use vm_device::device_manager::IoManager;
-use vm_memory::{Address, GuestMemory, GuestMemoryRegion};
+use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryRegion};
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::vcpu::{self, mptable, KvmVcpu, VcpuState};
@@ -159,7 +159,11 @@ impl KvmVm {
     ///
     /// Returns an error when the number of configured vcpus is not the same as the number
     /// of created vcpus (using the `create_vcpu` function).
-    pub fn run(&mut self) -> Result<()> {
+    ///
+    /// # Arguments
+    ///
+    /// * `vcpu_run_addr`: address in guest memory where the vcpu run starts.
+    pub fn run(&mut self, vcpu_run_addr: GuestAddress) -> Result<()> {
         if self.vcpus.len() != self.state.num_vcpus as usize {
             return Err(Error::RunVcpus(io::Error::from(ErrorKind::InvalidInput)));
         }
@@ -167,7 +171,7 @@ impl KvmVm {
         for mut vcpu in self.vcpus.drain(..) {
             let vcpu_handle: JoinHandle<KvmVcpu> = thread::Builder::new()
                 .spawn(move || loop {
-                    vcpu.run();
+                    let _ = vcpu.run(vcpu_run_addr);
                 })
                 .map_err(Error::RunVcpus)?;
             self.vcpu_handles.push(vcpu_handle);
@@ -245,7 +249,9 @@ mod tests {
         // We're specifying in the VmState that we want to run one vcpu, but we do not create
         // any. This should return an error.
         let (mut vm, _guest_memory) = default_vm(1).unwrap();
-        assert!(matches!(vm.run(), Err(Error::RunVcpus(e)) if e.kind() == ErrorKind::InvalidInput));
+        assert!(
+            matches!(vm.run(GuestAddress(0x10_000_000)), Err(Error::RunVcpus(e)) if e.kind() == ErrorKind::InvalidInput)
+        );
     }
 
     #[test]
@@ -260,10 +266,8 @@ mod tests {
             vm.create_vcpu(
                 io_manager.clone(),
                 VcpuState {
-                    zero_page_start: GuestAddress(0),
                     cpuid: CpuId::new(1),
                     id: i,
-                    kernel_load_addr: GuestAddress(0),
                 },
                 &guest_memory,
             )

@@ -116,6 +116,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct VMM {
     kvm: Kvm,
     vm: KvmVm,
+    kernel_cfg: KernelConfig,
     guest_memory: GuestMemoryMmap,
     // The `device_mgr` is an Arc<Mutex> so that it can be shared between
     // the Vcpu threads, and modified when new devices are added.
@@ -153,11 +154,11 @@ impl TryFrom<VMMConfig> for VMM {
             guest_memory,
             device_mgr: Arc::new(Mutex::new(IoManager::new())),
             event_mgr: EventManager::new().map_err(Error::EventManager)?,
+            kernel_cfg: config.kernel_config.clone(),
         };
 
         vmm.add_serial_console()?;
-        let load_result = vmm.load_kernel(&config.kernel_config)?;
-        vmm.create_vcpus(&config.vcpu_config, &load_result)?;
+        vmm.create_vcpus(&config.vcpu_config)?;
 
         Ok(vmm)
     }
@@ -166,11 +167,14 @@ impl TryFrom<VMMConfig> for VMM {
 impl VMM {
     /// Run the VMM.
     pub fn run(&mut self) -> Result<()> {
+        let load_result = self.load_kernel()?;
+        let kernel_load_addr = self.compute_kernel_load_addr(&load_result)?;
+
         if stdin().lock().set_raw_mode().is_err() {
             eprintln!("Failed to set raw mode on terminal. Stdin will echo.");
         }
 
-        self.vm.run().map_err(Error::Vm)?;
+        self.vm.run(kernel_load_addr).map_err(Error::Vm)?;
 
         loop {
             match self.event_mgr.run() {
@@ -201,13 +205,8 @@ impl VMM {
     }
 
     /// Load the kernel into guest memory.
-    ///
-    /// # Arguments
-    ///
-    /// * `kernel_cfg` - [`KernelConfig`](struct.KernelConfig.html) struct containing kernel
-    ///                  configurations.
-    fn load_kernel(&mut self, kernel_cfg: &KernelConfig) -> Result<KernelLoaderResult> {
-        let mut kernel_image = File::open(&kernel_cfg.path).map_err(Error::IO)?;
+    fn load_kernel(&mut self) -> Result<KernelLoaderResult> {
+        let mut kernel_image = File::open(&self.kernel_cfg.path).map_err(Error::IO)?;
         let zero_page_addr = GuestAddress(ZEROPG_START);
 
         // Load the kernel into guest memory.
@@ -215,14 +214,14 @@ impl VMM {
             &self.guest_memory,
             None,
             &mut kernel_image,
-            Some(GuestAddress(kernel_cfg.himem_start)),
+            Some(GuestAddress(self.kernel_cfg.himem_start)),
         ) {
             Ok(result) => result,
             Err(loader::Error::Elf(elf::Error::InvalidElfMagicNumber)) => BzImage::load(
                 &self.guest_memory,
                 None,
                 &mut kernel_image,
-                Some(GuestAddress(kernel_cfg.himem_start)),
+                Some(GuestAddress(self.kernel_cfg.himem_start)),
             )
             .map_err(Error::KernelLoad)?,
             Err(e) => {
@@ -234,7 +233,7 @@ impl VMM {
         let mut bootparams = build_bootparams(
             &self.guest_memory,
             &kernel_load,
-            GuestAddress(kernel_cfg.himem_start),
+            GuestAddress(self.kernel_cfg.himem_start),
             GuestAddress(MMIO_MEM_START),
             GuestAddress(FIRST_ADDR_PAST_32BITS),
         )
@@ -242,12 +241,12 @@ impl VMM {
 
         // Add the kernel command line to the boot parameters.
         bootparams.hdr.cmd_line_ptr = CMDLINE_START as u32;
-        bootparams.hdr.cmdline_size = kernel_cfg.cmdline.len() as u32 + 1;
+        bootparams.hdr.cmdline_size = self.kernel_cfg.cmdline.len() as u32 + 1;
 
         // Load the kernel command line into guest memory.
-        let mut cmdline = Cmdline::new(kernel_cfg.cmdline.len() + 1);
+        let mut cmdline = Cmdline::new(self.kernel_cfg.cmdline.len() + 1);
         cmdline
-            .insert_str(kernel_cfg.cmdline.clone())
+            .insert_str(self.kernel_cfg.cmdline.clone())
             .map_err(Error::Cmdline)?;
         load_cmdline(
             &self.guest_memory,
@@ -333,17 +332,10 @@ impl VMM {
     /// # Arguments
     ///
     /// * `vcpu_cfg` - [`VcpuConfig`] struct containing vCPU configurations.
-    /// * `kernel_load` - [`KernelLoaderResult`] struct, result of loading the kernel in guest memory.
     ///
     /// [`KernelLoaderResult`]: https://docs.rs/linux-loader/latest/linux_loader/loader/struct.KernelLoaderResult.html
     /// [`VcpuConfig`]: struct.VcpuConfig.html
-    fn create_vcpus(
-        &mut self,
-        vcpu_cfg: &VcpuConfig,
-        kernel_load: &KernelLoaderResult,
-    ) -> Result<()> {
-        let kernel_load_addr = self.compute_kernel_load_addr(kernel_load)?;
-
+    fn create_vcpus(&mut self, vcpu_cfg: &VcpuConfig) -> Result<()> {
         let base_cpuid = self
             .kvm
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
@@ -354,12 +346,7 @@ impl VMM {
             let mut cpuid = base_cpuid.clone();
             filter_cpuid(&self.kvm, index as usize, vcpu_cfg.num as usize, &mut cpuid);
 
-            let vcpu_state = VcpuState {
-                kernel_load_addr,
-                cpuid,
-                id: index,
-                zero_page_start: GuestAddress(ZEROPG_START),
-            };
+            let vcpu_state = VcpuState { cpuid, id: index };
             self.vm
                 .create_vcpu(self.device_mgr.clone(), vcpu_state, &self.guest_memory)?;
         }
@@ -390,7 +377,7 @@ mod tests {
     use std::path::PathBuf;
 
     use linux_loader::loader::bootparam::setup_header;
-    use linux_loader::loader::elf::PvhBootCapability;
+    use linux_loader::loader::elf::PvhBootCapability::{self, PvhEntryNotPresent};
     use vm_memory::{Address, GuestMemory};
     use vmm_sys_util::tempfile::TempFile;
 
@@ -398,13 +385,22 @@ mod tests {
     const NUM_VCPUS: u8 = 1;
     const HIMEM_START_ADDR: u64 = 0x0010_0000; // 1 MB
 
+    fn default_bzimage_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../resources/kernel/bzimage-hello-busybox-halt")
+    }
+
+    fn default_elf_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../resources/kernel/vmlinux-hello-busybox-halt")
+    }
+
     fn default_vmm_config() -> VMMConfig {
         VMMConfig {
             kernel_config: KernelConfig {
-                path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../resources/kernel/vmlinux-hello-busybox"),
+                path: default_elf_path(),
                 himem_start: HIMEM_START_ADDR,
-                cmdline: "foo=bar".to_string(),
+                cmdline: DEFAULT_KERNEL_CMDLINE.to_string(),
             },
             memory_config: MemoryConfig {
                 size_mib: MEM_SIZE_MIB,
@@ -431,35 +427,14 @@ mod tests {
             guest_memory,
             device_mgr: Arc::new(Mutex::new(IoManager::new())),
             event_mgr: EventManager::new().unwrap(),
+            kernel_cfg: vmm_config.kernel_config,
         }
     }
 
     #[test]
-    fn test_try_from() {
-        let mut vmm_config = default_vmm_config();
-
-        // Test happy case.
-        {
-            let vmm = VMM::try_from(vmm_config.clone()).unwrap();
-            assert_eq!(
-                vmm.guest_memory.last_addr(),
-                GuestAddress(((MEM_SIZE_MIB as u64) << 20) - 1)
-            );
-        }
-
-        // Error case: missing kernel file.
-        {
-            vmm_config.kernel_config.path = PathBuf::from(TempFile::new().unwrap().as_path());
-            assert!(
-                matches!(VMM::try_from(vmm_config), Err(Error::IO(e)) if e.kind() == ErrorKind::NotFound)
-            );
-        }
-    }
-
-    #[test]
-    fn test_create_vcpus() {
+    fn test_compute_kernel_load_addr() {
         let vmm_config = default_vmm_config();
-        let mut vmm = mock_vmm(vmm_config.clone());
+        let vmm = mock_vmm(vmm_config);
 
         // ELF (vmlinux) kernel scenario: happy case
         let mut kern_load = KernelLoaderResult {
@@ -471,24 +446,16 @@ mod tests {
         let actual_kernel_load_addr = vmm.compute_kernel_load_addr(&kern_load).unwrap();
         let expected_load_addr = kern_load.kernel_load;
         assert_eq!(actual_kernel_load_addr, expected_load_addr);
-        assert!(vmm
-            .create_vcpus(&vmm_config.vcpu_config.clone(), &kern_load)
-            .is_ok());
 
-        // ELF kernel scenario: error case (kernel load address past guest memory).
-        // Since we don't need to check the load_address, we can test this directly with
-        // create_vcpu.
-        let mut vmm = mock_vmm(vmm_config.clone());
         kern_load.kernel_load = GuestAddress(vmm.guest_memory.last_addr().raw_value() + 1);
         assert!(matches!(
-            vmm.create_vcpus(&vmm_config.vcpu_config.clone(), &kern_load),
+            vmm.compute_kernel_load_addr(&kern_load),
             Err(Error::RipOutOfGuestMemory)
         ));
 
         // bzImage kernel scenario: happy case
         // The difference is that kernel_load.setup_header is no longer None, because we found one
         // while parsing the bzImage file.
-        let mut vmm = mock_vmm(vmm_config.clone());
         kern_load.kernel_load = GuestAddress(0x0100_0000); // 1 MiB.
         kern_load.setup_header = Some(setup_header {
             version: 0x0200, // 0x200 (v2.00) is the minimum.
@@ -498,17 +465,56 @@ mod tests {
         let expected_load_addr = kern_load.kernel_load.unchecked_add(0x200);
         let actual_kernel_load_addr = vmm.compute_kernel_load_addr(&kern_load).unwrap();
         assert_eq!(expected_load_addr, actual_kernel_load_addr);
-        assert!(vmm
-            .create_vcpus(&vmm_config.vcpu_config.clone(), &kern_load)
-            .is_ok());
 
         // bzImage kernel scenario: error case: kernel_load + 0x200 (512 - size of bzImage header)
         // falls out of guest memory
-        let mut vmm = mock_vmm(vmm_config.clone());
         kern_load.kernel_load = GuestAddress(vmm.guest_memory.last_addr().raw_value() - 511);
         assert!(matches!(
-            vmm.create_vcpus(&vmm_config.vcpu_config, &kern_load),
+            vmm.compute_kernel_load_addr(&kern_load),
             Err(Error::RipOutOfGuestMemory)
+        ));
+    }
+
+    #[test]
+    fn test_load_kernel() {
+        // Test Case: load a valid elf.
+        let mut vmm_config = default_vmm_config();
+        vmm_config.kernel_config.path = default_elf_path();
+        let mut vmm = mock_vmm(vmm_config);
+
+        let expected_load_result = KernelLoaderResult {
+            kernel_load: GuestAddress(0x0100_0000),
+            kernel_end: 36081664,
+            setup_header: None,
+            pvh_boot_cap: PvhEntryNotPresent,
+        };
+        assert_eq!(vmm.load_kernel().unwrap(), expected_load_result);
+
+        // Test Case: load a valid bzImage.
+        let mut vmm_config = default_vmm_config();
+        vmm_config.kernel_config.path = default_bzimage_path();
+        let mut vmm = mock_vmm(vmm_config);
+        let kernel_load_result = vmm.load_kernel().unwrap();
+        assert_eq!(kernel_load_result.kernel_load, GuestAddress(HIGH_RAM_START));
+        assert!(kernel_load_result.setup_header.is_some());
+
+        // Test case: kernel file does not exist.
+        let mut vmm_config = default_vmm_config();
+        vmm_config.kernel_config.path = PathBuf::from("not_a_file");
+        let mut vmm = mock_vmm(vmm_config);
+        assert!(
+            matches!(vmm.load_kernel().unwrap_err(), Error::IO(e) if e.kind() == ErrorKind::NotFound)
+        );
+
+        // Test case: kernel image is invalid.
+        let mut vmm_config = default_vmm_config();
+        let temp_file = TempFile::new().unwrap();
+        vmm_config.kernel_config.path = PathBuf::from(temp_file.as_path());
+        let mut vmm = mock_vmm(vmm_config);
+
+        assert!(matches!(
+            vmm.load_kernel().unwrap_err(),
+            Error::KernelLoad(_)
         ));
     }
 }
