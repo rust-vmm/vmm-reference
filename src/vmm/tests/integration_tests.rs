@@ -16,7 +16,7 @@ const DEFAULT_BZIMAGE: &str = "../../resources/kernel/bzimage-hello-busybox-halt
 const DEFAULT_ELF: &str = "../../resources/kernel/vmlinux-hello-busybox-halt";
 
 fn default_memory_config() -> MemoryConfig {
-    MemoryConfig { mem_size_mib: 1024 }
+    MemoryConfig { size_mib: 1024 }
 }
 
 fn default_kernel_config(path: PathBuf) -> KernelConfig {
@@ -28,7 +28,7 @@ fn default_kernel_config(path: PathBuf) -> KernelConfig {
 }
 
 fn default_vcpu_config() -> VcpuConfig {
-    VcpuConfig { num_vcpus: 1 }
+    VcpuConfig { num: 1 }
 }
 
 #[test]

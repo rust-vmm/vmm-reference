@@ -31,7 +31,7 @@ impl fmt::Display for ConversionError {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MemoryConfig {
     /// Guest memory size in MiB.
-    pub mem_size_mib: u32,
+    pub size_mib: u32,
 }
 
 impl TryFrom<String> for MemoryConfig {
@@ -47,12 +47,12 @@ impl TryFrom<String> for MemoryConfig {
         if tokens.len() != 2 {
             return Err(ConversionError::ParseMemory(mem_cfg_str));
         }
-        if tokens[0] != "mem_size_mib" {
+        if tokens[0] != "size_mib" {
             return Err(ConversionError::ParseMemory(tokens[0].to_string()));
         }
         tokens[1]
             .parse::<u32>()
-            .and_then(|mem_size_mib| Ok(MemoryConfig { mem_size_mib }))
+            .and_then(|mem_size_mib| Ok(MemoryConfig { size_mib: mem_size_mib }))
             .map_err(|_| ConversionError::ParseMemory(tokens[1].to_string()))
     }
 }
@@ -61,7 +61,7 @@ impl TryFrom<String> for MemoryConfig {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct VcpuConfig {
     /// Number of vCPUs.
-    pub num_vcpus: u8,
+    pub num: u8,
 }
 
 impl TryFrom<String> for VcpuConfig {
@@ -77,12 +77,12 @@ impl TryFrom<String> for VcpuConfig {
         if tokens.len() != 2 {
             return Err(ConversionError::ParseVcpus(vcpu_cfg_str));
         }
-        if tokens[0] != "num_vcpus" {
+        if tokens[0] != "num" {
             return Err(ConversionError::ParseVcpus(tokens[0].to_string()));
         }
         tokens[1]
             .parse::<u8>()
-            .and_then(|num_vcpus| Ok(VcpuConfig { num_vcpus }))
+            .and_then(|num_vcpus| Ok(VcpuConfig { num: num_vcpus }))
             .map_err(|_| ConversionError::ParseVcpus(tokens[1].to_string()))
     }
 }

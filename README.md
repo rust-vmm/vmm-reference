@@ -63,13 +63,13 @@ configurations. Advanced users can, of course, plug in their own front-end.
 ## CLI reference
 
 * `memory` - guest memory configurations
-  * `mem_size_mib` - `u32`, guest memory size in MiB (decimal)
+  * `size_mib` - `u32`, guest memory size in MiB (decimal)
 * `kernel` - guest kernel configurations
   * `path` - `String`, path to the guest kernel image
   * `cmdline` - `String`, kernel command line
   * `himem_start` - `u64`, start address for high memory (decimal)
 * `vcpus` - vCPU configurations
-  * `num_vcpus` - `u8`, number of vCPUs (decimal)
+  * `num` - `u8`, number of vCPUs (decimal)
 
 ## License
 

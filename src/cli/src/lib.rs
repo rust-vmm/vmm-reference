@@ -32,14 +32,14 @@ impl CLI {
                     .long("memory")
                     .required(true)
                     .takes_value(true)
-                    .help("Guest memory configuration.\n\tFormat: \"mem_size_mib=<u32>\""),
+                    .help("Guest memory configuration.\n\tFormat: \"size_mib=<u32>\""),
             )
             .arg(
-                Arg::with_name("vcpus")
-                    .long("vcpus")
+                Arg::with_name("vcpu")
+                    .long("vcpu")
                     .required(true)
                     .takes_value(true)
-                    .help("vCPU configuration.\n\tFormat: \"num_vcpus=<u8>\""),
+                    .help("vCPU configuration.\n\tFormat: \"num=<u8>\""),
             )
             .arg(
                 Arg::with_name("kernel")
@@ -83,7 +83,7 @@ impl CLI {
             })?,
             vcpu_config: VcpuConfig::try_from(
                 matches
-                    .value_of("vcpus")
+                    .value_of("vcpu")
                     .expect("Missing vCPU configuration")
                     .to_string(),
             )
@@ -110,34 +110,34 @@ mod tests {
         assert!(CLI::launch(vec![
             "foobar",
             "--memory",
-            "mem_size_mib=128",
-            "--vcpus",
-            "num_vcpus=1",
+            "size_mib=128",
+            "--vcpu",
+            "num=1",
             "--kernel",
             "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
             "foobar",
         ])
         .is_err());
 
-        // Invalid memory config: invalid value for `mem_size_mib`.
+        // Invalid memory config: invalid value for `size_mib`.
         assert!(CLI::launch(vec![
             "foobar",
             "--memory",
-            "mem_size_mib=foobar",
-            "--vcpus",
-            "num_vcpus=1",
+            "size_mib=foobar",
+            "--vcpu",
+            "num=1",
             "--kernel",
             "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
         ])
         .is_err());
 
-        // Invalid memory config: missing value for `mem_size_mib`.
+        // Invalid memory config: missing value for `size_mib`.
         assert!(CLI::launch(vec![
             "foobar",
             "--memory",
-            "mem_size_mib=",
-            "--vcpus",
-            "num_vcpus=1",
+            "size_mib=",
+            "--vcpu",
+            "num=1",
             "--kernel",
             "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
         ])
@@ -148,8 +148,8 @@ mod tests {
             "foobar",
             "--memory",
             "foobar=1024",
-            "--vcpus",
-            "num_vcpus=1",
+            "--vcpu",
+            "num=1",
             "--kernel",
             "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
         ])
@@ -160,9 +160,9 @@ mod tests {
         assert!(CLI::launch(vec![
             "foobar",
             "--memory",
-            "mem_size_mib=128",
-            "--vcpus",
-            "num_vcpus=1",
+            "size_mib=128",
+            "--vcpu",
+            "num=1",
             "--kernel",
             "path=/foo/bar,cmdline=\"foo=bar\",himem_start=foobar",
         ])
@@ -172,9 +172,9 @@ mod tests {
         assert!(CLI::launch(vec![
             "foobar",
             "--memory",
-            "mem_size_mib=128",
-            "--vcpus",
-            "num_vcpus=1",
+            "size_mib=128",
+            "--vcpu",
+            "num=1",
             "--kernel",
             "path=/foo/bar,cmdline=\"foo=bar\",himem_start=",
         ])
@@ -184,9 +184,9 @@ mod tests {
         assert!(CLI::launch(vec![
             "foobar",
             "--memory",
-            "mem_size_mib=128",
-            "--vcpus",
-            "num_vcpus=1",
+            "size_mib=128",
+            "--vcpu",
+            "num=1",
             "--kernel",
             "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42,foobar=42",
         ])
@@ -196,9 +196,9 @@ mod tests {
         assert!(CLI::launch(vec![
             "foobar",
             "--memory",
-            "mem_size_mib=128",
-            "--vcpus",
-            "num_vcpus=foobar",
+            "size_mib=128",
+            "--vcpu",
+            "num=foobar",
             "--kernel",
             "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
         ])
@@ -208,9 +208,9 @@ mod tests {
         assert!(CLI::launch(vec![
             "foobar",
             "--memory",
-            "mem_size_mib=128",
-            "--vcpus",
-            "num_vcpus=",
+            "size_mib=128",
+            "--vcpu",
+            "num=",
             "--kernel",
             "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
         ])
@@ -220,8 +220,8 @@ mod tests {
         assert!(CLI::launch(vec![
             "foobar",
             "--memory",
-            "mem_size_mib=128",
-            "--vcpus",
+            "size_mib=128",
+            "--vcpu",
             "foobar=1",
             "--kernel",
             "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
@@ -233,9 +233,9 @@ mod tests {
             CLI::launch(vec![
                 "foobar",
                 "--memory",
-                "mem_size_mib=128",
-                "--vcpus",
-                "num_vcpus=1",
+                "size_mib=128",
+                "--vcpu",
+                "num=1",
                 "--kernel",
                 "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
             ])
@@ -246,8 +246,8 @@ mod tests {
                     cmdline: "\"foo=bar\"".to_string(),
                     himem_start: 42,
                 },
-                memory_config: MemoryConfig { mem_size_mib: 128 },
-                vcpu_config: VcpuConfig { num_vcpus: 1 },
+                memory_config: MemoryConfig { size_mib: 128 },
+                vcpu_config: VcpuConfig { num: 1 },
             }
         );
     }
