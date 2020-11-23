@@ -529,4 +529,55 @@ mod tests {
         vmm.add_serial_console().unwrap();
         assert!(vmm.kernel_cfg.cmdline.as_str().contains("console=ttyS0"))
     }
+
+    #[test]
+    fn test_create_guest_memory() {
+        // Guest memory ends exactly at the MMIO gap: should succeed (last addressable value is
+        // MMIO_MEM_START - 1). There should be 1 memory region.
+        let mut mem_cfg = MemoryConfig {
+            size_mib: (MMIO_MEM_START >> 20) as u32,
+        };
+        let guest_mem = VMM::create_guest_memory(&mem_cfg).unwrap();
+        assert_eq!(guest_mem.num_regions(), 1);
+        assert_eq!(guest_mem.last_addr(), GuestAddress(MMIO_MEM_START - 1));
+
+        // Guest memory ends exactly past the MMIO gap: not possible because it's specified in MiB.
+        // But it can end 1 MiB within the MMIO gap. Should succeed.
+        // There will be 2 regions, the 2nd ending at `size_mib << 20 + MEM_32BIT_GAP_SIZE`.
+        mem_cfg.size_mib = (MMIO_MEM_START >> 20) as u32 + 1;
+        let guest_mem = VMM::create_guest_memory(&mem_cfg).unwrap();
+        assert_eq!(guest_mem.num_regions(), 2);
+        assert_eq!(
+            guest_mem.last_addr(),
+            GuestAddress(MMIO_MEM_START + MEM_32BIT_GAP_SIZE + (1 << 20) - 1)
+        );
+
+        // Guest memory ends exactly at the MMIO gap end: should succeed. There will be 2 regions,
+        // the 2nd ending at `size_mib << 20 + MEM_32BIT_GAP_SIZE`.
+        mem_cfg.size_mib = ((MMIO_MEM_START + MEM_32BIT_GAP_SIZE) >> 20) as u32;
+        let guest_mem = VMM::create_guest_memory(&mem_cfg).unwrap();
+        assert_eq!(guest_mem.num_regions(), 2);
+        assert_eq!(
+            guest_mem.last_addr(),
+            GuestAddress(MMIO_MEM_START + 2 * MEM_32BIT_GAP_SIZE - 1)
+        );
+
+        // Guest memory ends 1 MiB past the MMIO gap end: should succeed. There will be 2 regions,
+        // the 2nd ending at `size_mib << 20 + MEM_32BIT_GAP_SIZE`.
+        mem_cfg.size_mib = ((MMIO_MEM_START + MEM_32BIT_GAP_SIZE) >> 20) as u32 + 1;
+        let guest_mem = VMM::create_guest_memory(&mem_cfg).unwrap();
+        assert_eq!(guest_mem.num_regions(), 2);
+        assert_eq!(
+            guest_mem.last_addr(),
+            GuestAddress(MMIO_MEM_START + 2 * MEM_32BIT_GAP_SIZE + (1 << 20) - 1)
+        );
+
+        // Guest memory size is 0: should fail, rejected by vm-memory with EINVAL.
+        mem_cfg.size_mib = 0u32;
+        assert!(matches!(
+            VMM::create_guest_memory(&mem_cfg),
+            Err(Error::Memory(MemoryError::VmMemory(vm_memory::Error::MmapRegion(vm_memory::mmap::MmapRegionError::Mmap(e)))))
+            if e.kind() == ErrorKind::InvalidInput
+        ));
+    }
 }
