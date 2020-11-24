@@ -19,7 +19,7 @@ use kvm_ioctls::{
     Kvm,
 };
 use linux_loader::bootparam::boot_params;
-use linux_loader::cmdline::{self, Cmdline};
+use linux_loader::cmdline;
 use linux_loader::configurator::{
     self, linux::LinuxBootConfigurator, BootConfigurator, BootParams,
 };
@@ -61,7 +61,7 @@ const CMDLINE_START: u64 = 0x0002_0000;
 pub const HIGH_RAM_START: u64 = 0x100000;
 
 /// Default kernel command line.
-pub const DEFAULT_KERNEL_CMDLINE: &str = "console=ttyS0 i8042.nokbd reboot=k panic=1 pci=off";
+pub const DEFAULT_KERNEL_CMDLINE: &str = "i8042.nokbd reboot=k panic=1 pci=off";
 
 /// VMM memory related errors.
 #[derive(Debug)]
@@ -244,15 +244,15 @@ impl VMM {
         bootparams.hdr.cmdline_size = self.kernel_cfg.cmdline.len() as u32 + 1;
 
         // Load the kernel command line into guest memory.
-        let mut cmdline = Cmdline::new(self.kernel_cfg.cmdline.len() + 1);
-        cmdline
-            .insert_str(self.kernel_cfg.cmdline.clone())
-            .map_err(Error::Cmdline)?;
+        // Creating a CString fails when the string contains a 0-byte. In case that happens,
+        // let's just return an InvalidAscii error.
+        let cmdline_str = CString::new(self.kernel_cfg.cmdline.as_str())
+            .map_err(|_| Error::Cmdline(linux_loader::cmdline::Error::InvalidAscii))?;
         load_cmdline(
             &self.guest_memory,
             GuestAddress(CMDLINE_START),
             // Safe because we know the command line string doesn't contain any 0 bytes.
-            unsafe { &CString::from_vec_unchecked(cmdline.into()) },
+            &cmdline_str,
         )
         .map_err(Error::KernelLoad)?;
 
@@ -279,6 +279,7 @@ impl VMM {
         // See more IRQ assignments & info: https://tldp.org/HOWTO/Serial-HOWTO-8.html
         self.vm.register_irqfd(&interrupt_evt, 4)?;
 
+        self.kernel_cfg.cmdline.push_str(" console=ttyS0");
         // Put it on the bus.
         // Safe to use expect() because the device manager is instantiated in new(), there's no
         // default implementation, and the field is private inside the VMM struct.
@@ -516,5 +517,16 @@ mod tests {
             vmm.load_kernel().unwrap_err(),
             Error::KernelLoad(_)
         ));
+    }
+
+    #[test]
+    fn test_cmdline_updates() {
+        let mut vmm_config = default_vmm_config();
+        vmm_config.kernel_config.path = default_elf_path();
+        let mut vmm = mock_vmm(vmm_config);
+        assert_eq!(vmm.kernel_cfg.cmdline.as_str(), DEFAULT_KERNEL_CMDLINE);
+
+        vmm.add_serial_console().unwrap();
+        assert!(vmm.kernel_cfg.cmdline.as_str().contains("console=ttyS0"))
     }
 }

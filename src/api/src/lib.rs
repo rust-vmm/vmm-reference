@@ -98,6 +98,7 @@ mod tests {
     use super::*;
 
     use std::path::PathBuf;
+    use vmm::DEFAULT_KERNEL_CMDLINE;
 
     #[test]
     fn test_launch() {
@@ -255,7 +256,7 @@ mod tests {
             VMMConfig {
                 kernel_config: KernelConfig {
                     path: PathBuf::from("/foo/bar"),
-                    cmdline: "console=ttyS0 i8042.nokbd reboot=k panic=1 pci=off".to_string(),
+                    cmdline: DEFAULT_KERNEL_CMDLINE.to_string(),
                     himem_start: 1048576,
                 },
                 memory_config: MemoryConfig { size_mib: 256 },
