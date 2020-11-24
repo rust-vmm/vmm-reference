@@ -9,6 +9,7 @@ use std::result;
 use super::{DEFAULT_KERNEL_CMDLINE, HIGH_RAM_START};
 
 /// Errors encountered converting the `*Config` objects.
+#[derive(Debug, PartialEq)]
 pub enum ConversionError {
     /// Failed to parse the string representation for the kernel.
     ParseKernel(String),
@@ -109,7 +110,10 @@ impl TryFrom<String> for KernelConfig {
         // Supported options:
         // `cmdline=<"string">,path=/path/to/kernel,himem_start=<u64>`
         // Required: path
-        let options: Vec<&str> = kernel_cfg_str.split(',').collect();
+        let options: Vec<&str> = kernel_cfg_str
+            .split(',')
+            .filter(|tok| !tok.is_empty())
+            .collect();
 
         let mut cmdline: Option<String> = None;
         let mut path: Option<PathBuf> = None;
@@ -156,4 +160,32 @@ pub struct VMMConfig {
     pub vcpu_config: VcpuConfig,
     /// Guest kernel configuration.
     pub kernel_config: KernelConfig,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_kernel_config() {
+        // Check that additional comas in the kernel string do not cause a panic.
+        let kernel_str = "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42,";
+        let expected_kernel_config = KernelConfig {
+            cmdline: "\"foo=bar\"".to_string(),
+            himem_start: 42,
+            path: PathBuf::from("/foo/bar"),
+        };
+        assert_eq!(
+            KernelConfig::try_from(kernel_str.to_string()).unwrap(),
+            expected_kernel_config
+        );
+
+        // Check that an empty path returns a conversion error.
+        let kernel_str = "path=,cmdline=\"foo=bar\",himem_start=42,";
+        let expected_error = ConversionError::ParseKernel("path=".to_string());
+        assert_eq!(
+            KernelConfig::try_from(kernel_str.to_string()).unwrap_err(),
+            expected_error
+        );
+    }
 }
