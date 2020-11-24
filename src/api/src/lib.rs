@@ -6,10 +6,6 @@
 //! CLI for the Reference VMM.
 
 #![deny(missing_docs)]
-
-extern crate clap;
-extern crate vmm;
-
 use std::convert::TryFrom;
 use std::result;
 
