@@ -24,7 +24,7 @@ pub struct VmState {
 /// Provides abstractions for working with a VM. Once a generic Vm trait will be available,
 /// this type will become on of the concrete implementations.
 pub struct KvmVm {
-    fd: VmFd,
+    fd: Arc<VmFd>,
     state: VmState,
     // Only one of `vcpus` or `vcpu_handles` can be active at a time.
     // To create the `vcpu_handles` the `vcpu` vector is drained.
@@ -61,7 +61,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 impl KvmVm {
     /// Create a new `KvmVm`.
     pub fn new<M: GuestMemory>(kvm: &Kvm, vm_state: VmState, guest_memory: &M) -> Result<Self> {
-        let vm_fd = kvm.create_vm().map_err(Error::CreateVm)?;
+        let vm_fd = Arc::new(kvm.create_vm().map_err(Error::CreateVm)?);
 
         let vm = KvmVm {
             state: vm_state,
@@ -77,6 +77,11 @@ impl KvmVm {
         vm.setup_irq_controller()?;
 
         Ok(vm)
+    }
+
+    /// Retrieve the associated KVM VM file descriptor.
+    pub fn vm_fd(&self) -> Arc<VmFd> {
+        self.fd.clone()
     }
 
     // Create the kvm memory regions based on the configuration passed as `guest_memory`.
@@ -235,7 +240,7 @@ mod tests {
             vcpus: Vec::new(),
             vcpu_handles: Vec::new(),
             state: vm_state,
-            fd: kvm.create_vm().unwrap(),
+            fd: Arc::new(kvm.create_vm().unwrap()),
         };
 
         // Setting up the irq_controller twice should return an error.
