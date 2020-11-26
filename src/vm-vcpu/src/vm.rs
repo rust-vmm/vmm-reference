@@ -255,7 +255,7 @@ mod tests {
         // any. This should return an error.
         let (mut vm, _guest_memory) = default_vm(1).unwrap();
         assert!(
-            matches!(vm.run(GuestAddress(0x10_000_000)), Err(Error::RunVcpus(e)) if e.kind() == ErrorKind::InvalidInput)
+            matches!(vm.run(GuestAddress(0x1000_0000)), Err(Error::RunVcpus(e)) if e.kind() == ErrorKind::InvalidInput)
         );
     }
 

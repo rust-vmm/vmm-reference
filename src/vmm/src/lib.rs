@@ -166,7 +166,7 @@ impl TryFrom<VMMConfig> for VMM {
             guest_memory,
             device_mgr: Arc::new(Mutex::new(IoManager::new())),
             event_mgr: EventManager::new().map_err(Error::EventManager)?,
-            kernel_cfg: config.kernel_config.clone(),
+            kernel_cfg: config.kernel_config,
             block_devices: Vec::new(),
         };
 
@@ -233,7 +233,7 @@ impl VMM {
             .map_err(|e| Error::Memory(MemoryError::VmMemory(e)))
     }
 
-    /// Load the kernel into guest memory.
+    // Load the kernel into guest memory.
     fn load_kernel(&mut self) -> Result<KernelLoaderResult> {
         let mut kernel_image = File::open(&self.kernel_cfg.path).map_err(Error::IO)?;
         let zero_page_addr = GuestAddress(ZEROPG_START);
@@ -295,7 +295,7 @@ impl VMM {
         Ok(kernel_load)
     }
 
-    /// Create and add a serial console to the VMM.
+    // Create and add a serial console to the VMM.
     fn add_serial_console(&mut self) -> Result<()> {
         // Create the serial console.
         let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::IO)?;
@@ -393,7 +393,7 @@ impl VMM {
         Ok(kernel_load_addr)
     }
 
-    // Create guest vCPUs.
+    // Create guest vCPUs based on the passed vCPU configurations.
     fn create_vcpus(&mut self, vcpu_cfg: &VcpuConfig) -> Result<()> {
         if vcpu_cfg.num == 0 {
             return Err(Error::VcpuNumber(vcpu_cfg.num));
