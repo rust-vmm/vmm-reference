@@ -57,7 +57,7 @@ const ZEROPG_START: u64 = 0x7000;
 /// Address where the kernel command line is written.
 const CMDLINE_START: u64 = 0x0002_0000;
 
-/// Default high memory start.
+/// Default high memory start (1 MiB).
 pub const HIGH_RAM_START: u64 = 0x100000;
 
 /// Default kernel command line.
@@ -375,16 +375,17 @@ mod tests {
     use super::*;
 
     use std::io::ErrorKind;
+    use std::mem;
     use std::path::PathBuf;
 
-    use linux_loader::loader::bootparam::setup_header;
-    use linux_loader::loader::elf::PvhBootCapability::{self, PvhEntryNotPresent};
-    use vm_memory::{Address, GuestMemory};
-    use vmm_sys_util::tempfile::TempFile;
+    use linux_loader::elf::Elf64_Ehdr;
+    use linux_loader::loader::{self, bootparam::setup_header, elf::PvhBootCapability};
+    use vm_memory::bytes::{ByteValued, Bytes};
+    use vm_memory::{Address, GuestAddress, GuestMemory};
+    use vmm_sys_util::{tempdir::TempDir, tempfile::TempFile};
 
     const MEM_SIZE_MIB: u32 = 1024;
     const NUM_VCPUS: u8 = 1;
-    const HIMEM_START_ADDR: u64 = 0x0010_0000; // 1 MB
 
     fn default_bzimage_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -400,7 +401,7 @@ mod tests {
         VMMConfig {
             kernel_config: KernelConfig {
                 path: default_elf_path(),
-                himem_start: HIMEM_START_ADDR,
+                himem_start: HIGH_RAM_START,
                 cmdline: DEFAULT_KERNEL_CMDLINE.to_string(),
             },
             memory_config: MemoryConfig {
@@ -432,6 +433,16 @@ mod tests {
         }
     }
 
+    // Return the address where an ELF file should be loaded, as specified in its header.
+    fn elf_load_addr(elf_path: &PathBuf) -> GuestAddress {
+        let mut elf_file = File::open(elf_path.as_path()).unwrap();
+        let mut ehdr = Elf64_Ehdr::default();
+        ehdr.as_bytes()
+            .read_from(0, &mut elf_file, mem::size_of::<Elf64_Ehdr>())
+            .unwrap();
+        GuestAddress(ehdr.e_entry)
+    }
+
     #[test]
     fn test_compute_kernel_load_addr() {
         let vmm_config = default_vmm_config();
@@ -439,8 +450,8 @@ mod tests {
 
         // ELF (vmlinux) kernel scenario: happy case
         let mut kern_load = KernelLoaderResult {
-            kernel_load: GuestAddress(0x0100_0000), // 1 MiB.
-            kernel_end: 0x0223_B000,                // 1 MiB + size of a vmlinux test image.
+            kernel_load: GuestAddress(HIGH_RAM_START), // 1 MiB.
+            kernel_end: 0,                             // doesn't matter.
             setup_header: None,
             pvh_boot_cap: PvhBootCapability::PvhEntryNotPresent,
         };
@@ -481,17 +492,14 @@ mod tests {
         // Test Case: load a valid elf.
         let mut vmm_config = default_vmm_config();
         vmm_config.kernel_config.path = default_elf_path();
+        // ELF files start with a header that tells us where they want to be loaded.
+        let kernel_load = elf_load_addr(&vmm_config.kernel_config.path);
         let mut vmm = mock_vmm(vmm_config);
+        let kernel_load_result = vmm.load_kernel().unwrap();
+        assert_eq!(kernel_load_result.kernel_load, kernel_load);
+        assert!(kernel_load_result.setup_header.is_none());
 
-        let expected_load_result = KernelLoaderResult {
-            kernel_load: GuestAddress(0x0100_0000),
-            kernel_end: 36081664,
-            setup_header: None,
-            pvh_boot_cap: PvhEntryNotPresent,
-        };
-        assert_eq!(vmm.load_kernel().unwrap(), expected_load_result);
-
-        // Test Case: load a valid bzImage.
+        // Test case: load a valid bzImage.
         let mut vmm_config = default_vmm_config();
         vmm_config.kernel_config.path = default_bzimage_path();
         let mut vmm = mock_vmm(vmm_config);
@@ -501,7 +509,7 @@ mod tests {
 
         // Test case: kernel file does not exist.
         let mut vmm_config = default_vmm_config();
-        vmm_config.kernel_config.path = PathBuf::from("not_a_file");
+        vmm_config.kernel_config.path = PathBuf::from(TempFile::new().unwrap().as_path());
         let mut vmm = mock_vmm(vmm_config);
         assert!(
             matches!(vmm.load_kernel().unwrap_err(), Error::IO(e) if e.kind() == ErrorKind::NotFound)
@@ -512,10 +520,21 @@ mod tests {
         let temp_file = TempFile::new().unwrap();
         vmm_config.kernel_config.path = PathBuf::from(temp_file.as_path());
         let mut vmm = mock_vmm(vmm_config);
-
         assert!(matches!(
             vmm.load_kernel().unwrap_err(),
-            Error::KernelLoad(_)
+            Error::KernelLoad(loader::Error::Bzimage(
+                loader::bzimage::Error::InvalidBzImage
+            ))
+        ));
+
+        // Test case: kernel path doesn't point to a file.
+        let mut vmm_config = default_vmm_config();
+        let temp_dir = TempDir::new().unwrap();
+        vmm_config.kernel_config.path = PathBuf::from(temp_dir.as_path());
+        let mut vmm = mock_vmm(vmm_config);
+        assert!(matches!(
+            vmm.load_kernel().unwrap_err(),
+            Error::KernelLoad(loader::Error::Elf(loader::elf::Error::ReadElfHeader))
         ));
     }
 
