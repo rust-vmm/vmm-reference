@@ -6,7 +6,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::result;
 
-use super::{DEFAULT_KERNEL_CMDLINE, HIGH_RAM_START};
+use super::{DEFAULT_HIGH_RAM_START, DEFAULT_KERNEL_CMDLINE};
 
 /// Errors encountered converting the `*Config` objects.
 #[derive(Debug, PartialEq)]
@@ -150,7 +150,7 @@ impl TryFrom<String> for KernelConfig {
         Ok(KernelConfig {
             cmdline: cmdline.unwrap_or_else(|| DEFAULT_KERNEL_CMDLINE.to_string()),
             path: path.ok_or_else(|| ConversionError::ParseKernel(kernel_cfg_str.to_string()))?,
-            himem_start: himem_start.unwrap_or(HIGH_RAM_START),
+            himem_start: himem_start.unwrap_or(DEFAULT_HIGH_RAM_START),
         })
     }
 }

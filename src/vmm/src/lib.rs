@@ -58,7 +58,7 @@ const ZEROPG_START: u64 = 0x7000;
 const CMDLINE_START: u64 = 0x0002_0000;
 
 /// Default high memory start (1 MiB).
-pub const HIGH_RAM_START: u64 = 0x100000;
+pub const DEFAULT_HIGH_RAM_START: u64 = 0x0010_0000;
 
 /// Default kernel command line.
 pub const DEFAULT_KERNEL_CMDLINE: &str = "i8042.nokbd reboot=k panic=1 pci=off";
@@ -400,7 +400,7 @@ mod tests {
         VMMConfig {
             kernel_config: KernelConfig {
                 path: default_elf_path(),
-                himem_start: HIGH_RAM_START,
+                himem_start: DEFAULT_HIGH_RAM_START,
                 cmdline: DEFAULT_KERNEL_CMDLINE.to_string(),
             },
             memory_config: MemoryConfig {
@@ -434,7 +434,7 @@ mod tests {
 
     // Return the address where an ELF file should be loaded, as specified in its header.
     fn elf_load_addr(elf_path: &PathBuf) -> GuestAddress {
-        let mut elf_file = File::open(elf_path.as_path()).unwrap();
+        let mut elf_file = File::open(elf_path).unwrap();
         let mut ehdr = Elf64_Ehdr::default();
         ehdr.as_bytes()
             .read_from(0, &mut elf_file, mem::size_of::<Elf64_Ehdr>())
@@ -449,8 +449,8 @@ mod tests {
 
         // ELF (vmlinux) kernel scenario: happy case
         let mut kern_load = KernelLoaderResult {
-            kernel_load: GuestAddress(HIGH_RAM_START), // 1 MiB.
-            kernel_end: 0,                             // doesn't matter.
+            kernel_load: GuestAddress(DEFAULT_HIGH_RAM_START), // 1 MiB.
+            kernel_end: 0,                                     // doesn't matter.
             setup_header: None,
             pvh_boot_cap: PvhBootCapability::PvhEntryNotPresent,
         };
@@ -503,7 +503,10 @@ mod tests {
         vmm_config.kernel_config.path = default_bzimage_path();
         let mut vmm = mock_vmm(vmm_config);
         let kernel_load_result = vmm.load_kernel().unwrap();
-        assert_eq!(kernel_load_result.kernel_load, GuestAddress(HIGH_RAM_START));
+        assert_eq!(
+            kernel_load_result.kernel_load,
+            GuestAddress(DEFAULT_HIGH_RAM_START)
+        );
         assert!(kernel_load_result.setup_header.is_some());
 
         // Test case: kernel file does not exist.
