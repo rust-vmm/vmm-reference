@@ -1,7 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
-use std::io;
+use std::io::{self, ErrorKind};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
@@ -12,7 +12,6 @@ use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryRegion};
 use vmm_sys_util::eventfd::EventFd;
 
 use crate::vcpu::{self, mptable, KvmVcpu, VcpuState};
-use std::io::ErrorKind;
 
 /// Defines the state from which a `KvmVm` is initialized.
 pub struct VmState {
@@ -23,14 +22,15 @@ pub struct VmState {
 ///
 /// Provides abstractions for working with a VM. Once a generic Vm trait will be available,
 /// this type will become on of the concrete implementations.
-pub struct KvmVm {
+pub struct KvmVm<EH: ExitHandler + Send> {
     fd: Arc<VmFd>,
     state: VmState,
     // Only one of `vcpus` or `vcpu_handles` can be active at a time.
     // To create the `vcpu_handles` the `vcpu` vector is drained.
     // A better abstraction should be used to represent this behavior.
     vcpus: Vec<KvmVcpu>,
-    vcpu_handles: Vec<JoinHandle<KvmVcpu>>,
+    vcpu_handles: Vec<JoinHandle<()>>,
+    exit_handler: EH,
 }
 
 #[derive(Debug)]
@@ -58,9 +58,21 @@ pub enum Error {
 /// Dedicated [`Result`](https://doc.rust-lang.org/std/result/) type.
 pub type Result<T> = std::result::Result<T, Error>;
 
-impl KvmVm {
+/// Trait that allows the VM to signal that the VCPUs have exited.
+///
+// This trait needs Clone because each VCPU needs to be able to call the `kick` function.
+pub trait ExitHandler: Clone {
+    fn kick(&self) -> io::Result<()>;
+}
+
+impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
     /// Create a new `KvmVm`.
-    pub fn new<M: GuestMemory>(kvm: &Kvm, vm_state: VmState, guest_memory: &M) -> Result<Self> {
+    pub fn new<M: GuestMemory>(
+        kvm: &Kvm,
+        vm_state: VmState,
+        guest_memory: &M,
+        exit_handler: EH,
+    ) -> Result<Self> {
         let vm_fd = Arc::new(kvm.create_vm().map_err(Error::CreateVm)?);
 
         let vm = KvmVm {
@@ -68,6 +80,7 @@ impl KvmVm {
             fd: vm_fd,
             vcpus: Vec::new(),
             vcpu_handles: Vec::new(),
+            exit_handler,
         };
 
         vm.configure_memory_regions(guest_memory, kvm)?;
@@ -174,9 +187,12 @@ impl KvmVm {
         }
 
         for mut vcpu in self.vcpus.drain(..) {
-            let vcpu_handle: JoinHandle<KvmVcpu> = thread::Builder::new()
-                .spawn(move || loop {
+            let vcpu_exit_handler = self.exit_handler.clone();
+            let vcpu_handle = thread::Builder::new()
+                .spawn(move || {
+                    // TODO: Check the result of both vcpu run & kick.
                     let _ = vcpu.run(vcpu_run_addr);
+                    let _ = vcpu_exit_handler.kick();
                 })
                 .map_err(Error::RunVcpus)?;
             self.vcpu_handles.push(vcpu_handle);
@@ -192,19 +208,38 @@ mod tests {
 
     use crate::vcpu::mptable::MAX_SUPPORTED_CPUS;
     use crate::vm::{Error, KvmVm, VmState};
+
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use kvm_bindings::CpuId;
     use kvm_ioctls::Kvm;
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
+    #[derive(Clone, Default)]
+    struct WrappedExitHandler(Arc<DummyExitHandler>);
+
+    #[derive(Default)]
+    struct DummyExitHandler {
+        kicked: AtomicBool,
+    }
+
+    impl ExitHandler for WrappedExitHandler {
+        fn kick(&self) -> io::Result<()> {
+            self.0.kicked.store(true, Ordering::Release);
+            Ok(())
+        }
+    }
+
     // A helper function that creates a KvmVm with a default memory configuration.
-    fn default_vm(num_vcpus: u8) -> Result<(KvmVm, GuestMemoryMmap)> {
+    fn default_vm(num_vcpus: u8) -> Result<(KvmVm<WrappedExitHandler>, GuestMemoryMmap)> {
         let kvm = Kvm::new().unwrap();
 
         let vm_state = VmState { num_vcpus };
 
         let mem_size = (128 << 20) as usize;
         let guest_memory = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), mem_size)]).unwrap();
-        let vm = KvmVm::new(&kvm, vm_state, &guest_memory)?;
+        let exit_handler = WrappedExitHandler::default();
+        let vm = KvmVm::new(&kvm, vm_state, &guest_memory, exit_handler)?;
         Ok((vm, guest_memory))
     }
 
@@ -227,7 +262,7 @@ mod tests {
             ranges.push((GuestAddress(i * 100), 100))
         }
         let guest_memory = GuestMemoryMmap::from_ranges(&ranges).unwrap();
-        let res = KvmVm::new(&kvm, vm_state, &guest_memory);
+        let res = KvmVm::new(&kvm, vm_state, &guest_memory, WrappedExitHandler::default());
         assert!(matches!(res, Err(Error::NotEnoughMemorySlots)));
     }
 
@@ -241,6 +276,7 @@ mod tests {
             vcpu_handles: Vec::new(),
             state: vm_state,
             fd: Arc::new(kvm.create_vm().unwrap()),
+            exit_handler: WrappedExitHandler::default(),
         };
 
         // Setting up the irq_controller twice should return an error.

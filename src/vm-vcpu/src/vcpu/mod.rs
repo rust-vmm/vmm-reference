@@ -10,6 +10,7 @@ use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
 use vm_device::bus::{MmioAddress, PioAddress};
 use vm_device::device_manager::{IoManager, MmioManager, PioManager};
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
+use vmm_sys_util::errno::Error as Errno;
 use vmm_sys_util::terminal::Terminal;
 
 mod gdt;
@@ -244,81 +245,91 @@ impl KvmVcpu {
             self.running = true;
         }
 
-        match self.vcpu_fd.run() {
-            Ok(exit_reason) => {
-                match exit_reason {
-                    VcpuExit::Shutdown | VcpuExit::Hlt => {
-                        println!("Guest shutdown: {:?}. Bye!", exit_reason);
-                        if stdin().lock().set_canon_mode().is_err() {
-                            eprintln!("Failed to set canon mode. Stdin will not echo.");
+        loop {
+            match self.vcpu_fd.run() {
+                Ok(exit_reason) => {
+                    match exit_reason {
+                        VcpuExit::Shutdown | VcpuExit::Hlt => {
+                            println!("Guest shutdown: {:?}. Bye!", exit_reason);
+                            if stdin().lock().set_canon_mode().is_err() {
+                                eprintln!("Failed to set canon mode. Stdin will not echo.");
+                            }
+                            break;
                         }
-                        unsafe { libc::exit(0) };
-                    }
-                    VcpuExit::IoOut(addr, data) => {
-                        if 0x3f8 <= addr && addr < (0x3f8 + 8) {
-                            // Write at the serial port.
+                        VcpuExit::IoOut(addr, data) => {
+                            if 0x3f8 <= addr && addr < (0x3f8 + 8) {
+                                // Write at the serial port.
+                                if self
+                                    .device_mgr
+                                    .lock()
+                                    .unwrap()
+                                    .pio_write(PioAddress(addr), data)
+                                    .is_err()
+                                {
+                                    eprintln!("Failed to write to serial port");
+                                }
+                            } else if addr == 0x060 || addr == 0x061 || addr == 0x064 {
+                                // Write at the i8042 port.
+                                // See https://wiki.osdev.org/%228042%22_PS/2_Controller#PS.2F2_Controller_IO_Ports
+                            } else if 0x070 <= addr && addr <= 0x07f {
+                                // Write at the RTC port.
+                            } else {
+                                // Write at some other port.
+                            }
+                        }
+                        VcpuExit::IoIn(addr, data) => {
+                            if 0x3f8 <= addr && addr < (0x3f8 + 8) {
+                                // Read from the serial port.
+                                if self
+                                    .device_mgr
+                                    .lock()
+                                    .unwrap()
+                                    .pio_read(PioAddress(addr), data)
+                                    .is_err()
+                                {
+                                    eprintln!("Failed to read from serial port");
+                                }
+                            } else {
+                                // Read from some other port.
+                            }
+                        }
+                        VcpuExit::MmioRead(addr, data) => {
                             if self
                                 .device_mgr
                                 .lock()
                                 .unwrap()
-                                .pio_write(PioAddress(addr), data)
+                                .mmio_read(MmioAddress(addr), data)
                                 .is_err()
                             {
-                                eprintln!("Failed to write to serial port");
+                                eprintln!("Failed to read from mmio");
                             }
-                        } else if addr == 0x060 || addr == 0x061 || addr == 0x064 {
-                            // Write at the i8042 port.
-                            // See https://wiki.osdev.org/%228042%22_PS/2_Controller#PS.2F2_Controller_IO_Ports
-                        } else if 0x070 <= addr && addr <= 0x07f {
-                            // Write at the RTC port.
-                        } else {
-                            // Write at some other port.
                         }
-                    }
-                    VcpuExit::IoIn(addr, data) => {
-                        if 0x3f8 <= addr && addr < (0x3f8 + 8) {
-                            // Read from the serial port.
+                        VcpuExit::MmioWrite(addr, data) => {
                             if self
                                 .device_mgr
                                 .lock()
                                 .unwrap()
-                                .pio_read(PioAddress(addr), data)
+                                .mmio_write(MmioAddress(addr), data)
                                 .is_err()
                             {
-                                eprintln!("Failed to read from serial port");
+                                eprintln!("Failed to write to mmio");
                             }
-                        } else {
-                            // Read from some other port.
+                        }
+                        _ => {
+                            // Unhandled KVM exit.
                         }
                     }
-                    VcpuExit::MmioRead(addr, data) => {
-                        if self
-                            .device_mgr
-                            .lock()
-                            .unwrap()
-                            .mmio_read(MmioAddress(addr), data)
-                            .is_err()
-                        {
-                            eprintln!("Failed to read from mmio");
-                        }
-                    }
-                    VcpuExit::MmioWrite(addr, data) => {
-                        if self
-                            .device_mgr
-                            .lock()
-                            .unwrap()
-                            .mmio_write(MmioAddress(addr), data)
-                            .is_err()
-                        {
-                            eprintln!("Failed to write to mmio");
-                        }
-                    }
-                    _ => {
-                        // Unhandled KVM exit.
+                }
+                Err(e) => {
+                    // During boot KVM can exit with `EAGAIN`. In that case, do not
+                    // terminate the run loop.
+                    if e == Errno::new(libc::EAGAIN) {
+                    } else {
+                        eprintln!("Emulation error: {}", e);
+                        break;
                     }
                 }
             }
-            Err(e) => eprintln!("Emulation error: {}", e),
         }
 
         Ok(())
