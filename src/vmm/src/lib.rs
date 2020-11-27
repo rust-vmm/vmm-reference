@@ -99,6 +99,8 @@ pub enum Error {
     KvmIoctl(kvm_ioctls::Error),
     /// Memory error.
     Memory(MemoryError),
+    /// Invalid number of vCPUs specified.
+    VcpuNumber(u8),
     /// VM errors.
     Vm(vm::Error),
 }
@@ -328,15 +330,12 @@ impl VMM {
         Ok(kernel_load_addr)
     }
 
-    /// Create guest vCPUs.
-    ///
-    /// # Arguments
-    ///
-    /// * `vcpu_cfg` - [`VcpuConfig`] struct containing vCPU configurations.
-    ///
-    /// [`KernelLoaderResult`]: https://docs.rs/linux-loader/latest/linux_loader/loader/struct.KernelLoaderResult.html
-    /// [`VcpuConfig`]: struct.VcpuConfig.html
+    // Create guest vCPUs.
     fn create_vcpus(&mut self, vcpu_cfg: &VcpuConfig) -> Result<()> {
+        if vcpu_cfg.num == 0 {
+            return Err(Error::VcpuNumber(vcpu_cfg.num));
+        }
+
         let base_cpuid = self
             .kvm
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
@@ -598,5 +597,30 @@ mod tests {
             Err(Error::Memory(MemoryError::VmMemory(vm_memory::Error::MmapRegion(vm_memory::mmap::MmapRegionError::Mmap(e)))))
             if e.kind() == ErrorKind::InvalidInput
         ));
+    }
+
+    #[test]
+    fn test_create_vcpus() {
+        // The scopes force the created vCPUs to unmap their kernel memory at the end.
+        {
+            let vmm_config = default_vmm_config();
+            let mut vmm = mock_vmm(vmm_config);
+
+            // Creating 0 vCPUs throws an error.
+            assert!(matches!(
+                vmm.create_vcpus(&VcpuConfig { num: 0 }),
+                Err(Error::VcpuNumber(0))
+            ));
+
+            // Creating one works.
+            assert!(vmm.create_vcpus(&VcpuConfig { num: 1 }).is_ok());
+        }
+
+        {
+            let vmm_config = default_vmm_config();
+            let mut vmm = mock_vmm(vmm_config);
+            // Creating 255 also works.
+            assert!(vmm.create_vcpus(&VcpuConfig { num: u8::MAX }).is_ok());
+        }
     }
 }
