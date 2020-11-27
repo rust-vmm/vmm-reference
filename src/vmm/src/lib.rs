@@ -12,9 +12,10 @@ use std::fs::File;
 use std::io::{self, stdin, stdout};
 use std::ops::DerefMut;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use event_manager::{EventManager, MutEventSubscriber, SubscriberOps};
+use event_manager::{EventManager, EventOps, Events, MutEventSubscriber, SubscriberOps};
 use kvm_bindings::{KVM_API_VERSION, KVM_MAX_CPUID_ENTRIES};
 use kvm_ioctls::{
     Cap::{self, Ioeventfd, Irqchip, Irqfd, UserMemory},
@@ -36,7 +37,7 @@ use vm_device::device_manager::IoManager;
 use vm_device::resources::Resource;
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 use vm_superio::Serial;
-use vmm_sys_util::{eventfd::EventFd, terminal::Terminal};
+use vmm_sys_util::{epoll::EventSet, eventfd::EventFd, terminal::Terminal};
 
 use boot::build_bootparams;
 pub use config::*;
@@ -44,7 +45,7 @@ use devices::virtio::block::{self, BlockArgs};
 use devices::virtio::{CommonArgs, MmioConfig};
 use serial::SerialWrapper;
 use vm_vcpu::vcpu::{cpuid::filter_cpuid, VcpuState};
-use vm_vcpu::vm::{self, KvmVm, VmState};
+use vm_vcpu::vm::{self, ExitHandler, KvmVm, VmState};
 
 mod boot;
 mod config;
@@ -110,6 +111,8 @@ pub enum Error {
     VcpuNumber(u8),
     /// VM errors.
     Vm(vm::Error),
+    /// Exit event errors.
+    ExitEvent(io::Error),
 }
 
 impl std::convert::From<vm::Error> for Error {
@@ -126,7 +129,7 @@ type Block = block::Block<Arc<GuestMemoryMmap>>;
 /// A live VMM.
 pub struct VMM {
     kvm: Kvm,
-    vm: KvmVm,
+    vm: KvmVm<WrappedExitHandler>,
     kernel_cfg: KernelConfig,
     guest_memory: GuestMemoryMmap,
     // The `device_mgr` is an Arc<Mutex> so that it can be shared between
@@ -136,7 +139,60 @@ pub struct VMM {
     // perspective, and a dyn MutEventSubscriber from EventManager's) is managed by the 2 entities,
     // and isn't Copy-able; so once one of them gets ownership, the other one can't anymore.
     event_mgr: EventManager<Arc<Mutex<dyn MutEventSubscriber + Send>>>,
+    exit_handler: WrappedExitHandler,
     block_devices: Vec<Arc<Mutex<Block>>>,
+}
+
+// The `VmmExitHandler` is used as the mechanism for exiting from the event manager loop.
+// The Vm is notifying us through the `kick` method when it exited. Once the Vm finished
+// the execution, it is time for the event manager loop to also exit. This way, we can
+// terminate the VMM process cleanly.
+struct VmmExitHandler {
+    exit_event: EventFd,
+    keep_running: AtomicBool,
+}
+
+// The wrapped exit handler is needed because the ownership of the inner `VmmExitHandler` is
+// shared between the `KvmVm` and the `EventManager`. Clone is required for implementing the
+// `ExitHandler` trait.
+#[derive(Clone)]
+struct WrappedExitHandler(Arc<Mutex<VmmExitHandler>>);
+
+impl WrappedExitHandler {
+    fn new() -> Result<WrappedExitHandler> {
+        Ok(WrappedExitHandler(Arc::new(Mutex::new(VmmExitHandler {
+            exit_event: EventFd::new(libc::EFD_NONBLOCK).map_err(Error::ExitEvent)?,
+            keep_running: AtomicBool::new(true),
+        }))))
+    }
+
+    fn keep_running(&self) -> bool {
+        self.0.lock().unwrap().keep_running.load(Ordering::Acquire)
+    }
+}
+
+impl ExitHandler for WrappedExitHandler {
+    fn kick(&self) -> io::Result<()> {
+        self.0.lock().unwrap().exit_event.write(1)
+    }
+}
+
+impl MutEventSubscriber for VmmExitHandler {
+    fn process(&mut self, events: Events, ops: &mut EventOps) {
+        if events.event_set().contains(EventSet::IN) {
+            self.keep_running.store(false, Ordering::Release);
+        }
+        if events.event_set().contains(EventSet::ERROR) {
+            // We cannot do much about the error (besides log it).
+            // TODO: log this error once we have a logger set up.
+            let _ = ops.remove(Events::new(&self.exit_event, EventSet::IN));
+        }
+    }
+
+    fn init(&mut self, ops: &mut EventOps) {
+        ops.add(Events::new(&self.exit_event, EventSet::IN))
+            .expect("Cannot initialize exit handler.");
+    }
 }
 
 impl TryFrom<VMMConfig> for VMM {
@@ -158,15 +214,22 @@ impl TryFrom<VMMConfig> for VMM {
         let vm_state = VmState {
             num_vcpus: config.vcpu_config.num,
         };
-        let vm = KvmVm::new(&kvm, vm_state, &guest_memory)?;
+
+        let wrapped_exit_handler = WrappedExitHandler::new()?;
+        let vm = KvmVm::new(&kvm, vm_state, &guest_memory, wrapped_exit_handler.clone())?;
+
+        let mut event_manager = EventManager::<Arc<Mutex<dyn MutEventSubscriber + Send>>>::new()
+            .map_err(Error::EventManager)?;
+        event_manager.add_subscriber(wrapped_exit_handler.0.clone());
 
         let mut vmm = VMM {
             vm,
             kvm,
             guest_memory,
             device_mgr: Arc::new(Mutex::new(IoManager::new())),
-            event_mgr: EventManager::new().map_err(Error::EventManager)?,
+            event_mgr: event_manager,
             kernel_cfg: config.kernel_config,
+            exit_handler: wrapped_exit_handler,
             block_devices: Vec::new(),
         };
 
@@ -204,13 +267,17 @@ impl VMM {
         }
 
         self.vm.run(kernel_load_addr).map_err(Error::Vm)?;
-
         loop {
             match self.event_mgr.run() {
                 Ok(_) => (),
                 Err(e) => eprintln!("Failed to handle events: {:?}", e),
             }
+            if !self.exit_handler.keep_running() {
+                break;
+            }
         }
+
+        Ok(())
     }
 
     // Create guest memory regions.
@@ -473,6 +540,13 @@ mod tests {
         }
     }
 
+    fn default_exit_handler() -> WrappedExitHandler {
+        WrappedExitHandler(Arc::new(Mutex::new(VmmExitHandler {
+            keep_running: AtomicBool::default(),
+            exit_event: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+        })))
+    }
+
     // Returns a VMM which only has the memory configured. The purpose of the mock VMM
     // is to give a finer grained control to test individual private functions in the VMM.
     fn mock_vmm(vmm_config: VMMConfig) -> VMM {
@@ -483,7 +557,8 @@ mod tests {
         let vm_state = VmState {
             num_vcpus: vmm_config.vcpu_config.num,
         };
-        let vm = KvmVm::new(&kvm, vm_state, &guest_memory).unwrap();
+        let exit_handler = default_exit_handler();
+        let vm = KvmVm::new(&kvm, vm_state, &guest_memory, exit_handler.clone()).unwrap();
 
         VMM {
             vm,
@@ -492,6 +567,7 @@ mod tests {
             device_mgr: Arc::new(Mutex::new(IoManager::new())),
             event_mgr: EventManager::new().unwrap(),
             kernel_cfg: vmm_config.kernel_config,
+            exit_handler,
             block_devices: Vec::new(),
         }
     }
