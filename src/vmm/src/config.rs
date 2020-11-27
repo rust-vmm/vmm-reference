@@ -85,10 +85,14 @@ impl TryFrom<String> for VcpuConfig {
         if tokens[0] != "num" {
             return Err(ConversionError::ParseVcpus(tokens[0].to_string()));
         }
-        tokens[1]
+        let vcpu_config = tokens[1]
             .parse::<u8>()
             .map(|num_vcpus| VcpuConfig { num: num_vcpus })
-            .map_err(|_| ConversionError::ParseVcpus(tokens[1].to_string()))
+            .map_err(|_| ConversionError::ParseVcpus(tokens[1].to_string()))?;
+        if vcpu_config.num == 0 {
+            return Err(ConversionError::ParseVcpus(tokens[1].to_string()));
+        }
+        Ok(vcpu_config)
     }
 }
 
@@ -168,7 +172,7 @@ mod tests {
 
     #[test]
     fn test_kernel_config() {
-        // Check that additional comas in the kernel string do not cause a panic.
+        // Check that additional commas in the kernel string do not cause a panic.
         let kernel_str = "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42,";
         let expected_kernel_config = KernelConfig {
             cmdline: "\"foo=bar\"".to_string(),
@@ -186,6 +190,29 @@ mod tests {
         assert_eq!(
             KernelConfig::try_from(kernel_str.to_string()).unwrap_err(),
             expected_error
+        );
+    }
+
+    #[test]
+    fn test_vcpu_config() {
+        // Invalid vCPU numbers: 0, 256 (exceeds the u8 limit).
+        let vcpu_str = "num=0";
+        assert_eq!(
+            VcpuConfig::try_from(vcpu_str.to_string()).unwrap_err(),
+            ConversionError::ParseVcpus("0".to_string())
+        );
+
+        let vcpu_str = "num=256";
+        assert_eq!(
+            VcpuConfig::try_from(vcpu_str.to_string()).unwrap_err(),
+            ConversionError::ParseVcpus("256".to_string())
+        );
+
+        // Missing vCPU number in config string.
+        let vcpu_str = "num=";
+        assert_eq!(
+            VcpuConfig::try_from(vcpu_str.to_string()).unwrap_err(),
+            ConversionError::ParseVcpus("num=".to_string())
         );
     }
 }
