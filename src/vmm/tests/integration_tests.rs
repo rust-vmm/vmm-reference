@@ -40,6 +40,8 @@ fn test_dummy_vmm_elf() {
         ),
         memory_config: default_memory_config(),
         vcpu_config: default_vcpu_config(),
+        block_config: None,
+        network_config: None,
     };
     // Sanity check. Because the VMM runs in a separate process, if the file doesn't exist,
     // all we see is a different exit code than 0.
@@ -56,6 +58,8 @@ fn test_dummy_vmm_bzimage() {
         ),
         memory_config: default_memory_config(),
         vcpu_config: default_vcpu_config(),
+        block_config: None,
+        network_config: None,
     };
     assert!(vmm_config.kernel_config.path.as_path().exists());
     run_vmm(pid, vmm_config);

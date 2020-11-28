@@ -10,7 +10,7 @@ use std::convert::TryFrom;
 use std::result;
 
 use clap::{App, Arg};
-use vmm::{KernelConfig, MemoryConfig, VMMConfig, VcpuConfig};
+use vmm::{BlockConfig, KernelConfig, MemoryConfig, NetConfig, VMMConfig, VcpuConfig};
 
 /// Command line parser.
 pub struct CLI;
@@ -45,6 +45,19 @@ impl CLI {
                     .required(true)
                     .takes_value(true)
                     .help("Kernel configuration.\n\tFormat: \"path=<string>[,cmdline=<string>,himem_start=<u64>]\""),
+            )
+            .arg(
+                Arg::with_name("net")
+                    .long("net")
+                    .takes_value(true)
+                    .help("Network device configuration. \n\tFormat: \"tap=<string>\"")
+            )
+            .arg(
+                Arg::with_name("block")
+                    .long("block")
+                    .required(false)
+                    .takes_value(true)
+                    .help("Block device configuration. \n\tFormat: \"path=<string>\"")
             );
 
         // Save the usage beforehand as a string, because `get_matches` consumes the `App`.
@@ -89,6 +102,20 @@ impl CLI {
                 eprintln!("{}", help_msg);
                 format!("{}", e)
             })?,
+            block_config: match matches.value_of("block") {
+                Some(value) => Some(BlockConfig::try_from(value.to_string()).map_err(|e| {
+                    eprintln!("{}", help_msg);
+                    format!("{}", e)
+                })?),
+                None => None,
+            },
+            network_config: match matches.value_of("net") {
+                Some(value) => Some(NetConfig::try_from(value.to_string()).map_err(|e| {
+                    eprintln!("{}", help_msg);
+                    format!("{}", e)
+                })?),
+                None => None,
+            },
         })
     }
 }
@@ -247,6 +274,8 @@ mod tests {
                 },
                 memory_config: MemoryConfig { size_mib: 128 },
                 vcpu_config: VcpuConfig { num: 1 },
+                block_config: None,
+                network_config: None,
             }
         );
 
@@ -261,6 +290,8 @@ mod tests {
                 },
                 memory_config: MemoryConfig { size_mib: 256 },
                 vcpu_config: VcpuConfig { num: 1 },
+                block_config: None,
+                network_config: None,
             }
         );
     }
