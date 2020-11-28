@@ -17,6 +17,10 @@ pub enum ConversionError {
     ParseMemory(String),
     /// Failed to parse the string representation for the vCPUs.
     ParseVcpus(String),
+    /// Failed to parse the string representation for the network.
+    ParseNetwork(String),
+    /// Failed to parse the string representation for the block.
+    ParseBlock(String),
 }
 
 impl fmt::Display for ConversionError {
@@ -26,6 +30,8 @@ impl fmt::Display for ConversionError {
             ParseKernel(ref s) => write!(f, "Invalid input for kernel: {}", s),
             ParseMemory(ref s) => write!(f, "Invalid input for memory: {}", s),
             ParseVcpus(ref s) => write!(f, "Invalid input for vCPUs: {}", s),
+            ParseNetwork(ref s) => write!(f, "Invalid input for network: {}", s),
+            ParseBlock(ref s) => write!(f, "Invalid input for network: {}", s),
         }
     }
 }
@@ -154,6 +160,63 @@ impl TryFrom<String> for KernelConfig {
         })
     }
 }
+/// Network device configuration.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NetConfig {
+    /// Name of tap device.
+    pub tap_name: String,
+}
+
+impl TryFrom<String> for NetConfig {
+    type Error = ConversionError;
+
+    fn try_from(net_config_str: String) -> Result<Self, Self::Error> {
+        // Supported options: `tap=String`
+        let tokens: Vec<&str> = net_config_str
+            .split('=')
+            .filter(|tok| !tok.is_empty())
+            .collect();
+        if tokens.len() != 2 {
+            return Err(ConversionError::ParseNetwork(net_config_str));
+        }
+        if tokens[0] != "tap" {
+            return Err(ConversionError::ParseNetwork(tokens[0].to_string()));
+        }
+
+        Ok(Self {
+            tap_name: String::from(tokens[1]),
+        })
+    }
+}
+
+/// Block device configuration
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BlockConfig {
+    /// Path to the block device backend.
+    pub path: PathBuf,
+}
+
+impl TryFrom<String> for BlockConfig {
+    type Error = ConversionError;
+
+    fn try_from(block_cfg_str: String) -> Result<Self, Self::Error> {
+        // Supported options: `path=PathBuf`
+        let tokens: Vec<&str> = block_cfg_str
+            .split('=')
+            .filter(|tok| !tok.is_empty())
+            .collect();
+        if tokens.len() != 2 {
+            return Err(ConversionError::ParseBlock(block_cfg_str));
+        }
+        if tokens[0] != "path" {
+            return Err(ConversionError::ParseBlock(tokens[0].to_string()));
+        }
+
+        Ok(Self {
+            path: PathBuf::from(tokens[1]),
+        })
+    }
+}
 
 /// VMM configuration.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -164,6 +227,10 @@ pub struct VMMConfig {
     pub vcpu_config: VcpuConfig,
     /// Guest kernel configuration.
     pub kernel_config: KernelConfig,
+    /// Network device configuration.
+    pub network_config: Option<NetConfig>,
+    /// Block device configuration.
+    pub block_config: Option<BlockConfig>,
 }
 
 #[cfg(test)]
@@ -214,5 +281,47 @@ mod tests {
             VcpuConfig::try_from(vcpu_str.to_string()).unwrap_err(),
             ConversionError::ParseVcpus("num=".to_string())
         );
+    }
+
+    #[test]
+    fn test_network_config() {
+        let network_str = "tap=vmtap".to_string();
+        let network_cfg = NetConfig::try_from(network_str).unwrap();
+        let expected_cfg = NetConfig {
+            tap_name: "vmtap".to_string(),
+        };
+        assert_eq!(network_cfg, expected_cfg);
+
+        // Test case: empty string error.
+        assert!(NetConfig::try_from(String::new()).is_err());
+
+        // Test case: empty tap name error.
+        let network_str = "tap=".to_string();
+        assert!(NetConfig::try_from(network_str).is_err());
+
+        // Test case: invalid string.
+        let network_str = "blah=blah".to_string();
+        assert!(NetConfig::try_from(network_str).is_err());
+    }
+
+    #[test]
+    fn test_block_config() {
+        let block_str = "path=/foo/bar".to_string();
+        let block_cfg = BlockConfig::try_from(block_str).unwrap();
+        let expected_cfg = BlockConfig {
+            path: PathBuf::from("/foo/bar"),
+        };
+        assert_eq!(block_cfg, expected_cfg);
+
+        // Test case: empty string error.
+        assert!(BlockConfig::try_from(String::new()).is_err());
+
+        // Test case: empty tap name error.
+        let block_str = "path=".to_string();
+        assert!(BlockConfig::try_from(block_str).is_err());
+
+        // Test case: invalid string.
+        let block_str = "blah=blah".to_string();
+        assert!(BlockConfig::try_from(block_str).is_err());
     }
 }

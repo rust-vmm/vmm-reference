@@ -10,6 +10,8 @@ use std::convert::TryFrom;
 use std::ffi::CString;
 use std::fs::File;
 use std::io::{self, stdin, stdout};
+use std::ops::DerefMut;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use event_manager::{EventManager, MutEventSubscriber, SubscriberOps};
@@ -29,6 +31,7 @@ use linux_loader::loader::{
     elf::{self, Elf},
     load_cmdline, KernelLoader, KernelLoaderResult,
 };
+use vm_device::bus::{MmioAddress, MmioRange};
 use vm_device::device_manager::IoManager;
 use vm_device::resources::Resource;
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
@@ -36,6 +39,9 @@ use vm_superio::Serial;
 use vm_vcpu::vcpu::{cpuid::filter_cpuid, VcpuState};
 use vm_vcpu::vm::{self, KvmVm, VmState};
 use vmm_sys_util::{eventfd::EventFd, terminal::Terminal};
+
+use devices::virtio::block::{self, BlockArgs};
+use devices::virtio::{CommonArgs, MmioConfig};
 
 mod boot;
 use boot::build_bootparams;
@@ -75,6 +81,8 @@ pub enum MemoryError {
 /// VMM errors.
 #[derive(Debug)]
 pub enum Error {
+    /// Failed to create block device.
+    Block(block::Error),
     /// Failed to write boot parameters to guest memory.
     BootConfigure(configurator::Error),
     /// Error configuring boot parameters.
@@ -114,6 +122,8 @@ impl std::convert::From<vm::Error> for Error {
 /// Dedicated [`Result`](https://doc.rust-lang.org/std/result/) type.
 pub type Result<T> = std::result::Result<T, Error>;
 
+type Block = block::Block<Arc<GuestMemoryMmap>>;
+
 /// A live VMM.
 pub struct VMM {
     kvm: Kvm,
@@ -126,7 +136,8 @@ pub struct VMM {
     // Arc<Mutex<>> because the same device (a dyn DevicePio/DeviceMmio from IoManager's
     // perspective, and a dyn MutEventSubscriber from EventManager's) is managed by the 2 entities,
     // and isn't Copy-able; so once one of them gets ownership, the other one can't anymore.
-    event_mgr: EventManager<Arc<Mutex<dyn MutEventSubscriber>>>,
+    event_mgr: EventManager<Arc<Mutex<dyn MutEventSubscriber + Send>>>,
+    block_devices: Vec<Arc<Mutex<Block>>>,
 }
 
 impl TryFrom<VMMConfig> for VMM {
@@ -157,10 +168,27 @@ impl TryFrom<VMMConfig> for VMM {
             device_mgr: Arc::new(Mutex::new(IoManager::new())),
             event_mgr: EventManager::new().map_err(Error::EventManager)?,
             kernel_cfg: config.kernel_config.clone(),
+            block_devices: Vec::new(),
         };
 
-        vmm.add_serial_console()?;
         vmm.create_vcpus(&config.vcpu_config)?;
+        vmm.add_serial_console()?;
+
+        // We transiently define a mut `Cmdline` object here to pass for device creation
+        // (devices expect a `&mut Cmdline` to leverage the newly added virtio_mmio
+        // functionality), until we figure out how this fits with the rest of the vmm, which
+        // apparently does not explicitly use `Cmdline` structs. Will discuss and fix this
+        // somehow ASAP.
+        let mut cmdline = cmdline::Cmdline::new(4096);
+
+        if let Some(block_cfg) = config.block_config.as_ref() {
+            vmm.add_block_device(block_cfg, &mut cmdline)?;
+        }
+
+        if !cmdline.as_str().is_empty() {
+            vmm.kernel_cfg.cmdline.push_str(" ");
+            vmm.kernel_cfg.cmdline.push_str(cmdline.as_str());
+        }
 
         Ok(vmm)
     }
@@ -303,6 +331,42 @@ impl VMM {
         Ok(())
     }
 
+    fn add_block_device(
+        &mut self,
+        cfg: &BlockConfig,
+        cmdline: &mut cmdline::Cmdline,
+    ) -> Result<()> {
+        let mem = Arc::new(self.guest_memory.clone());
+
+        let range = MmioRange::new(MmioAddress(MMIO_GAP_START), 0x1000).unwrap();
+        let mmio_cfg = MmioConfig { range, gsi: 5 };
+
+        let mut guard = self.device_mgr.lock().unwrap();
+
+        let common = CommonArgs {
+            mem,
+            vm_fd: self.vm.vm_fd(),
+            event_mgr: &mut self.event_mgr,
+            mmio_mgr: guard.deref_mut(),
+            mmio_cfg,
+            kernel_cmdline: cmdline,
+        };
+
+        let args = BlockArgs {
+            common,
+            file_path: PathBuf::from(&cfg.path),
+            read_only: false,
+            root_device: true,
+            advertise_flush: true,
+        };
+
+        // We can also hold this somewhere if we need to keep the handle for later.
+        let block = Block::new(args).map_err(Error::Block)?;
+        self.block_devices.push(block);
+
+        Ok(())
+    }
+
     // Helper function that computes the kernel_load_addr needed by the
     // VcpuState when creating the Vcpus.
     fn compute_kernel_load_addr(&self, kernel_load: &KernelLoaderResult) -> Result<GuestAddress> {
@@ -407,6 +471,8 @@ mod tests {
                 size_mib: MEM_SIZE_MIB,
             },
             vcpu_config: VcpuConfig { num: NUM_VCPUS },
+            block_config: None,
+            network_config: None,
         }
     }
 
@@ -429,6 +495,7 @@ mod tests {
             device_mgr: Arc::new(Mutex::new(IoManager::new())),
             event_mgr: EventManager::new().unwrap(),
             kernel_cfg: vmm_config.kernel_config,
+            block_devices: Vec::new(),
         }
     }
 
@@ -625,5 +692,40 @@ mod tests {
             // Creating 255 also works.
             assert!(vmm.create_vcpus(&VcpuConfig { num: u8::MAX }).is_ok());
         }
+    }
+
+    #[test]
+    fn test_add_block() {
+        let vmm_config = default_vmm_config();
+        let mut vmm = mock_vmm(vmm_config);
+
+        let tempfile = TempFile::new().unwrap();
+        let block_config = BlockConfig {
+            path: tempfile.as_path().to_path_buf(),
+        };
+        let mut cmdline = cmdline::Cmdline::new(4096);
+        assert!(vmm.add_block_device(&block_config, &mut cmdline).is_ok());
+        assert_eq!(vmm.block_devices.len(), 1);
+        assert!(cmdline.as_str().contains("virtio"));
+
+        let invalid_block_config = BlockConfig {
+            // Let's create the tempfile directly here so that it gets out of scope immediately
+            // and delete the underlying file.
+            path: TempFile::new().unwrap().as_path().to_path_buf(),
+        };
+        let mut cmdline = cmdline::Cmdline::new(4096);
+        let err = vmm
+            .add_block_device(&invalid_block_config, &mut cmdline)
+            .unwrap_err();
+        assert!(
+            matches!(err, Error::Block(block::Error::OpenFile(io_err)) if io_err.kind() == ErrorKind::NotFound)
+        );
+
+        // The current implementation of the VMM does not allow more than one block device
+        // as we are hard coding the `MmioConfig`.
+        let mut cmdline = cmdline::Cmdline::new(4096);
+        // This currently fails because a device is already registered with the provided
+        // MMIO range.
+        assert!(vmm.add_block_device(&block_config, &mut cmdline).is_err());
     }
 }
