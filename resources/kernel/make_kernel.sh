@@ -149,20 +149,21 @@ kernel_binary() {
 #   make_kernel
 #       /path/to/kernel/dir \
 #       format              \
+#       [target]            \
 #       [num_cpus_build]    \
 #       [/path/to/kernel/destination]
 make_kernel() {
     kernel_dir="$1"
     format="$2"
-    nprocs="$3"
-    dst="$4"
+    target="$3"
+    nprocs="$4"
+    dst="$5"
 
     [ -z "$kernel_dir" ] && die "Kernel directory not specified."
     [ ! -d "$kernel_dir" ] && die "Kernel directory not found."
     [ -z "$format" ] && die "Kernel format not specified."
     [ -z "$nprocs" ] && nprocs=1
    
-    target=$(kernel_target "$format")
     kernel_binary=$(kernel_binary "$format")
 
     # Move to the directory with the kernel sources.
