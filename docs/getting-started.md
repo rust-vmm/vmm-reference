@@ -67,8 +67,8 @@ directory (default: `target/${toolchain}/${mode}`, where mode can be `debug` or
 To build a kernel for the reference VMM to boot, check out the scripts in
 [resources/kernel](../resources/kernel).
 
-- [`make_kernel_image.sh`](../resources/kernel/make_kernel_image.sh) builds an
-  ELF or bzImage kernel with a baked-in initramfs running
+- [`make_kernel_busybox_image.sh`](../resources/kernel/make_kernel_busybox_image.sh)
+  builds an ELF or bzImage kernel with a baked-in initramfs running
   [Busybox](https://busybox.net/). It uses a stripped-down
   [kernel config](../resources/kernel/microvm-kernel-initramfs-hello-x86_64.config)
   and a statically linked [config](../resources/kernel/busybox_static_config)
@@ -77,15 +77,16 @@ To build a kernel for the reference VMM to boot, check out the scripts in
   For example:
 
   ```bash
-  ./make_kernel_image.sh -f elf -k vmlinux-hello-busybox -w /tmp/kernel
+  ./make_kernel_busybox_image.sh -f elf -k vmlinux-hello-busybox -w /tmp/kernel
   ```
 
   produces a binary image called `vmlinux-hello-busybox` in the `/tmp/kernel`
   directory.
 
-  Run `make_kernel_image.sh` with no arguments to see the help. For more
-  usage examples, see the [Buildkite pipeline](../.buildkite/deps-pipeline.yml)
-  that calls this script as part of the CI.
+  Run `./make_kernel_busybox_image.sh` with no arguments to see the help. For
+  more usage examples, see the
+  [Buildkite pipeline](../.buildkite/deps-pipeline.yml) that calls this script
+  as part of the CI.
 
 ### Devices
 

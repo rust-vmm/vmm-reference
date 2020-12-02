@@ -1,10 +1,10 @@
 steps:
   - label: "build-deps-x86"
     commands:
-      - resources/kernel/make_kernel_image.sh -f elf -k vmlinux-hello-busybox -w /tmp/vmlinux_busybox -j 2
-      - resources/kernel/make_kernel_image.sh -f elf -k vmlinux-hello-busybox -w /tmp/vmlinux_busybox -j 2 -h
-      - resources/kernel/make_kernel_image.sh -f bzimage -k bzimage-hello-busybox -w /tmp/vmlinux_busybox -j 2
-      - resources/kernel/make_kernel_image.sh -f bzimage -k bzimage-hello-busybox -w /tmp/vmlinux_busybox -j 2 -h
+      - resources/kernel/make_kernel_busybox_image.sh -f elf -k vmlinux-hello-busybox -w /tmp/vmlinux_busybox -j 2
+      - resources/kernel/make_kernel_busybox_image.sh -f elf -k vmlinux-hello-busybox -w /tmp/vmlinux_busybox -j 2 -h
+      - resources/kernel/make_kernel_busybox_image.sh -f bzimage -k bzimage-hello-busybox -w /tmp/vmlinux_busybox -j 2
+      - resources/kernel/make_kernel_busybox_image.sh -f bzimage -k bzimage-hello-busybox -w /tmp/vmlinux_busybox -j 2 -h
     retry:
       automatic: false
     agents:

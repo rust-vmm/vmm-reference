@@ -36,7 +36,7 @@ WORKDIR=$(mktemp -d)
 # Kernel binary format.
 KERNEL_FMT=
 # Destination kernel binary name.
-KERNEL_BINARY=
+KERNEL_BINARY_NAME=
 
 USAGE="
 Usage: $(basename $SOURCE) -f (elf|bzimage) [-j nprocs] [-k kernel] [-w workdir] [-c] [-h]
@@ -61,7 +61,7 @@ while getopts ":chf:j:k:w:" opt; do
         ;;
     j)  MAKEPROCS=$OPTARG
         ;;
-    k)  KERNEL_BINARY=$OPTARG
+    k)  KERNEL_BINARY_NAME=$OPTARG
         ;;
     w)  rm -rf "$WORKDIR"
         WORKDIR=$OPTARG
@@ -83,8 +83,8 @@ cleanup() {
 cleanup
 
 # Step 1: what are we building?
-[ -z "$KERNEL_BINARY" ] && KERNEL_BINARY=$(kernel_binary "$KERNEL_FMT")
-[ -n "$HALT" ] && KERNEL_BINARY="$KERNEL_BINARY-halt"
+[ -z "$KERNEL_BINARY_NAME" ] && KERNEL_BINARY_NAME=$(kernel_binary "$KERNEL_FMT")
+[ -n "$HALT" ] && KERNEL_BINARY_NAME="$KERNEL_BINARY_NAME-halt"
 
 # Step 2: start from scratch.
 mkdir -p "$WORKDIR" && cd "$WORKDIR"
@@ -100,10 +100,11 @@ make_busybox "$WORKDIR" "$TEST_RESOURCE_DIR/$BUSYBOX_CFG"   \
 make_initramfs "$kernel_dir" "$WORKDIR/busybox_rootfs" "$HALT"
 
 # Step 5: put them together.
-make_kernel "$kernel_dir" "$KERNEL_FMT" "$MAKEPROCS" "$KERNEL_BINARY"
+target=$(kernel_target "$KERNEL_FMT")
+make_kernel "$kernel_dir" "$KERNEL_FMT" "$target" "$MAKEPROCS" "$KERNEL_BINARY_NAME"
 
 # Final step: profit!
 echo "Done!"
-echo "Kernel binary placed in: $kernel_dir/$KERNEL_BINARY"
+echo "Kernel binary placed in: $kernel_dir/$KERNEL_BINARY_NAME"
 cleanup
 exit 0

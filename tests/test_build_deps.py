@@ -59,7 +59,7 @@ def _make_script_cmd(workdir, fmt, img, hlt):
     script_path = os.path.abspath(os.path.join(
         os.path.dirname(os.path.realpath(__file__)),
         "..",
-        "resources/kernel/make_kernel_image.sh"
+        "resources/kernel/make_kernel_busybox_image.sh"
     ))
     
     # Add format. This argument is mandatory.
