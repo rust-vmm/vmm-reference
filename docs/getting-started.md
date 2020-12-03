@@ -10,6 +10,7 @@
   - [Run the Reference VMM](#run-the-reference-vmm)
     - [Kernel](#kernel)
     - [Devices](#devices)
+      - [Block Device](#block-device)
     - [Putting It All Together](#putting-it-all-together)
 
 ## Prerequisites
@@ -77,11 +78,11 @@ To build a kernel for the reference VMM to boot, check out the scripts in
   Example:
 
   ```bash
-  ./make_kernel_busybox_image.sh -f elf -k vmlinux-hello-busybox -w /tmp/kernel
+  sudo ./make_kernel_busybox_image.sh -f elf -k vmlinux-hello-busybox -w /tmp/kernel
   ```
 
   produces a binary image called `vmlinux-hello-busybox` in the `/tmp/kernel`
-  directory.
+  directory. Root privileges are needed to create device nodes.
 
   Run `./make_kernel_busybox_image.sh` with no arguments to see the help.
 
@@ -117,7 +118,30 @@ as part of the CI.
 ### Devices
 
 The reference VMM only supports a serial console device for now. This section
-will be expanded as other devices are added.
+will be expanded as other devices are added. Block devices are in the works.
+
+#### Block Device
+
+To build a block device with a root filesystem in it containing an OS for the
+reference VMM, check out the scripts in [resources/disk](../resources/disk).
+
+- [`make_rootfs.sh`](../resources/disk/make_rootfs.sh) builds a 1 GiB disk
+  image containing an `ext4` filesystem with an Ubuntu 20.04 image.
+
+  Example:
+
+  ```bash
+  sudo resources/disk/make_rootfs.sh -d /tmp/ubuntu-focal/deb -w /tmp/ubuntu-focal
+  ```
+
+  produces a file called `rootfs.ext4` inside `/tmp/ubuntu-focal` containing
+  the Ubuntu 20.04 image and the kernel image installed from the `.deb`
+  packages expected in `/tmp/ubuntu-focal/deb`. At the very least, the OS needs
+  the `linux-image` and `linux-modules` packages. These can either be
+  downloaded or built from sources. See [this section][#kernel] for examples on
+  how to acquire these packages using scripts from this repo.
+
+  Root privileges are needed to manage mountpoints.
 
 ### Putting It All Together
 

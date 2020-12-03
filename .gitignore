@@ -1,3 +1,4 @@
 /target
-vmlinux-hello-busybox*
-bzimage-hello-busybox*
+vmlinux-*
+bzimage-*
+*.ext4
