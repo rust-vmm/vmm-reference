@@ -74,7 +74,7 @@ To build a kernel for the reference VMM to boot, check out the scripts in
   and a statically linked [config](../resources/kernel/busybox_static_config)
   for the Busybox initramfs.
 
-  For example:
+  Example:
 
   ```bash
   ./make_kernel_busybox_image.sh -f elf -k vmlinux-hello-busybox -w /tmp/kernel
@@ -83,10 +83,36 @@ To build a kernel for the reference VMM to boot, check out the scripts in
   produces a binary image called `vmlinux-hello-busybox` in the `/tmp/kernel`
   directory.
 
-  Run `./make_kernel_busybox_image.sh` with no arguments to see the help. For
-  more usage examples, see the
-  [Buildkite pipeline](../.buildkite/deps-pipeline.yml) that calls this script
-  as part of the CI.
+  Run `./make_kernel_busybox_image.sh` with no arguments to see the help.
+
+- [`make_kernel_image_deb.sh`](../resources/kernel/make_kernel_image_deb.sh)
+  builds an ELF or bzImage kernel compatible with Ubuntu 20.04 from a
+  stripped-down
+  [kernel config](../resources/kernel/microvm-kernel-5.4-x86_64.config), as
+  well as `.deb` packages containing the Linux kernel image and modules, to be
+  installed in the guest. By default, the script downloads the `.deb` packages
+  from an
+  [official Ubuntu mirror](http://security.ubuntu.com/ubuntu/pool/main/l/linux-hwe-5.4),
+  but it can build them from the same sources as the kernel instead. Users can
+  opt in for this behavior by setting the `MAKEDEB` environment variable
+  before running the script.
+
+  Example:
+
+  ```bash
+  ./make_kernel_image_deb.sh -f bzimage -j 2 -k bzimage-focal -w /tmp/ubuntu-focal
+  ```
+
+  produces a binary image called `bzimage-focal` in the `/tmp/ubuntu-focal`
+  directory. It downloads the `linux-modules` and `linux-image-unsigned`
+  packages and places them inside the kernel source directory within
+  `/tmp/ubuntu-focal` (the exact location is displayed at the end).
+
+  Run `./make_kernel_image_deb.sh` with no arguments to see the help.
+
+For more usage examples, see the
+[Buildkite pipeline](../.buildkite/deps-pipeline.yml) that calls these scripts
+as part of the CI.
 
 ### Devices
 
