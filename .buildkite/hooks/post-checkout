@@ -3,22 +3,36 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
-# This hook copies the kernel image(s) used in the integration tests from /tmp.
+# This hook copies the kernel and disk image used in the integration tests
+# from /tmp.
 
-RESDIR="resources/kernel"
-WORKDIR="/tmp/vmlinux_busybox"
-KERNEL="linux-4.14.176"
+RESDIR="resources"
+KERNEL_RESDIR="$RESDIR/kernel"
+DISK_RESDIR="$RESDIR/disk"
+
+WORKDIR_INITRAMFS="/tmp/vmlinux_busybox"
+KERNEL_INITRAMFS="linux-4.14.176"
+
+WORKDIR_UBUNTU_FOCAL="/tmp/ubuntu-focal"
+KERNEL_UBUNTU_FOCAL="linux-5.4.81"
+DISK_UBUNTU_FOCAL="/tmp/ubuntu-focal-disk/rootfs.ext4"
+
 KERNEL_BINS=(
-    "vmlinux-hello-busybox"
-    "vmlinux-hello-busybox-halt"
-    "bzimage-hello-busybox"
-    "bzimage-hello-busybox-halt"
+    "$WORKDIR_INITRAMFS/$KERNEL_INITRAMFS/vmlinux-hello-busybox"
+    "$WORKDIR_INITRAMFS/$KERNEL_INITRAMFS/vmlinux-hello-busybox-halt"
+    "$WORKDIR_INITRAMFS/$KERNEL_INITRAMFS/bzimage-hello-busybox"
+    "$WORKDIR_INITRAMFS/$KERNEL_INITRAMFS/bzimage-hello-busybox-halt"
+    "$WORKDIR_UBUNTU_FOCAL/$KERNEL_UBUNTU_FOCAL/vmlinux-focal"
+    "$WORKDIR_UBUNTU_FOCAL/$KERNEL_UBUNTU_FOCAL/vmlinux-focal-halt"
+    "$WORKDIR_UBUNTU_FOCAL/$KERNEL_UBUNTU_FOCAL/bzimage-focal"
+    "$WORKDIR_UBUNTU_FOCAL/$KERNEL_UBUNTU_FOCAL/bzimage-focal-halt"
 )
 
 arch=$(dpkg --print-architecture)
 if [ "$arch" == "amd64" ]; then
     for bin in "${KERNEL_BINS[@]}"; do
-        path="$WORKDIR/$KERNEL/$bin"
-        ([ -f "$path" ] && cp "$path" "$RESDIR") || true
+        ([ -f "$bin" ] && cp "$bin" "$KERNEL_RESDIR") || true
     done
+
+    ([ -f "$DISK_UBUNTU_FOCAL" ] && cp "$DISK_UBUNTU_FOCAL" "$DISK_RESDIR") || true
 fi
