@@ -2,3 +2,4 @@
 vmlinux-*
 bzimage-*
 *.ext4
+__pycache__

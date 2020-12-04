@@ -7,7 +7,11 @@ import pytest
 from subprocess import PIPE, STDOUT
 
 
-KERNELS = ["vmlinux-hello-busybox", "bzimage-hello-busybox"]
+KERNELS_INITRAMFS = ["vmlinux-hello-busybox", "bzimage-hello-busybox"]
+KERNELS_DISK = [
+    ("vmlinux-focal", "rootfs.ext4"),
+    ("bzimage-focal", "rootfs.ext4")
+]
 
 
 def process_exists(pid):
@@ -19,20 +23,24 @@ def process_exists(pid):
         return True
 
 
-@pytest.mark.parametrize("kernel", KERNELS)
+def resource_path(resource_type, resource_name):
+    return os.path.abspath(os.path.join(
+        os.path.dirname(os.path.realpath(__file__)),
+        "..",
+        "resources/{}/{}".format(resource_type, resource_name)
+    ))
+
+
+@pytest.mark.parametrize("kernel", KERNELS_INITRAMFS)
 def test_reference_vmm(kernel):
-    """Start the reference VMM and trust that it works."""
+    """Start the reference VMM and verify that it works."""
 
     # Memory config
     mem_size_mib = 1024
 
     # Kernel config
-    cmdline = "console=ttyS0 i8042.nokbd reboot=k panic=1 pci=off"
-    kernel_path = os.path.abspath(os.path.join(
-        os.path.dirname(os.path.realpath(__file__)),
-        "..",
-        "resources/kernel/{}".format(kernel)
-    ))
+    cmdline = "console=ttyS0 i8042.nokbd reboot=t panic=1 pci=off"
+    kernel_path = resource_path("kernel", kernel)
     himem_start = 1048576
 
     # vCPU config
@@ -75,3 +83,17 @@ def test_reference_vmm(kernel):
     # If the process hasn't ended within 3 seconds, this will raise a
     # TimeoutExpired exception and fail the test.
     vmm_process.wait(timeout=3)
+
+
+@pytest.mark.parametrize("kernel,disk", KERNELS_DISK)
+def test_reference_vmm_with_disk(kernel, disk):
+    """Start the reference VMM and verify that it works."""
+
+    # TODO: that's actually a lie, this test is a placeholder that just
+    # verifies that the prerequisites are in place.
+
+    kernel_path = resource_path("kernel", kernel)
+    disk_path = resource_path("disk", disk)
+
+    assert os.path.isfile(kernel_path)
+    assert os.path.isfile(disk_path)
