@@ -37,6 +37,10 @@ pub fn filter_cpuid(kvm: &Kvm, vcpu_id: usize, cpu_count: usize, cpuid: &mut Cpu
                 // Clear X86 EPB feature. No frequency selection in the hypervisor.
                 entry.ecx &= !(1 << ECX_EPB_SHIFT);
             }
+            11 => {
+                // EDX bits 31..0 contain x2APIC ID of current logical processor.
+                entry.edx = vcpu_id as u32;
+            }
             _ => (),
         }
     }
