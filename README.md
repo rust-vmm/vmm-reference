@@ -47,6 +47,7 @@ fully functional VMM built with `rust-vmm` crates.
 
 To start a basic VM with one vCPU and 256 MiB memory, you can use the following
 command:
+
 ```bash
 vmm-reference                      \
     --kernel path=/path/to/vmlinux \
