@@ -67,19 +67,25 @@ directory (default: `target/${toolchain}/${mode}`, where mode can be `debug` or
 To build a kernel for the reference VMM to boot, check out the scripts in
 [resources/kernel](../resources/kernel).
 
-- [`make_busybox.sh`](../resources/kernel/make_busybox.sh) builds an ELF image
-  with a baked-in initramfs running [Busybox](https://busybox.net/). It uses a
-  stripped-down
+- [`make_kernel_image.sh`](../resources/kernel/make_kernel_image.sh) builds an
+  ELF or bzImage kernel with a baked-in initramfs running
+  [Busybox](https://busybox.net/). It uses a stripped-down
   [kernel config](../resources/kernel/microvm-kernel-initramfs-hello-x86_64.config)
   and a statically linked [config](../resources/kernel/busybox_static_config)
   for the Busybox initramfs.
 
+  For example:
+
   ```bash
-  ./make_busybox.sh
+  ./make_kernel_image.sh -f elf -k vmlinux-hello-busybox -w /tmp/kernel
   ```
 
-  This produces a binary image called `vmlinux-hello-busybox` in the
-  `resources/kernel` directory.
+  produces a binary image called `vmlinux-hello-busybox` in the `/tmp/kernel`
+  directory.
+
+  Run `make_kernel_image.sh` with no arguments to see the help. For more
+  usage examples, see the [Buildkite pipeline](../.buildkite/deps-pipeline.yml)
+  that calls this script as part of the CI.
 
 ### Devices
 
@@ -95,15 +101,15 @@ directly through `cargo`, passing on its specific
 
 ```wrap
 cargo run --release --            \
-    --memory mem_size_mib=1024    \
-    --kernel path=${PWD}/resources/kernel/vmlinux-hello-busybox  \
+    --memory size_mib=1024        \
+    --kernel path=${KERNEL_PATH}  \
     --vcpu num=1
 ```
 
 ```wrap
 cargo build --release
 target/release/vmm-reference      \
-    --memory mem_size_mib=1024    \
-    --kernel path=${PWD}/resources/kernel/vmlinux-hello-busybox \
+    --memory size_mib=1024        \
+    --kernel path=${KERNEL_PATH}  \
     --vcpu num=1
 ```
