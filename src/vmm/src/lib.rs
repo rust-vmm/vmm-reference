@@ -67,7 +67,7 @@ const CMDLINE_START: u64 = 0x0002_0000;
 pub const DEFAULT_HIGH_RAM_START: u64 = 0x0010_0000;
 
 /// Default kernel command line.
-pub const DEFAULT_KERNEL_CMDLINE: &str = "i8042.nokbd reboot=k panic=1 pci=off";
+pub const DEFAULT_KERNEL_CMDLINE: &str = "i8042.nokbd reboot=t panic=1 pci=off";
 
 /// VMM memory related errors.
 #[derive(Debug)]
