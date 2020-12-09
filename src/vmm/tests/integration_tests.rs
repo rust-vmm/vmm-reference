@@ -23,7 +23,7 @@ fn default_kernel_config(path: PathBuf) -> KernelConfig {
     KernelConfig {
         path,
         himem_start: 0x0010_0000, // 1 MB
-        cmdline: "console=ttyS0 i8042.nokbd reboot=k panic=1 pci=off".to_string(),
+        cmdline: "console=ttyS0 i8042.nokbd reboot=t panic=1 pci=off".to_string(),
     }
 }
 
