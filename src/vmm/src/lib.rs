@@ -276,6 +276,7 @@ impl VMM {
                 break;
             }
         }
+        self.vm.shutdown();
 
         Ok(())
     }

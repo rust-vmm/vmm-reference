@@ -1,9 +1,14 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2017 The Chromium OS Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
-
+//
+use libc::siginfo_t;
+use std::cell::RefCell;
+use std::ffi::c_void;
 use std::io::{self, stdin};
+use std::os::raw::c_int;
 use std::result;
-use std::sync::{Arc, Barrier, Mutex};
+use std::sync::{Arc, Barrier, Condvar, Mutex};
 
 use kvm_bindings::{kvm_fpu, kvm_regs, CpuId, Msrs};
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
@@ -11,11 +16,13 @@ use vm_device::bus::{MmioAddress, PioAddress};
 use vm_device::device_manager::{IoManager, MmioManager, PioManager};
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
 use vmm_sys_util::errno::Error as Errno;
+use vmm_sys_util::signal::{register_signal_handler, SIGRTMIN};
 use vmm_sys_util::terminal::Terminal;
 
 mod gdt;
 use gdt::*;
 mod interrupts;
+use crate::vm::VmRunState;
 use interrupts::*;
 
 pub mod cpuid;
@@ -51,6 +58,10 @@ pub enum Error {
     Mptable(mptable::Error),
     /// Failed to configure MSRs.
     SetModelSpecificRegistersCount,
+    /// TLS already initialized.
+    TlsInitialized,
+    /// Unable to register signal handler.
+    RegisterSignalHandler(Errno),
 }
 
 /// Dedicated Result type.
@@ -59,6 +70,20 @@ pub type Result<T> = result::Result<T, Error>;
 pub struct VcpuState {
     pub id: u8,
     pub cpuid: CpuId,
+}
+
+/// Represents the current run state of the VCPUs.
+#[derive(Default)]
+pub struct VcpuRunState {
+    pub(crate) vm_state: Mutex<VmRunState>,
+    condvar: Condvar,
+}
+
+impl VcpuRunState {
+    pub fn set_and_notify(&self, state: VmRunState) {
+        *self.vm_state.lock().unwrap() = state;
+        self.condvar.notify_all();
+    }
 }
 
 /// Struct for interacting with vCPUs.
@@ -71,25 +96,28 @@ pub struct KvmVcpu {
     /// Device manager for bus accesses.
     device_mgr: Arc<Mutex<IoManager>>,
     state: VcpuState,
-    running: bool,
     run_barrier: Arc<Barrier>,
+    pub(crate) run_state: Arc<VcpuRunState>,
 }
 
 impl KvmVcpu {
+    thread_local!(static TLS_VCPU_PTR: RefCell<Option<*const KvmVcpu>> = RefCell::new(None));
+
     /// Create a new vCPU.
     pub fn new<M: GuestMemory>(
         vm_fd: &VmFd,
         device_mgr: Arc<Mutex<IoManager>>,
         state: VcpuState,
         run_barrier: Arc<Barrier>,
+        run_state: Arc<VcpuRunState>,
         memory: &M,
     ) -> Result<Self> {
         let vcpu = KvmVcpu {
             vcpu_fd: vm_fd.create_vcpu(state.id).map_err(Error::KvmIoctl)?,
             device_mgr,
             state,
-            running: false,
             run_barrier,
+            run_state,
         };
 
         vcpu.configure_cpuid(&vcpu.state.cpuid)?;
@@ -240,16 +268,48 @@ impl KvmVcpu {
         self.vcpu_fd.set_lapic(&klapic).map_err(Error::KvmIoctl)
     }
 
+    pub(crate) fn setup_signal_handler() -> Result<()> {
+        extern "C" fn handle_signal(_: c_int, _: *mut siginfo_t, _: *mut c_void) {
+            KvmVcpu::set_local_immediate_exit(1);
+        }
+        #[allow(clippy::identity_op)]
+        register_signal_handler(SIGRTMIN() + 0, handle_signal)
+            .map_err(Error::RegisterSignalHandler)?;
+        Ok(())
+    }
+
+    fn init_tls(&mut self) -> Result<()> {
+        Self::TLS_VCPU_PTR.with(|vcpu| {
+            if vcpu.borrow().is_none() {
+                *vcpu.borrow_mut() = Some(self as *const KvmVcpu);
+                Ok(())
+            } else {
+                Err(Error::TlsInitialized)
+            }
+        })?;
+        Ok(())
+    }
+
+    fn set_local_immediate_exit(value: u8) {
+        Self::TLS_VCPU_PTR.with(|v| {
+            if let Some(vcpu) = *v.borrow() {
+                unsafe {
+                    let vcpu_ref = &*vcpu;
+                    vcpu_ref.vcpu_fd.set_kvm_immediate_exit(value);
+                };
+            }
+        });
+    }
+
     /// vCPU emulation loop.
     #[allow(clippy::if_same_then_else)]
     pub fn run(&mut self, instruction_pointer: GuestAddress) -> Result<()> {
-        if !self.running {
-            self.configure_regs(instruction_pointer)?;
-            self.running = true;
-        }
-        self.run_barrier.wait();
+        self.configure_regs(instruction_pointer)?;
+        self.init_tls()?;
 
-        loop {
+        self.run_barrier.wait();
+        'vcpu_run: loop {
+            let mut interrupted_by_signal = false;
             match self.vcpu_fd.run() {
                 Ok(exit_reason) => {
                     match exit_reason {
@@ -258,6 +318,7 @@ impl KvmVcpu {
                             if stdin().lock().set_canon_mode().is_err() {
                                 eprintln!("Failed to set canon mode. Stdin will not echo.");
                             }
+                            self.run_state.set_and_notify(VmRunState::Exiting);
                             break;
                         }
                         VcpuExit::IoOut(addr, data) => {
@@ -319,23 +380,63 @@ impl KvmVcpu {
                                 eprintln!("Failed to write to mmio");
                             }
                         }
-                        _ => {
+                        other => {
                             // Unhandled KVM exit.
+                            eprintln!("Unhandled vcpu exit: {:#?}", other);
                         }
                     }
                 }
                 Err(e) => {
                     // During boot KVM can exit with `EAGAIN`. In that case, do not
                     // terminate the run loop.
-                    if e == Errno::new(libc::EAGAIN) {
-                    } else {
-                        eprintln!("Emulation error: {}", e);
-                        break;
+                    match e.errno() {
+                        libc::EAGAIN => {}
+                        libc::EINTR => {
+                            interrupted_by_signal = true;
+                        }
+                        _ => {
+                            eprintln!("Emulation error: {}", e);
+                            break;
+                        }
                     }
+                }
+            }
+
+            if interrupted_by_signal {
+                self.vcpu_fd.set_kvm_immediate_exit(0);
+                let mut run_state_lock = self.run_state.vm_state.lock().unwrap();
+                loop {
+                    match *run_state_lock {
+                        VmRunState::Running => {
+                            // The VM state is running, so we need to exit from this loop,
+                            // and enter the kvm run loop.
+                            break;
+                        }
+                        VmRunState::Suspending => {
+                            // The VM is suspending. We run this loop until we get a different
+                            // state.
+                        }
+                        VmRunState::Exiting => {
+                            // The VM is exiting. We also exit from this VCPU thread.
+                            break 'vcpu_run;
+                        }
+                    }
+                    // Give ownership of our exclusive lock to the condition variable that will
+                    // block. When the condition variable is notified, `wait` will unblock and
+                    // return a new exclusive lock.
+                    run_state_lock = self.run_state.condvar.wait(run_state_lock).unwrap();
                 }
             }
         }
 
         Ok(())
+    }
+}
+
+impl Drop for KvmVcpu {
+    fn drop(&mut self) {
+        Self::TLS_VCPU_PTR.with(|v| {
+            *v.borrow_mut() = None;
+        });
     }
 }
