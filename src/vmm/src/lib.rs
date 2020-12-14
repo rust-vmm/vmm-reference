@@ -41,7 +41,7 @@ use vm_vcpu::vm::{self, KvmVm, VmState};
 use vmm_sys_util::{eventfd::EventFd, terminal::Terminal};
 
 use devices::virtio::block::{self, BlockArgs};
-use devices::virtio::{CommonArgs, MmioConfig};
+use devices::virtio::{Env, MmioConfig};
 
 mod boot;
 use boot::build_bootparams;
@@ -343,7 +343,7 @@ impl VMM {
 
         let mut guard = self.device_mgr.lock().unwrap();
 
-        let common = CommonArgs {
+        let mut env = Env {
             mem,
             vm_fd: self.vm.vm_fd(),
             event_mgr: &mut self.event_mgr,
@@ -353,7 +353,6 @@ impl VMM {
         };
 
         let args = BlockArgs {
-            common,
             file_path: PathBuf::from(&cfg.path),
             read_only: false,
             root_device: true,
@@ -361,7 +360,7 @@ impl VMM {
         };
 
         // We can also hold this somewhere if we need to keep the handle for later.
-        let block = Block::new(args).map_err(Error::Block)?;
+        let block = Block::new(&mut env, &args).map_err(Error::Block)?;
         self.block_devices.push(block);
 
         Ok(())

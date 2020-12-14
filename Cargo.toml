@@ -25,4 +25,4 @@ event-manager = { git = "https://github.com/rust-vmm/event-manager.git", rev = "
 linux-loader = { git = "https://github.com/rust-vmm/linux-loader.git", rev ="acf9c21"}
 
 [patch."https://github.com/rust-vmm/vm-virtio.git"]
-vm-virtio = { git = "https://github.com/alexandruag/vm-virtio.git", branch = "proto_wip4" }
+vm-virtio = { git = "https://github.com/alexandruag/vm-virtio.git", branch = "proto_wip5" }

@@ -116,9 +116,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.80"
+version = "0.2.81"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d58d1b70b004888f764dfbf6a26a3b0342a1632d33968e4a179d8011c760614"
+checksum = "1482821306169ec4d07f6aca392a4681f66c75c9918aa49641a2595db64053cb"
 
 [[package]]
 name = "linux-loader"
@@ -204,7 +204,7 @@ dependencies = [
 [[package]]
 name = "vm-virtio"
 version = "0.1.0"
-source = "git+https://github.com/alexandruag/vm-virtio.git?branch=proto_wip4#e0a0d5dcbdb0c15f5a245934313db6dd2845bb7f"
+source = "git+https://github.com/alexandruag/vm-virtio.git?branch=proto_wip5#30d1c8dd6487d51bd8e61dea158b3468bd4dff22"
 dependencies = [
  "byteorder",
  "libc",
@@ -240,9 +240,9 @@ dependencies = [
 
 [[package]]
 name = "vmm-sys-util"
-version = "0.6.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "183d25b56a61a6f518ef464ac578e790f04added34dfaab59a453d8a03cb7bd0"
+checksum = "d1cdd1d72e262bbfb014de65ada24c1ac50e10a2e3b1e8ec052df188c2ee5dfa"
 dependencies = [
  "bitflags",
  "libc",
