@@ -20,11 +20,14 @@ steps:
           always-pull: true
           volumes:
             - "/tmp:/tmp"
+  - wait
   - label: "build-disk-x86"
     commands:
       - resources/disk/make_rootfs.sh -d /tmp/ubuntu-focal/linux-5.4.81/deb/ -w /tmp/ubuntu-focal-disk -o rootfs.ext4
     retry:
-      automatic: false
+      automatic:
+        - exit_status: 32 # Failed to setup loop device.
+          limit: 2
     agents:
       platform: x86_64.metal
       os: linux
