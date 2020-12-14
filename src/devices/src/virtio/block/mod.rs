@@ -9,12 +9,9 @@ use std::fs::File;
 use std::io::{self, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use event_manager::Error as EvmgrError;
-use vm_device::bus;
 use vm_virtio::block::stdio_executor;
-use vmm_sys_util::errno;
 
-use crate::virtio::CommonArgs;
+use crate::virtio::features::{VIRTIO_F_IN_ORDER, VIRTIO_F_RING_EVENT_IDX, VIRTIO_F_VERSION_1};
 
 pub use device::Block;
 
@@ -33,17 +30,9 @@ const SECTOR_SHIFT: u8 = 9;
 
 #[derive(Debug)]
 pub enum Error {
-    AlreadyActivated,
     Backend(stdio_executor::Error),
-    BadFeatures(u64),
-    Bus(bus::Error),
-    Cmdline(linux_loader::cmdline::Error),
-    Endpoint(EvmgrError),
-    EventFd(io::Error),
+    Generic(crate::virtio::Error),
     OpenFile(io::Error),
-    QueuesNotValid,
-    RegisterIoevent(errno::Error),
-    RegisterIrqfd(errno::Error),
     Seek(io::Error),
 }
 
@@ -67,12 +56,45 @@ fn build_config_space<P: AsRef<Path>>(path: P) -> Result<Vec<u8>> {
 }
 
 // Arguments required when building a block device.
-pub struct BlockArgs<'a, M, B> {
-    pub common: CommonArgs<'a, M, B>,
+pub struct BlockArgs {
     pub file_path: PathBuf,
     pub read_only: bool,
     pub root_device: bool,
     pub advertise_flush: bool,
+}
+
+impl BlockArgs {
+    // Generate device features based on the configuration options.
+    pub fn device_features(&self) -> u64 {
+        // The queue handling logic for the device uses the buffers in order, so we enable the
+        // corresponding feature as well.
+        let mut features =
+            1 << VIRTIO_F_VERSION_1 | 1 << VIRTIO_F_IN_ORDER | 1 << VIRTIO_F_RING_EVENT_IDX;
+
+        if self.read_only {
+            features |= 1 << VIRTIO_BLK_F_RO;
+        }
+
+        if self.advertise_flush {
+            features |= 1 << VIRTIO_BLK_F_FLUSH;
+        }
+
+        features
+    }
+
+    // Generate additional info that needs to be appended to the kernel command line based
+    // on the current arg configuration.
+    pub fn cmdline_config_substring(&self) -> String {
+        let mut s = String::new();
+        if self.root_device {
+            s.push_str("root=/dev/vda");
+
+            if self.read_only {
+                s.push_str(" ro");
+            }
+        }
+        s
+    }
 }
 
 #[cfg(test)]
@@ -83,6 +105,17 @@ mod tests {
     use vmm_sys_util::tempfile::TempFile;
 
     use super::*;
+
+    impl Default for BlockArgs {
+        fn default() -> Self {
+            BlockArgs {
+                file_path: "".into(),
+                read_only: false,
+                root_device: false,
+                advertise_flush: false,
+            }
+        }
+    }
 
     #[test]
     fn test_build_config_space() {
@@ -112,5 +145,39 @@ mod tests {
             // We should get the same value of capacity, as the extra bytes are ignored.
             assert_eq!(config_space[..8], num_sectors.to_le_bytes());
         }
+    }
+
+    #[test]
+    fn test_device_features() {
+        let mut args = BlockArgs::default();
+
+        let base =
+            1u64 << VIRTIO_F_VERSION_1 | 1 << VIRTIO_F_IN_ORDER | 1 << VIRTIO_F_RING_EVENT_IDX;
+
+        assert_eq!(args.device_features(), base);
+
+        args.read_only = true;
+        assert_eq!(args.device_features(), base | 1 << VIRTIO_BLK_F_RO);
+
+        args.read_only = false;
+        args.advertise_flush = true;
+        assert_eq!(args.device_features(), base | 1 << VIRTIO_BLK_F_FLUSH);
+    }
+
+    #[test]
+    fn test_cmdline_string() {
+        let mut args = BlockArgs::default();
+
+        assert_eq!(args.cmdline_config_substring(), "");
+
+        args.read_only = true;
+        // There's no effect unless `root_device` is also `true`.
+        assert_eq!(args.cmdline_config_substring(), "");
+
+        args.root_device = true;
+        assert_eq!(args.cmdline_config_substring(), "root=/dev/vda ro");
+
+        args.read_only = false;
+        assert_eq!(args.cmdline_config_substring(), "root=/dev/vda");
     }
 }

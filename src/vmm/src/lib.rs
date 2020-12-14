@@ -42,7 +42,7 @@ use vmm_sys_util::{epoll::EventSet, eventfd::EventFd, terminal::Terminal};
 use boot::build_bootparams;
 pub use config::*;
 use devices::virtio::block::{self, BlockArgs};
-use devices::virtio::{CommonArgs, MmioConfig};
+use devices::virtio::{Env, MmioConfig};
 use serial::SerialWrapper;
 use vm_vcpu::vcpu::{cpuid::filter_cpuid, VcpuState};
 use vm_vcpu::vm::{self, ExitHandler, KvmVm, VmState};
@@ -410,7 +410,7 @@ impl VMM {
 
         let mut guard = self.device_mgr.lock().unwrap();
 
-        let common = CommonArgs {
+        let mut env = Env {
             mem,
             vm_fd: self.vm.vm_fd(),
             event_mgr: &mut self.event_mgr,
@@ -420,7 +420,6 @@ impl VMM {
         };
 
         let args = BlockArgs {
-            common,
             file_path: PathBuf::from(&cfg.path),
             read_only: false,
             root_device: true,
@@ -428,7 +427,7 @@ impl VMM {
         };
 
         // We can also hold this somewhere if we need to keep the handle for later.
-        let block = Block::new(args).map_err(Error::Block)?;
+        let block = Block::new(&mut env, &args).map_err(Error::Block)?;
         self.block_devices.push(block);
 
         Ok(())
