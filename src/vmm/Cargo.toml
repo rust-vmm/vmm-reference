@@ -13,7 +13,7 @@ libc = "0.2.87"
 linux-loader = { version = "0.2.0", features = ["bzimage", "elf"] }
 vm-memory = { version = "0.4.0", features = ["backend-mmap"] }
 vm-superio = "0.1.1"
-vmm-sys-util = "0.6.1"
+vmm-sys-util = "0.7.0"
 
 # vm-device is not yet published on crates.io.
 # To make sure that breaking changes to vm-device are not breaking the
