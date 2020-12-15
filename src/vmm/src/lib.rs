@@ -10,7 +10,6 @@ use std::convert::TryFrom;
 use std::ffi::CString;
 use std::fs::File;
 use std::io::{self, stdin, stdout};
-use std::ops::DerefMut;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -31,7 +30,6 @@ use linux_loader::loader::{
     elf::{self, Elf},
     load_cmdline, KernelLoader, KernelLoaderResult,
 };
-use vm_device::bus::{MmioAddress, MmioRange};
 use vm_device::device_manager::IoManager;
 use vm_device::resources::Resource;
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
@@ -41,6 +39,7 @@ use vm_vcpu::vm::{self, KvmVm, VmState};
 use vmm_sys_util::{eventfd::EventFd, terminal::Terminal};
 
 use devices::virtio::block::{self, BlockArgs};
+use devices::virtio::net::{self, NetArgs};
 use devices::virtio::{Env, MmioConfig};
 
 mod boot;
@@ -97,6 +96,8 @@ pub enum Error {
     IO(io::Error),
     /// Failed to load kernel.
     KernelLoad(loader::Error),
+    /// Failed to create net device.
+    Net(net::Error),
     /// Address stored in the rip registry does not fit in guest memory.
     RipOutOfGuestMemory,
     /// Invalid KVM API version.
@@ -123,6 +124,7 @@ impl std::convert::From<vm::Error> for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 type Block = block::Block<Arc<GuestMemoryMmap>>;
+type Net = net::Net<Arc<GuestMemoryMmap>>;
 
 /// A live VMM.
 pub struct VMM {
@@ -138,6 +140,7 @@ pub struct VMM {
     // and isn't Copy-able; so once one of them gets ownership, the other one can't anymore.
     event_mgr: EventManager<Arc<Mutex<dyn MutEventSubscriber + Send>>>,
     block_devices: Vec<Arc<Mutex<Block>>>,
+    net_devices: Vec<Arc<Mutex<Net>>>,
 }
 
 impl TryFrom<VMMConfig> for VMM {
@@ -162,17 +165,22 @@ impl TryFrom<VMMConfig> for VMM {
         let vm = KvmVm::new(&kvm, vm_state, &guest_memory)?;
 
         let mut vmm = VMM {
-            vm,
             kvm,
+            vm,
+            kernel_cfg: config.kernel_config.clone(),
             guest_memory,
             device_mgr: Arc::new(Mutex::new(IoManager::new())),
             event_mgr: EventManager::new().map_err(Error::EventManager)?,
-            kernel_cfg: config.kernel_config.clone(),
             block_devices: Vec::new(),
+            net_devices: Vec::new(),
         };
 
         vmm.create_vcpus(&config.vcpu_config)?;
         vmm.add_serial_console()?;
+
+        // Adding the virtio devices. We'll come up with a cleaner abstraction for `Env`.
+
+        let mem = Arc::new(vmm.guest_memory.clone());
 
         // We transiently define a mut `Cmdline` object here to pass for device creation
         // (devices expect a `&mut Cmdline` to leverage the newly added virtio_mmio
@@ -181,8 +189,42 @@ impl TryFrom<VMMConfig> for VMM {
         // somehow ASAP.
         let mut cmdline = cmdline::Cmdline::new(4096);
 
-        if let Some(block_cfg) = config.block_config.as_ref() {
-            vmm.add_block_device(block_cfg, &mut cmdline)?;
+        // These is the MMIO configuration for the first device.
+        let mmio_cfg = MmioConfig::new(MMIO_GAP_START, 0x1000, 5).unwrap();
+
+        {
+            let mut env = Env {
+                mem,
+                vm_fd: vmm.vm.vm_fd(),
+                event_mgr: &mut vmm.event_mgr,
+                mmio_mgr: vmm.device_mgr.lock().unwrap(),
+                mmio_cfg,
+                kernel_cmdline: &mut cmdline,
+            };
+
+            if let Some(cfg) = config.block_config.as_ref() {
+                let args = BlockArgs {
+                    file_path: PathBuf::from(&cfg.path),
+                    read_only: false,
+                    root_device: true,
+                    advertise_flush: true,
+                };
+
+                vmm.block_devices
+                    .push(Block::new(&mut env, &args).map_err(Error::Block)?);
+
+                // Bump the MMIO config for the next device.
+                env.mmio_cfg = env.mmio_cfg.next().unwrap();
+            }
+
+            if let Some(cfg) = config.network_config.as_ref() {
+                let args = NetArgs {
+                    tap_name: cfg.tap_name.clone(),
+                };
+
+                vmm.net_devices
+                    .push(Net::new(&mut env, &args).map_err(Error::Net)?);
+            }
         }
 
         if !cmdline.as_str().is_empty() {
@@ -327,41 +369,6 @@ impl VMM {
 
         // Hook it to event management.
         self.event_mgr.add_subscriber(serial);
-
-        Ok(())
-    }
-
-    fn add_block_device(
-        &mut self,
-        cfg: &BlockConfig,
-        cmdline: &mut cmdline::Cmdline,
-    ) -> Result<()> {
-        let mem = Arc::new(self.guest_memory.clone());
-
-        let range = MmioRange::new(MmioAddress(MMIO_GAP_START), 0x1000).unwrap();
-        let mmio_cfg = MmioConfig { range, gsi: 5 };
-
-        let mut guard = self.device_mgr.lock().unwrap();
-
-        let mut env = Env {
-            mem,
-            vm_fd: self.vm.vm_fd(),
-            event_mgr: &mut self.event_mgr,
-            mmio_mgr: guard.deref_mut(),
-            mmio_cfg,
-            kernel_cmdline: cmdline,
-        };
-
-        let args = BlockArgs {
-            file_path: PathBuf::from(&cfg.path),
-            read_only: false,
-            root_device: true,
-            advertise_flush: true,
-        };
-
-        // We can also hold this somewhere if we need to keep the handle for later.
-        let block = Block::new(&mut env, &args).map_err(Error::Block)?;
-        self.block_devices.push(block);
 
         Ok(())
     }

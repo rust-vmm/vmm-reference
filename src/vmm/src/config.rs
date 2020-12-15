@@ -31,7 +31,7 @@ impl fmt::Display for ConversionError {
             ParseMemory(ref s) => write!(f, "Invalid input for memory: {}", s),
             ParseVcpus(ref s) => write!(f, "Invalid input for vCPUs: {}", s),
             ParseNetwork(ref s) => write!(f, "Invalid input for network: {}", s),
-            ParseBlock(ref s) => write!(f, "Invalid input for network: {}", s),
+            ParseBlock(ref s) => write!(f, "Invalid input for block: {}", s),
         }
     }
 }

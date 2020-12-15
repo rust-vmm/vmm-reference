@@ -4,6 +4,7 @@
 // We're only providing virtio over MMIO devices for now, but we aim to add PCI support as well.
 
 pub mod block;
+pub mod net;
 
 use std::convert::TryFrom;
 use std::io;
@@ -17,7 +18,7 @@ use event_manager::{
 };
 use kvm_ioctls::{IoEventAddress, VmFd};
 use linux_loader::cmdline::Cmdline;
-use vm_device::bus::{self, MmioRange};
+use vm_device::bus::{self, MmioAddress, MmioRange};
 use vm_device::device_manager::MmioManager;
 use vm_device::DeviceMmio;
 use vm_memory::{GuestAddress, GuestAddressSpace};
@@ -71,6 +72,19 @@ pub struct MmioConfig {
     pub range: MmioRange,
     // The interrupt assigned to the device.
     pub gsi: u32,
+}
+
+impl MmioConfig {
+    pub fn new(base: u64, size: u64, gsi: u32) -> Result<Self> {
+        MmioRange::new(MmioAddress(base), size)
+            .map(|range| MmioConfig { range, gsi })
+            .map_err(Error::Bus)
+    }
+
+    pub fn next(&self) -> Result<Self> {
+        let range = self.range;
+        Self::new(range.base().0 + range.size(), range.size(), self.gsi + 1)
+    }
 }
 
 // Represents the environment the devices in this crate current expect in order to be created
