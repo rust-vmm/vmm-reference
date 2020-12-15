@@ -47,7 +47,7 @@ where
         let config_space = build_config_space(&args.file_path)?;
         let virtio_cfg = VirtioConfig::new(device_features, queues, config_space);
 
-        let common_cfg = CommonConfig::new(virtio_cfg, env).map_err(Error::Generic)?;
+        let common_cfg = CommonConfig::new(virtio_cfg, env).map_err(Error::Virtio)?;
 
         Ok(Block {
             cfg: common_cfg,
@@ -70,10 +70,10 @@ where
 
         // Register the device on the MMIO bus.
         env.register_mmio_device(block.clone())
-            .map_err(Error::Generic)?;
+            .map_err(Error::Virtio)?;
 
         env.insert_cmdline_str(args.cmdline_config_substring())
-            .map_err(Error::Generic)?;
+            .map_err(Error::Virtio)?;
 
         Ok(block)
     }
@@ -128,14 +128,14 @@ impl<M: GuestAddressSpace + Clone + Send + 'static> VirtioDeviceActions for Bloc
             disk,
         };
 
-        let mut ioevents = self.cfg.prepare_activate().map_err(Error::Generic)?;
+        let mut ioevents = self.cfg.prepare_activate().map_err(Error::Virtio)?;
 
         let handler = Arc::new(Mutex::new(QueueHandler {
             inner,
             ioeventfd: ioevents.remove(0),
         }));
 
-        self.cfg.finalize_activate(handler).map_err(Error::Generic)
+        self.cfg.finalize_activate(handler).map_err(Error::Virtio)
     }
 
     fn reset(&mut self) -> Result<()> {

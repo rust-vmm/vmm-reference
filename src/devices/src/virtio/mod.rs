@@ -4,6 +4,7 @@
 // We're only providing virtio over MMIO devices for now, but we aim to add PCI support as well.
 
 pub mod block;
+pub mod net;
 
 use std::convert::TryFrom;
 use std::io;
@@ -17,7 +18,7 @@ use event_manager::{
 };
 use kvm_ioctls::{IoEventAddress, VmFd};
 use linux_loader::cmdline::Cmdline;
-use vm_device::bus::{self, MmioRange};
+use vm_device::bus::{self, MmioAddress, MmioRange};
 use vm_device::device_manager::MmioManager;
 use vm_device::DeviceMmio;
 use vm_memory::{GuestAddress, GuestAddressSpace};
@@ -58,6 +59,7 @@ pub enum Error {
     Cmdline(linux_loader::cmdline::Error),
     Endpoint(EvmgrError),
     EventFd(io::Error),
+    Overflow,
     QueuesNotValid,
     RegisterIoevent(errno::Error),
     RegisterIrqfd(errno::Error),
@@ -71,6 +73,24 @@ pub struct MmioConfig {
     pub range: MmioRange,
     // The interrupt assigned to the device.
     pub gsi: u32,
+}
+
+impl MmioConfig {
+    pub fn new(base: u64, size: u64, gsi: u32) -> Result<Self> {
+        MmioRange::new(MmioAddress(base), size)
+            .map(|range| MmioConfig { range, gsi })
+            .map_err(Error::Bus)
+    }
+
+    pub fn next(&self) -> Result<Self> {
+        let range = self.range;
+        let next_start = range
+            .base()
+            .0
+            .checked_add(range.size())
+            .ok_or(Error::Overflow)?;
+        Self::new(next_start, range.size(), self.gsi + 1)
+    }
 }
 
 // Represents the environment the devices in this crate current expect in order to be created
@@ -313,6 +333,9 @@ pub(crate) mod tests {
         }
     }
 
+    // Skipping until adding Arm support and figuring out how make the irqchip creation in the
+    // `Mock` object work there as well.
+    #[cfg_attr(target_arch = "aarch64", ignore)]
     #[test]
     fn test_env() {
         // Just a dummy device we're going to register on the bus.
@@ -348,6 +371,8 @@ pub(crate) mod tests {
         assert!(mock.kernel_cmdline.as_str().ends_with("ending_string"));
     }
 
+    // Ignoring until aarch64 support is here.
+    #[cfg_attr(target_arch = "aarch64", ignore)]
     #[test]
     fn test_common_config() {
         let mut mock = EnvMock::new();
