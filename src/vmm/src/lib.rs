@@ -42,7 +42,9 @@ use vmm_sys_util::{epoll::EventSet, eventfd::EventFd, terminal::Terminal};
 use boot::build_bootparams;
 pub use config::*;
 use devices::virtio::block::{self, BlockArgs};
+use devices::virtio::net::{self, NetArgs};
 use devices::virtio::{Env, MmioConfig};
+
 use serial::SerialWrapper;
 use vm_vcpu::vcpu::{cpuid::filter_cpuid, VcpuState};
 use vm_vcpu::vm::{self, ExitHandler, KvmVm, VmState};
@@ -97,6 +99,8 @@ pub enum Error {
     IO(io::Error),
     /// Failed to load kernel.
     KernelLoad(loader::Error),
+    /// Failed to create net device.
+    Net(net::Error),
     /// Address stored in the rip registry does not fit in guest memory.
     RipOutOfGuestMemory,
     /// Invalid KVM API version.
@@ -125,6 +129,7 @@ impl std::convert::From<vm::Error> for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 type Block = block::Block<Arc<GuestMemoryMmap>>;
+type Net = net::Net<Arc<GuestMemoryMmap>>;
 
 /// A live VMM.
 pub struct VMM {
@@ -141,6 +146,7 @@ pub struct VMM {
     event_mgr: EventManager<Arc<Mutex<dyn MutEventSubscriber + Send>>>,
     exit_handler: WrappedExitHandler,
     block_devices: Vec<Arc<Mutex<Block>>>,
+    net_devices: Vec<Arc<Mutex<Net>>>,
 }
 
 // The `VmmExitHandler` is used as the mechanism for exiting from the event manager loop.
@@ -231,10 +237,13 @@ impl TryFrom<VMMConfig> for VMM {
             kernel_cfg: config.kernel_config,
             exit_handler: wrapped_exit_handler,
             block_devices: Vec::new(),
+            net_devices: Vec::new(),
         };
 
         vmm.create_vcpus(&config.vcpu_config)?;
         vmm.add_serial_console()?;
+
+        // Adding the virtio devices. We'll come up with a cleaner abstraction for `Env`.
 
         // We transiently define a mut `Cmdline` object here to pass for device creation
         // (devices expect a `&mut Cmdline` to leverage the newly added virtio_mmio
@@ -243,8 +252,12 @@ impl TryFrom<VMMConfig> for VMM {
         // somehow ASAP.
         let mut cmdline = cmdline::Cmdline::new(4096);
 
-        if let Some(block_cfg) = config.block_config.as_ref() {
-            vmm.add_block_device(block_cfg, &mut cmdline)?;
+        if let Some(cfg) = config.block_config.as_ref() {
+            vmm.add_block_device(cfg, &mut cmdline)?;
+        }
+
+        if let Some(cfg) = config.net_config.as_ref() {
+            vmm.add_net_device(cfg, &mut cmdline)?;
         }
 
         if !cmdline.as_str().is_empty() {
@@ -398,6 +411,10 @@ impl VMM {
         Ok(())
     }
 
+    // All methods that add a virtio device use hardcoded addresses and interrupts for now, and
+    // only support a single device. We need to expand this, but it looks like a good match if we
+    // can do it after figuring out how to better separate concerns and make the VMM agnostic of
+    // the actual device types.
     fn add_block_device(
         &mut self,
         cfg: &BlockConfig,
@@ -429,6 +446,34 @@ impl VMM {
         // We can also hold this somewhere if we need to keep the handle for later.
         let block = Block::new(&mut env, &args).map_err(Error::Block)?;
         self.block_devices.push(block);
+
+        Ok(())
+    }
+
+    fn add_net_device(&mut self, cfg: &NetConfig, cmdline: &mut cmdline::Cmdline) -> Result<()> {
+        let mem = Arc::new(self.guest_memory.clone());
+
+        let range = MmioRange::new(MmioAddress(MMIO_GAP_START + 0x1000), 0x1000).unwrap();
+        let mmio_cfg = MmioConfig { range, gsi: 6 };
+
+        let mut guard = self.device_mgr.lock().unwrap();
+
+        let mut env = Env {
+            mem,
+            vm_fd: self.vm.vm_fd(),
+            event_mgr: &mut self.event_mgr,
+            mmio_mgr: guard.deref_mut(),
+            mmio_cfg,
+            kernel_cmdline: cmdline,
+        };
+
+        let args = NetArgs {
+            tap_name: cfg.tap_name.clone(),
+        };
+
+        // We can also hold this somewhere if we need to keep the handle for later.
+        let net = Net::new(&mut env, &args).map_err(Error::Net)?;
+        self.net_devices.push(net);
 
         Ok(())
     }
@@ -582,6 +627,7 @@ mod tests {
             kernel_cfg: vmm_config.kernel_config,
             exit_handler,
             block_devices: Vec::new(),
+            net_devices: Vec::new(),
         }
     }
 
@@ -813,5 +859,33 @@ mod tests {
         // This currently fails because a device is already registered with the provided
         // MMIO range.
         assert!(vmm.add_block_device(&block_config, &mut cmdline).is_err());
+    }
+
+    #[test]
+    fn test_add_net() {
+        let vmm_config = default_vmm_config();
+        let mut vmm = mock_vmm(vmm_config);
+
+        // The device only attempts to open the tap interface during activation, so we can
+        // specify any name here for now.
+        let cfg = NetConfig {
+            tap_name: "imaginary_tap".to_owned(),
+        };
+
+        {
+            let mut cmdline = cmdline::Cmdline::new(4096);
+            assert!(vmm.add_net_device(&cfg, &mut cmdline).is_ok());
+            assert_eq!(vmm.net_devices.len(), 1);
+            assert!(cmdline.as_str().contains("virtio"));
+        }
+
+        {
+            // The current implementation of the VMM does not allow more than one net device
+            // as we are hard coding the `MmioConfig`.
+            let mut cmdline = cmdline::Cmdline::new(4096);
+            // This currently fails because a device is already registered with the provided
+            // MMIO range.
+            assert!(vmm.add_net_device(&cfg, &mut cmdline).is_err());
+        }
     }
 }

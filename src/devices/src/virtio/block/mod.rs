@@ -31,7 +31,7 @@ const SECTOR_SHIFT: u8 = 9;
 #[derive(Debug)]
 pub enum Error {
     Backend(stdio_executor::Error),
-    Generic(crate::virtio::Error),
+    Virtio(crate::virtio::Error),
     OpenFile(io::Error),
     Seek(io::Error),
 }
