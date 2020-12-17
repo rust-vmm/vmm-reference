@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
 use std::io::{self, ErrorKind};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 use std::thread::{self, JoinHandle};
 
 use kvm_bindings::{kvm_pit_config, kvm_userspace_memory_region, KVM_PIT_SPEAKER_DUMMY};
@@ -31,6 +31,7 @@ pub struct KvmVm<EH: ExitHandler + Send> {
     vcpus: Vec<KvmVcpu>,
     vcpu_handles: Vec<JoinHandle<()>>,
     exit_handler: EH,
+    vcpu_barrier: Arc<Barrier>,
 }
 
 #[derive(Debug)]
@@ -76,6 +77,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
         let vm_fd = Arc::new(kvm.create_vm().map_err(Error::CreateVm)?);
 
         let vm = KvmVm {
+            vcpu_barrier: Arc::new(Barrier::new(vm_state.num_vcpus as usize)),
             state: vm_state,
             fd: vm_fd,
             vcpus: Vec::new(),
@@ -160,7 +162,8 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
         vcpu_state: VcpuState,
         memory: &M,
     ) -> Result<()> {
-        let vcpu = KvmVcpu::new(&self.fd, bus, vcpu_state, memory).map_err(Error::CreateVcpu)?;
+        let vcpu = KvmVcpu::new(&self.fd, bus, vcpu_state, self.vcpu_barrier.clone(), memory)
+            .map_err(Error::CreateVcpu)?;
         self.vcpus.push(vcpu);
         Ok(())
     }
@@ -274,6 +277,7 @@ mod tests {
         let vm = KvmVm {
             vcpus: Vec::new(),
             vcpu_handles: Vec::new(),
+            vcpu_barrier: Arc::new(Barrier::new(vm_state.num_vcpus as usize)),
             state: vm_state,
             fd: Arc::new(kvm.create_vm().unwrap()),
             exit_handler: WrappedExitHandler::default(),

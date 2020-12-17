@@ -3,7 +3,7 @@
 
 use std::io::{self, stdin};
 use std::result;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 
 use kvm_bindings::{kvm_fpu, kvm_regs, CpuId, Msrs};
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
@@ -72,6 +72,7 @@ pub struct KvmVcpu {
     device_mgr: Arc<Mutex<IoManager>>,
     state: VcpuState,
     running: bool,
+    run_barrier: Arc<Barrier>,
 }
 
 impl KvmVcpu {
@@ -80,6 +81,7 @@ impl KvmVcpu {
         vm_fd: &VmFd,
         device_mgr: Arc<Mutex<IoManager>>,
         state: VcpuState,
+        run_barrier: Arc<Barrier>,
         memory: &M,
     ) -> Result<Self> {
         let vcpu = KvmVcpu {
@@ -87,6 +89,7 @@ impl KvmVcpu {
             device_mgr,
             state,
             running: false,
+            run_barrier,
         };
 
         vcpu.configure_cpuid(&vcpu.state.cpuid)?;
@@ -244,6 +247,7 @@ impl KvmVcpu {
             self.configure_regs(instruction_pointer)?;
             self.running = true;
         }
+        self.run_barrier.wait();
 
         loop {
             match self.vcpu_fd.run() {
