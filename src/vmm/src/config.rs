@@ -21,6 +21,8 @@ pub enum ConversionError {
     ParseNetwork(String),
     /// Failed to parse the string representation for the block.
     ParseBlock(String),
+    /// Failed to parse the string representation for the vsock.
+    ParseVsock(String),
 }
 
 impl fmt::Display for ConversionError {
@@ -32,6 +34,7 @@ impl fmt::Display for ConversionError {
             ParseVcpus(ref s) => write!(f, "Invalid input for vCPUs: {}", s),
             ParseNetwork(ref s) => write!(f, "Invalid input for network: {}", s),
             ParseBlock(ref s) => write!(f, "Invalid input for block: {}", s),
+            ParseVsock(ref s) => write!(f, "Invalid input for vsock: {}", s),
         }
     }
 }
@@ -189,7 +192,7 @@ impl TryFrom<String> for NetConfig {
     }
 }
 
-/// Block device configuration
+/// Block device configuration.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BlockConfig {
     /// Path to the block device backend.
@@ -218,6 +221,57 @@ impl TryFrom<String> for BlockConfig {
     }
 }
 
+/// Vsock device configuration.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VsockConfig {
+    /// Guest cid value.
+    pub cid: u32,
+    /// Path to the Unix domain socket on the host.
+    pub uds_path: PathBuf,
+}
+
+impl TryFrom<String> for VsockConfig {
+    type Error = ConversionError;
+
+    fn try_from(str: String) -> result::Result<Self, Self::Error> {
+        // Supported options:
+        // `cid=<u32>,uds_path=/path/to/uds`
+        // Required: cid, path
+        let options: Vec<&str> = str.split(',').filter(|tok| !tok.is_empty()).collect();
+
+        let mut cid: Option<u32> = None;
+        let mut uds_path: Option<PathBuf> = None;
+
+        for opt in options {
+            let tokens: Vec<&str> = opt.split('=').filter(|tok| !tok.is_empty()).collect();
+            match tokens[0] {
+                "cid" => {
+                    if tokens.len() != 2 {
+                        return Err(ConversionError::ParseVsock(opt.to_string()));
+                    }
+                    cid = Some(
+                        tokens[1]
+                            .parse::<u32>()
+                            .map_err(|_| ConversionError::ParseVsock(tokens[1].to_string()))?,
+                    );
+                }
+                "uds_path" => {
+                    if tokens.len() != 2 {
+                        return Err(ConversionError::ParseKernel(opt.to_string()));
+                    }
+                    uds_path = Some(PathBuf::from(tokens[1]));
+                }
+                _ => return Err(ConversionError::ParseVsock(str.to_string())),
+            }
+        }
+
+        Ok(VsockConfig {
+            cid: cid.ok_or_else(|| ConversionError::ParseVsock(str.to_string()))?,
+            uds_path: uds_path.ok_or_else(|| ConversionError::ParseVsock(str.to_string()))?,
+        })
+    }
+}
+
 /// VMM configuration.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct VMMConfig {
@@ -231,6 +285,8 @@ pub struct VMMConfig {
     pub network_config: Option<NetConfig>,
     /// Block device configuration.
     pub block_config: Option<BlockConfig>,
+    /// Vsock device configuration.
+    pub vsock_config: Option<VsockConfig>,
 }
 
 #[cfg(test)]

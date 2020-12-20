@@ -10,7 +10,7 @@ use std::convert::TryFrom;
 use std::result;
 
 use clap::{App, Arg};
-use vmm::{BlockConfig, KernelConfig, MemoryConfig, NetConfig, VMMConfig, VcpuConfig};
+use vmm::{BlockConfig, KernelConfig, MemoryConfig, NetConfig, VMMConfig, VcpuConfig, VsockConfig};
 
 /// Command line parser.
 pub struct CLI;
@@ -58,6 +58,12 @@ impl CLI {
                     .required(false)
                     .takes_value(true)
                     .help("Block device configuration. \n\tFormat: \"path=<string>\"")
+            )
+            .arg(
+                Arg::with_name("vsock")
+                    .long("vsock")
+                    .takes_value(true)
+                    .help("Vsock device configuration. \n\tFormat: \"cid=<u32>,uds_path=<string>\"")
             );
 
         // Save the usage beforehand as a string, because `get_matches` consumes the `App`.
@@ -111,6 +117,13 @@ impl CLI {
             },
             network_config: match matches.value_of("net") {
                 Some(value) => Some(NetConfig::try_from(value.to_string()).map_err(|e| {
+                    eprintln!("{}", help_msg);
+                    format!("{}", e)
+                })?),
+                None => None,
+            },
+            vsock_config: match matches.value_of("vsock") {
+                Some(value) => Some(VsockConfig::try_from(value.to_string()).map_err(|e| {
                     eprintln!("{}", help_msg);
                     format!("{}", e)
                 })?),

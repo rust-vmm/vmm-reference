@@ -130,9 +130,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.6"
+version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c84ec4b527950aa83a329754b01dbe3f58361d1c5efacd1f6d68c494d08a17c6"
+checksum = "4fabed175da42fed1fa0746b0ea71f412aa9d35e76e95e59b192c64b9dc2bf8b"
 dependencies = [
  "cfg-if",
 ]
@@ -204,7 +204,7 @@ dependencies = [
 [[package]]
 name = "vm-virtio"
 version = "0.1.0"
-source = "git+https://github.com/alexandruag/vm-virtio.git?branch=proto_wip5#30d1c8dd6487d51bd8e61dea158b3468bd4dff22"
+source = "git+https://github.com/rust-vmm/vm-virtio.git#7803211e914954ced7c5f52773bf9862c97f9a1c"
 dependencies = [
  "byteorder",
  "libc",

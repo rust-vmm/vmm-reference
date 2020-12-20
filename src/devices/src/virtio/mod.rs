@@ -5,6 +5,7 @@
 
 pub mod block;
 pub mod net;
+pub mod vsock;
 
 use std::convert::TryFrom;
 use std::io;

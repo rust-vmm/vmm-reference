@@ -40,6 +40,8 @@ use vmm_sys_util::{eventfd::EventFd, terminal::Terminal};
 
 use devices::virtio::block::{self, BlockArgs};
 use devices::virtio::net::{self, NetArgs};
+use devices::virtio::vsock;
+use devices::virtio::vsock::unix::VsockUnixBackend;
 use devices::virtio::{Env, MmioConfig};
 
 mod boot;
@@ -110,6 +112,12 @@ pub enum Error {
     Memory(MemoryError),
     /// Invalid number of vCPUs specified.
     VcpuNumber(u8),
+    /// Error creating Vsock device.
+    Vsock(vsock::VsockError),
+    /// Error creating Vsock backend.
+    VsockBackend(vsock::VsockUnixBackendError),
+    /// A vsock device already exists.
+    VsockDeviceAlreadyExists,
     /// VM errors.
     Vm(vm::Error),
 }
@@ -125,6 +133,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 type Block = block::Block<Arc<GuestMemoryMmap>>;
 type Net = net::Net<Arc<GuestMemoryMmap>>;
+type Vsock = vsock::Vsock<Arc<GuestMemoryMmap>, VsockUnixBackend>;
 
 /// A live VMM.
 pub struct VMM {
@@ -141,6 +150,7 @@ pub struct VMM {
     event_mgr: EventManager<Arc<Mutex<dyn MutEventSubscriber + Send>>>,
     block_devices: Vec<Arc<Mutex<Block>>>,
     net_devices: Vec<Arc<Mutex<Net>>>,
+    vsock_device: Option<Arc<Mutex<Vsock>>>,
 }
 
 impl TryFrom<VMMConfig> for VMM {
@@ -173,6 +183,7 @@ impl TryFrom<VMMConfig> for VMM {
             event_mgr: EventManager::new().map_err(Error::EventManager)?,
             block_devices: Vec::new(),
             net_devices: Vec::new(),
+            vsock_device: None,
         };
 
         vmm.create_vcpus(&config.vcpu_config)?;
@@ -224,6 +235,25 @@ impl TryFrom<VMMConfig> for VMM {
 
                 vmm.net_devices
                     .push(Net::new(&mut env, &args).map_err(Error::Net)?);
+
+                // Bump the MMIO config for the next device.
+                env.mmio_cfg = env.mmio_cfg.next().unwrap();
+            }
+
+            if let Some(cfg) = config.vsock_config.as_ref() {
+                if vmm.vsock_device.is_some() {
+                    return Err(Error::VsockDeviceAlreadyExists);
+                }
+
+                let backend = VsockUnixBackend::new(cfg.cid as u64, cfg.uds_path.clone())
+                    .map_err(Error::VsockBackend)?;
+
+                let vsock = Vsock::new(&mut env, cfg.cid as u64, backend).map_err(Error::Vsock)?;
+
+                vmm.vsock_device = Some(vsock);
+
+                // Bump the MMIO config for the next device.
+                env.mmio_cfg = env.mmio_cfg.next().unwrap();
             }
         }
 
@@ -479,6 +509,7 @@ mod tests {
             vcpu_config: VcpuConfig { num: NUM_VCPUS },
             block_config: None,
             network_config: None,
+            vsock_config: None,
         }
     }
 
@@ -502,6 +533,8 @@ mod tests {
             event_mgr: EventManager::new().unwrap(),
             kernel_cfg: vmm_config.kernel_config,
             block_devices: Vec::new(),
+            net_devices: Vec::new(),
+            vsock_device: None,
         }
     }
 
