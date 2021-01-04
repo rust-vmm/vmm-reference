@@ -40,17 +40,11 @@ of the discussion around making the CI/testing easier to use, extend,
 and run locally.
 """
 
-def start_vmm_process(kernel_path, disk_path, vcpus = 1):
-    # Memory config
-    mem_size_mib = 1024
-
+def start_vmm_process(kernel_path, disk_path, num_vcpus = 1, mem_size_mib = 1024):
     # Kernel config
     cmdline = "console=ttyS0 i8042.nokbd reboot=t panic=1 pci=off"
 
     himem_start = 1048576
-
-    # vCPU config
-    num_vcpus = vcpus
 
     build_cmd = "cargo build --release"
     subprocess.run(build_cmd, shell=True, check=True)
