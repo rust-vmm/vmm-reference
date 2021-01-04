@@ -14,7 +14,7 @@ KERNELS_INITRAMFS = [
 ]
 
 """
-Temporarily removed the ("bzimage-focal", "rootfs.ext4") pair from the 
+Temporarily removed the ("bzimage-focal", "rootfs.ext4") pair from the
 list below, because the init startup sequence in the guest takes too
 long until getting to the cmdline prompt for some reason.
 """
@@ -105,6 +105,25 @@ def expect_string(vmm_process, expected_string):
         if expected_string in nextline.decode():
             break
 
+def expect_vcpus(vmm_process, expected_vcpus):
+    # /proc/cpuinfo displays info about each vCPU
+    vmm_process.stdin.write(b'cat /proc/cpuinfo\n')
+    vmm_process.stdin.flush()
+
+    # Poll stdout to find the 'siblings' field, which displays the total number
+    # of vCPUs, and compare it against the expected number of vCPUs
+    # format of the field: 'siblings  : num'
+    while True:
+        nextline = vmm_process.stdout.readline().decode()
+        if "siblings" in nextline:
+            # collapse all whitespace (e.g., 'siblings:num')
+            nextline = "".join(nextline.split())
+            # extract the number of vCPUs
+            actual_vcpus = int(nextline.split(':')[1])
+            break
+
+    assert actual_vcpus == expected_vcpus, \
+            "Expected {}, found {} vCPUs".format(expected_vcpus, actual_vcpus)
 
 @pytest.mark.parametrize("kernel", KERNELS_INITRAMFS)
 def test_reference_vmm(kernel):
@@ -132,3 +151,23 @@ def test_reference_vmm_with_disk(kernel, disk):
     shutdown(vmm_process)
     if tmp_disk_path is not None:
         os.remove(tmp_disk_path)
+
+@pytest.mark.parametrize("kernel", KERNELS_INITRAMFS)
+def test_reference_vmm_num_vcpus(kernel):
+    """Start the reference VMM and verify the number of vCPUs."""
+
+    num_vcpus = [1, 2, 4]
+
+    for expected_vcpus in num_vcpus:
+        # Start a VM with a specified number of vCPUs
+        vmm_process, _ = start_vmm_process(kernel, None, expected_vcpus)
+
+
+        # Poll the output from /proc/cpuinfo for the field displaying the the
+        # number of vCPUs.
+        #
+        # If we do not find the expected number, this loop will not break and the
+        # test will fail when the timeout expires.
+        expect_vcpus(vmm_process, expected_vcpus)
+
+        shutdown(vmm_process)
