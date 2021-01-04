@@ -37,11 +37,10 @@ def process_exists(pid):
 The following methods would be nice to have a part of class revolving
 around the vmm process. Let's figure out how to proceed here as part
 of the discussion around making the CI/testing easier to use, extend,
-and run locally. 
+and run locally.
 """
 
-
-def start_vmm_process(kernel_path, disk_path):
+def start_vmm_process(kernel_path, disk_path, vcpus = 1):
     # Memory config
     mem_size_mib = 1024
 
@@ -51,7 +50,7 @@ def start_vmm_process(kernel_path, disk_path):
     himem_start = 1048576
 
     # vCPU config
-    num_vcpus = 1
+    num_vcpus = vcpus
 
     build_cmd = "cargo build --release"
     subprocess.run(build_cmd, shell=True, check=True)
