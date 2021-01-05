@@ -98,6 +98,9 @@ def expect_string(vmm_process, expected_string):
         nextline = vmm_process.stdout.readline()
         if expected_string in nextline.decode():
             break
+    # If the expected string is identified and the loop breaks, return the
+    # entire line from stdout
+    return nextline.decode()
 
 def expect_vcpus(vmm_process, expected_vcpus):
     # /proc/cpuinfo displays info about each vCPU
@@ -118,6 +121,27 @@ def expect_vcpus(vmm_process, expected_vcpus):
 
     assert actual_vcpus == expected_vcpus, \
             "Expected {}, found {} vCPUs".format(expected_vcpus, actual_vcpus)
+
+def expect_mem(vmm_process, expected_mem_mib):
+    expected_mem_kib = expected_mem_mib << 10
+
+    # Extract memory information from the bootlog.
+    # Example:
+    # [    0.000000] Memory: 496512K/523896K available (8204K kernel
+    # code, 646K rwdata, 1480K rodata, 2884K init, 2792K bss, 27384K reserved,
+    # 0K cma-reserved)
+    # The second value (523896K) is the initial guest memory in KiB, which we
+    # will compare against the expected memory specified during VM creation.
+    memory_string = expect_string(vmm_process, "Memory:")
+    actual_mem_kib = int(memory_string.split('/')[1].split('K')[0])
+
+    # Expect the difference between the expected and actual memory
+    # to be a few hundred KiB.  For the guest memory sizes being tested, this
+    # should be under 0.1% of the expected memory size.
+    normalized_diff = (expected_mem_kib - float(actual_mem_kib)) / expected_mem_kib
+    assert normalized_diff < 0.001, \
+            "Expected {} KiB, found {} KiB of guest" \
+            " memory".format(expected_mem_kib, actual_mem_kib)
 
 @pytest.mark.parametrize("kernel", KERNELS_INITRAMFS)
 def test_reference_vmm(kernel):
@@ -156,12 +180,52 @@ def test_reference_vmm_num_vcpus(kernel):
         # Start a VM with a specified number of vCPUs
         vmm_process, _ = start_vmm_process(kernel, None, expected_vcpus)
 
-
         # Poll the output from /proc/cpuinfo for the field displaying the the
         # number of vCPUs.
         #
-        # If we do not find the expected number, this loop will not break and the
-        # test will fail when the timeout expires.
+        # If we do not find the field, this loop will not break and the
+        # test will fail when the timeout expires.  If we find the field, but
+        # the expected and actual number of vCPUs do not match, the test will
+        # fail immediately with an explanation.
         expect_vcpus(vmm_process, expected_vcpus)
+
+        shutdown(vmm_process)
+
+@pytest.mark.parametrize("kernel", KERNELS_INITRAMFS)
+def test_reference_vmm_mem(kernel):
+    """Start the reference VMM and verify the amount of guest memory."""
+
+    # Test small and large guest memory sizes, as well as sizes around the
+    # beginning of the MMIO gap, which require a partition of guest memory.
+    #
+    # The MMIO gap sits in 768 MiB at the end of the first 4GiB of memory, and
+    # we want to ensure memory is correctly partitioned; therefore, in addition
+    # to memory sizes that fit well below the and extend well beyond the gap,
+    # we will test the edge cases around the start of the gap.
+    # See 'vmm/src/lib.rs:create_guest_memory()`
+    mmio_gap_end = 1 << 32
+    mmio_gap_size = 768 << 20
+    mmio_gap_start = mmio_gap_end - mmio_gap_size
+    mmio_gap_start_mib = mmio_gap_start >> 20
+
+    mem_sizes_mib = [
+            512,
+            mmio_gap_start_mib - 1,
+            mmio_gap_start_mib,
+            mmio_gap_start_mib + 1,
+            8192]
+
+    for expected_mem_mib in mem_sizes_mib:
+        # Start a VM with a specified amount of memory
+        vmm_process, _ = start_vmm_process(kernel, None, 1, expected_mem_mib)
+
+        # Poll the output from /proc/meminfo for the field displaying the the
+        # total amount of memory.
+        #
+        # If we do not find the field, this loop will not break and the
+        # test will fail when the timeout expires.  If we find the field, but
+        # the expected and actual guest memory sizes diverge by more than 0.1%,
+        # the test will fail immediately with an explanation.
+        expect_mem(vmm_process, expected_mem_mib)
 
         shutdown(vmm_process)
