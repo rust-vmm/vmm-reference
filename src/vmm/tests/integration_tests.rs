@@ -12,8 +12,8 @@ use vmm::{KernelConfig, MemoryConfig, VMMConfig, VcpuConfig};
 mod test_utils;
 use test_utils::*;
 
-const DEFAULT_BZIMAGE: &str = "../../resources/kernel/bzimage-hello-busybox-halt";
-const DEFAULT_ELF: &str = "../../resources/kernel/vmlinux-hello-busybox-halt";
+const DEFAULT_BZIMAGE: &str = "/tmp/vmlinux_busybox/linux-4.14.176/bzimage-hello-busybox-halt";
+const DEFAULT_ELF: &str = "/tmp/vmlinux_busybox/linux-4.14.176/vmlinux-hello-busybox-halt";
 
 fn default_memory_config() -> MemoryConfig {
     MemoryConfig { size_mib: 1024 }

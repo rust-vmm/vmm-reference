@@ -5,9 +5,13 @@
 import os, signal, subprocess, time
 import pytest
 from subprocess import PIPE, STDOUT
+import tempfile
 
 
-KERNELS_INITRAMFS = ["vmlinux-hello-busybox", "bzimage-hello-busybox"]
+KERNELS_INITRAMFS = [
+    "/tmp/vmlinux_busybox/linux-4.14.176/vmlinux-hello-busybox",
+    "/tmp/vmlinux_busybox/linux-4.14.176/bzimage-hello-busybox"
+]
 
 """
 Temporarily removed the ("bzimage-focal", "rootfs.ext4") pair from the 
@@ -15,7 +19,8 @@ list below, because the init startup sequence in the guest takes too
 long until getting to the cmdline prompt for some reason.
 """
 KERNELS_DISK = [
-    ("vmlinux-focal", "rootfs.ext4"),
+    ("/tmp/ubuntu-focal/linux-5.4.81/vmlinux-focal",
+     "/tmp/ubuntu-focal-disk/rootfs.ext4"),
 ]
 
 
@@ -28,13 +33,6 @@ def process_exists(pid):
         return True
 
 
-def resource_path(resource_type, resource_name):
-    return os.path.abspath(os.path.join(
-        os.path.dirname(os.path.realpath(__file__)),
-        "..",
-        "resources/{}/{}".format(resource_type, resource_name)
-    ))
-
 """
 The following methods would be nice to have a part of class revolving
 around the vmm process. Let's figure out how to proceed here as part
@@ -42,13 +40,13 @@ of the discussion around making the CI/testing easier to use, extend,
 and run locally. 
 """
 
-def start_vmm_process(kernel, disk):
+
+def start_vmm_process(kernel_path, disk_path):
     # Memory config
     mem_size_mib = 1024
 
     # Kernel config
     cmdline = "console=ttyS0 i8042.nokbd reboot=t panic=1 pci=off"
-    kernel_path = resource_path("kernel", kernel)
 
     himem_start = 1048576
 
@@ -66,11 +64,16 @@ def start_vmm_process(kernel, disk):
         ),
         "--vcpu", "num={}".format(num_vcpus)
     ]
+    tmp_file_path = None
 
-    if disk is not None:
-        disk_path = resource_path("disk", disk)
+    if disk_path is not None:
+        # Terrible hack to have a rootfs owned by the user.
+        with tempfile.NamedTemporaryFile(dir='/tmp', delete=True) as tmpfile:
+            tmp_file_path = tmpfile.name
+        cp_cmd = "cp {} {}".format(disk_path, tmp_file_path)
+        subprocess.run(cp_cmd, shell=True, check=True)
         vmm_cmd.append("--block")
-        vmm_cmd.append("path={}".format(disk_path))
+        vmm_cmd.append("path={}".format(tmp_file_path))
 
     vmm_process = subprocess.Popen(vmm_cmd, stdout=PIPE, stdin=PIPE)
 
@@ -85,7 +88,7 @@ def start_vmm_process(kernel, disk):
 
     assert(process_exists(vmm_process.pid))
 
-    return vmm_process
+    return vmm_process, tmp_file_path
 
 
 def shutdown(vmm_process):
@@ -95,6 +98,7 @@ def shutdown(vmm_process):
     # If the process hasn't ended within 3 seconds, this will raise a
     # TimeoutExpired exception and fail the test.
     vmm_process.wait(timeout=3)
+
 
 def expect_string(vmm_process, expected_string):
     while True:
@@ -107,7 +111,7 @@ def expect_string(vmm_process, expected_string):
 def test_reference_vmm(kernel):
     """Start the reference VMM and verify that it works."""
 
-    vmm_process = start_vmm_process(kernel, None)
+    vmm_process, _ = start_vmm_process(kernel, None)
 
     # Poll process for new output until we find the hello world message.
     # If we do not find the expected message, this loop will not break and the
@@ -122,8 +126,10 @@ def test_reference_vmm(kernel):
 def test_reference_vmm_with_disk(kernel, disk):
     """Start the reference VMM with a block device and verify that it works."""
 
-    vmm_process = start_vmm_process(kernel, disk)
+    vmm_process, tmp_disk_path = start_vmm_process(kernel, disk)
 
     expect_string(vmm_process, "Ubuntu 20.04 LTS ubuntu-rust-vmm ttyS0")
 
     shutdown(vmm_process)
+    if tmp_disk_path is not None:
+        os.remove(tmp_disk_path)
