@@ -245,4 +245,12 @@ or the upstream one in nightly test runs) in the latest reference VMM
 fail - for instance, the process of changing a crate’s interfaces is expected
 to break the reference VMM until it’s updated.
 
+To be able to successfully run all the tests in this repo, there are a couple of
+resources that need to be found in `/tmp`. To generate the resources at the
+expected locations, the commands defined in
+[the pipeline for dependencies' build](../.buildkite/deps-pipeline.yml)
+should be manually run. We plan on adding a testing framework that will ease the
+test running, please see
+[tracking issue](https://github.com/rust-vmm/vmm-reference/issues/51).
+
 ![Testing](testing.png)

@@ -451,13 +451,11 @@ mod tests {
     const NUM_VCPUS: u8 = 1;
 
     fn default_bzimage_path() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../resources/kernel/bzimage-hello-busybox-halt")
+        PathBuf::from("/tmp/vmlinux_busybox/linux-4.14.176/bzimage-hello-busybox-halt")
     }
 
     fn default_elf_path() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../resources/kernel/vmlinux-hello-busybox-halt")
+        PathBuf::from("/tmp/vmlinux_busybox/linux-4.14.176/vmlinux-hello-busybox-halt")
     }
 
     fn default_vmm_config() -> VMMConfig {

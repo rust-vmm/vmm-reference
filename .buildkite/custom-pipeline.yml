@@ -12,4 +12,6 @@ steps:
           privileged: true
           image: "rustvmm/dev:v7"
           always-pull: true
+          volumes:
+            - "/tmp:/tmp"
     timeout_in_minutes: 5
