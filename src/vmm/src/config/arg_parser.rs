@@ -1,7 +1,8 @@
-use crate::config::arg_parser::CfgArgParseError::UnknownArg;
+// Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
+
 use std::collections::HashMap;
 use std::fmt;
-use std::fmt::Formatter;
 use std::str::FromStr;
 
 #[derive(Debug, PartialEq)]
@@ -47,7 +48,7 @@ impl CfgArgParser {
         param_name: &'static str,
     ) -> Result<Option<T>, CfgArgParseError>
     where
-        <T as FromStr>::Err: std::fmt::Display,
+        <T as FromStr>::Err: fmt::Display,
     {
         match self.args.remove(param_name) {
             Some(value) if !value.is_empty() => value
@@ -63,13 +64,13 @@ impl CfgArgParser {
         if self.args.is_empty() {
             Ok(())
         } else {
-            Err(UnknownArg(self.to_string()))
+            Err(CfgArgParseError::UnknownArg(self.to_string()))
         }
     }
 }
 
 impl fmt::Display for CfgArgParser {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}",
@@ -83,7 +84,7 @@ impl fmt::Display for CfgArgParser {
 }
 #[cfg(test)]
 mod tests {
-    use crate::config::arg_parser::{CfgArgParseError, CfgArgParser};
+    use super::*;
     use std::num::NonZeroU8;
     use std::path::PathBuf;
 
