@@ -40,6 +40,7 @@ of the discussion around making the CI/testing easier to use, extend,
 and run locally.
 """
 
+
 def start_vmm_process(kernel_path, disk_path, num_vcpus = 1, mem_size_mib = 1024):
     # Kernel config
     cmdline = "console=ttyS0 i8042.nokbd reboot=t panic=1 pci=off"
@@ -102,6 +103,7 @@ def expect_string(vmm_process, expected_string):
     # entire line from stdout
     return nextline.decode()
 
+
 def expect_vcpus(vmm_process, expected_vcpus):
     # /proc/cpuinfo displays info about each vCPU
     vmm_process.stdin.write(b'cat /proc/cpuinfo\n')
@@ -121,6 +123,7 @@ def expect_vcpus(vmm_process, expected_vcpus):
 
     assert actual_vcpus == expected_vcpus, \
             "Expected {}, found {} vCPUs".format(expected_vcpus, actual_vcpus)
+
 
 def expect_mem(vmm_process, expected_mem_mib):
     expected_mem_kib = expected_mem_mib << 10
@@ -142,6 +145,7 @@ def expect_mem(vmm_process, expected_mem_mib):
     assert normalized_diff < 0.001, \
             "Expected {} KiB, found {} KiB of guest" \
             " memory".format(expected_mem_kib, actual_mem_kib)
+
 
 @pytest.mark.parametrize("kernel", KERNELS_INITRAMFS)
 def test_reference_vmm(kernel):
@@ -170,6 +174,7 @@ def test_reference_vmm_with_disk(kernel, disk):
     if tmp_disk_path is not None:
         os.remove(tmp_disk_path)
 
+
 @pytest.mark.parametrize("kernel", KERNELS_INITRAMFS)
 def test_reference_vmm_num_vcpus(kernel):
     """Start the reference VMM and verify the number of vCPUs."""
@@ -190,6 +195,7 @@ def test_reference_vmm_num_vcpus(kernel):
         expect_vcpus(vmm_process, expected_vcpus)
 
         shutdown(vmm_process)
+
 
 @pytest.mark.parametrize("kernel", KERNELS_INITRAMFS)
 def test_reference_vmm_mem(kernel):

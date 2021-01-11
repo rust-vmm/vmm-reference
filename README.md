@@ -22,21 +22,9 @@ VMM, which depends on both crates `A` and `B`, will no longer support features
 `X` and `Y` simultaneously. If and when this situation occurs, multiple
 binaries for the reference VMM will be supplied.
 
-The `vmm` crate exposes several entry points (`pub fn`s) for pluggable UIs. A
+The `vmm` crate allows for pluggable UIs via a `VMMConfig` structure. A
 basic command line parser demonstrates how a frontend can be stitched to the
-VMM. Any external component that binds to the reference VMM's public Rust API
-can replace it.
-
-The reference VMM is, first and foremost, a vehicle for end-to-end testing of
-`rust-vmm` crates. Each crate must contain individual functional and
-performance tests that exercise as wide a range of use cases as possible; the
-reference VMM is not meant to reiterate on that, but to validate all the pieces
-put together. The public Rust API facilitates Rust integration tests that
-exercise it. The Rust integration tests make use of the VMM in varied
-configurations that aren’t overly complex and illustrate realistic use cases
-(e.g. one test runs a VMM with virtio MMIO devices, one test runs a VMM with
-PCI, etc.). Initially, we will start with a single test that illustrates usage
-of the only currently available device (the serial console).
+VMM.
 
 For more details, see [`DESIGN.md`](docs/DESIGN.md).
 
@@ -51,7 +39,7 @@ command:
 ```bash
 vmm-reference                      \
     --kernel path=/path/to/vmlinux \
-    [--blk <blkdev_config> - TBD]
+    [--block <blkdev_config> - TBD]
     [--net <netdev_config> - TBD]
 ```
 
@@ -78,6 +66,22 @@ configurations. Advanced users can, of course, plug in their own front-end.
 * `vcpus` - vCPU configurations
   * `num` - `u8`, number of vCPUs (decimal)
     * default: 1
+* `block` - block device configuration
+    * `path` - `String`, path to the root filesystem
+* `net` - network device configuration
+    * `tap` - `String`, tap name, only the API support is added for now,
+                        an actual network device configuration is done in the
+                        [following PR under review](https://github.com/rust-vmm/vmm-reference/pull/49).
+
+*Note*: For now, only the path to the root block device can be configured
+via command line. The block device will implicitly be read-write and with
+`cache flush` command supported. Passing the `block` argument is optional,
+if you want to skip it, make sure you pass to the `path` argument of the
+`kernel` configuration, a suitable image (for example a Busybox one).
+We plan on extending the API to be able to configure more block devices and
+more parameters for those (not just the `path`).
+We also want to offer the same support in the near future for network and
+vsock devices.
 
 ### Example: Override the kernel command line
 
@@ -94,6 +98,66 @@ vmm-reference                           \
     --vcpu num=2                        \
     --kernel path=/path/to/kernel/image
 ```
+
+## Testing
+
+The reference VMM is, first and foremost, a vehicle for end-to-end testing of
+`rust-vmm` crates. Each crate must contain individual functional and
+performance tests that exercise as wide a range of use cases as possible; the
+reference VMM is not meant to reiterate on that, but to validate all the pieces
+put together.
+The Rust unit tests are testing modules in isolation and private interfaces,
+while the two Rust integration tests (one for each supported kernel image
+format, i.e. ELF and bzImage) exercise the only public function of the `Vmm`
+object, `run()`.
+The Python integration tests make use of the VMM in varied configurations that
+aren’t overly complex and illustrate realistic use cases (e.g. one test runs a
+VMM with a virtio block device, one test will run a VMM with PCI, etc.).
+
+To be able to successfully run all the tests in this repo, there are a couple of
+resources that need to be found in `/tmp`. To generate the resources at the
+expected locations, you can run the following command:
+
+```bash
+sudo ./resources/make_test_resources.sh
+```
+
+`vmm-reference` is a
+(workspace)[https://doc.rust-lang.org/book/ch14-03-cargo-workspaces.html], so to
+run all the Rust tests, the following command should be used:
+
+```bash
+cargo test --workspace
+```
+
+There is no single command yet for running all the Python integration tests in
+one shot. To run the tests from a single file, you can use:
+
+```bash
+pytest-3 <path_to_the_file>
+```
+For example:
+
+```bash
+pytest-3 tests/test_run_reference_vmm.py
+```
+
+A single Python test can be run as well, as shown below:
+
+```bash
+pytest-3 <path_to_the_file>::<test_name>
+```
+For example:
+
+```bash
+pytest-3 tests/test_run_reference_vmm.py::test_reference_vmm_with_disk
+```
+
+We plan on adding a testing framework that will ease the test running and will
+allow different paths for the resources (`./tmp` is terrible, we know :( ).
+Please see
+[tracking issue](https://github.com/rust-vmm/vmm-reference/issues/51) for
+progress on this topic.
 
 ## License
 

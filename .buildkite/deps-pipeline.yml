@@ -1,33 +1,9 @@
 steps:
-  - label: "build-kernel-x86"
+  - label: "build-resources-x86"
     commands:
-      - resources/kernel/make_kernel_busybox_image.sh -f elf -k vmlinux-hello-busybox -w /tmp/vmlinux_busybox -j 2
-      - resources/kernel/make_kernel_busybox_image.sh -f elf -k vmlinux-hello-busybox -w /tmp/vmlinux_busybox -j 2 -h
-      - resources/kernel/make_kernel_busybox_image.sh -f bzimage -k bzimage-hello-busybox -w /tmp/vmlinux_busybox -j 2
-      - resources/kernel/make_kernel_busybox_image.sh -f bzimage -k bzimage-hello-busybox -w /tmp/vmlinux_busybox -j 2 -h
-      - resources/kernel/make_kernel_image_deb.sh -f elf -k vmlinux-focal -w /tmp/ubuntu-focal -j 2
-      - resources/kernel/make_kernel_image_deb.sh -f elf -k vmlinux-focal -w /tmp/ubuntu-focal -j 2 -h
-      - resources/kernel/make_kernel_image_deb.sh -f bzimage -k bzimage-focal -w /tmp/ubuntu-focal -j 2
-      - resources/kernel/make_kernel_image_deb.sh -f bzimage -k bzimage-focal -w /tmp/ubuntu-focal -j 2 -h
+      - resources/make_test_resources.sh
     retry:
       automatic: false
-    agents:
-      platform: x86_64.metal
-      os: linux
-    plugins:
-      - docker#v3.0.1:
-          image: "rustvmm/dev:v9"
-          always-pull: true
-          volumes:
-            - "/tmp:/tmp"
-  - wait
-  - label: "build-disk-x86"
-    commands:
-      - resources/disk/make_rootfs.sh -d /tmp/ubuntu-focal/linux-5.4.81/deb/ -w /tmp/ubuntu-focal-disk -o rootfs.ext4
-    retry:
-      automatic:
-        - exit_status: 32 # Failed to setup loop device.
-          limit: 2
     agents:
       platform: x86_64.metal
       os: linux
