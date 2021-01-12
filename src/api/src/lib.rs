@@ -157,7 +157,7 @@ mod tests {
         ])
         .is_err());
 
-        // Invalid memory config: missing value for `size_mib`.
+        // Memory config: missing value for `size_mib`, use the default
         assert!(CLI::launch(vec![
             "foobar",
             "--memory",
@@ -167,7 +167,7 @@ mod tests {
             "--kernel",
             "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
         ])
-        .is_err());
+        .is_ok());
 
         // Invalid memory config: unexpected parameter `foobar`.
         assert!(CLI::launch(vec![
@@ -194,7 +194,7 @@ mod tests {
         ])
         .is_err());
 
-        // Invalid kernel config: missing value for `himem_start`.
+        // Kernel config: missing value for `himem_start`, use default
         assert!(CLI::launch(vec![
             "foobar",
             "--memory",
@@ -204,7 +204,7 @@ mod tests {
             "--kernel",
             "path=/foo/bar,cmdline=\"foo=bar\",himem_start=",
         ])
-        .is_err());
+        .is_ok());
 
         // Invalid kernel config: unexpected parameter `foobar`.
         assert!(CLI::launch(vec![
@@ -230,7 +230,7 @@ mod tests {
         ])
         .is_err());
 
-        // Invalid vCPU config: missing value for `num_vcpus`.
+        // vCPU config: missing value for `num_vcpus`, use default
         assert!(CLI::launch(vec![
             "foobar",
             "--memory",
@@ -240,7 +240,7 @@ mod tests {
             "--kernel",
             "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
         ])
-        .is_err());
+        .is_ok());
 
         // Invalid vCPU config: unexpected parameter `foobar`.
         assert!(CLI::launch(vec![

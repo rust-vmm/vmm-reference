@@ -3,10 +3,15 @@
 
 use std::convert::TryFrom;
 use std::fmt;
+use std::num;
 use std::path::PathBuf;
 use std::result;
 
+use arg_parser::CfgArgParser;
+
 use super::{DEFAULT_HIGH_RAM_START, DEFAULT_KERNEL_CMDLINE};
+
+mod arg_parser;
 
 /// Errors encountered converting the `*Config` objects.
 #[derive(Debug, PartialEq)]
@@ -21,6 +26,24 @@ pub enum ConversionError {
     ParseNetwork(String),
     /// Failed to parse the string representation for the block.
     ParseBlock(String),
+}
+
+impl ConversionError {
+    fn new_kernel<T: fmt::Display>(err: T) -> Self {
+        Self::ParseKernel(err.to_string())
+    }
+    fn new_memory<T: fmt::Display>(err: T) -> Self {
+        Self::ParseMemory(err.to_string())
+    }
+    fn new_vcpus<T: fmt::Display>(err: T) -> Self {
+        Self::ParseVcpus(err.to_string())
+    }
+    fn new_block<T: fmt::Display>(err: T) -> Self {
+        Self::ParseBlock(err.to_string())
+    }
+    fn new_network<T: fmt::Display>(err: T) -> Self {
+        Self::ParseNetwork(err.to_string())
+    }
 }
 
 impl fmt::Display for ConversionError {
@@ -48,23 +71,16 @@ impl TryFrom<String> for MemoryConfig {
 
     fn try_from(mem_cfg_str: String) -> result::Result<Self, Self::Error> {
         // Supported options: `size=<u32>`
-        let mem_cfg_str_lower = mem_cfg_str.to_lowercase();
-        let tokens: Vec<&str> = mem_cfg_str_lower
-            .split('=')
-            .filter(|tok| !tok.is_empty())
-            .collect();
-        if tokens.len() != 2 {
-            return Err(ConversionError::ParseMemory(mem_cfg_str));
-        }
-        if tokens[0] != "size_mib" {
-            return Err(ConversionError::ParseMemory(tokens[0].to_string()));
-        }
-        tokens[1]
-            .parse::<u32>()
-            .map(|mem_size_mib| MemoryConfig {
-                size_mib: mem_size_mib,
-            })
-            .map_err(|_| ConversionError::ParseMemory(tokens[1].to_string()))
+        let mut arg_parser = CfgArgParser::new(mem_cfg_str);
+
+        let size_mib = arg_parser
+            .value_of("size_mib")
+            .map_err(ConversionError::new_memory)?
+            .unwrap_or(256);
+        arg_parser
+            .all_consumed()
+            .map_err(ConversionError::new_memory)?;
+        Ok(MemoryConfig { size_mib })
     }
 }
 
@@ -79,26 +95,16 @@ impl TryFrom<String> for VcpuConfig {
     type Error = ConversionError;
 
     fn try_from(vcpu_cfg_str: String) -> result::Result<Self, Self::Error> {
-        // Supported options: `num_vcpus=<u8>`
-        let vcpu_cfg_str_lower = vcpu_cfg_str.to_lowercase();
-        let tokens: Vec<&str> = vcpu_cfg_str_lower
-            .split('=')
-            .filter(|tok| !tok.is_empty())
-            .collect();
-        if tokens.len() != 2 {
-            return Err(ConversionError::ParseVcpus(vcpu_cfg_str));
-        }
-        if tokens[0] != "num" {
-            return Err(ConversionError::ParseVcpus(tokens[0].to_string()));
-        }
-        let vcpu_config = tokens[1]
-            .parse::<u8>()
-            .map(|num_vcpus| VcpuConfig { num: num_vcpus })
-            .map_err(|_| ConversionError::ParseVcpus(tokens[1].to_string()))?;
-        if vcpu_config.num == 0 {
-            return Err(ConversionError::ParseVcpus(tokens[1].to_string()));
-        }
-        Ok(vcpu_config)
+        // Supported options: `num=<u8>`
+        let mut arg_parser = CfgArgParser::new(vcpu_cfg_str);
+        let num = arg_parser
+            .value_of("num")
+            .map_err(ConversionError::new_vcpus)?
+            .unwrap_or_else(|| num::NonZeroU8::new(1).unwrap());
+        arg_parser
+            .all_consumed()
+            .map_err(ConversionError::new_vcpus)?;
+        Ok(VcpuConfig { num: num.into() })
     }
 }
 
@@ -120,43 +126,29 @@ impl TryFrom<String> for KernelConfig {
         // Supported options:
         // `cmdline=<"string">,path=/path/to/kernel,himem_start=<u64>`
         // Required: path
-        let options: Vec<&str> = kernel_cfg_str
-            .split(',')
-            .filter(|tok| !tok.is_empty())
-            .collect();
+        let mut arg_parser = CfgArgParser::new(kernel_cfg_str);
+        let cmdline = arg_parser
+            .value_of("cmdline")
+            .map_err(ConversionError::new_kernel)?
+            .unwrap_or_else(|| DEFAULT_KERNEL_CMDLINE.to_string());
 
-        let mut cmdline: Option<String> = None;
-        let mut path: Option<PathBuf> = None;
-        let mut himem_start: Option<u64> = None;
+        let path = arg_parser
+            .value_of("path")
+            .map_err(ConversionError::new_kernel)?
+            .ok_or_else(|| ConversionError::new_kernel("Missing required argument: path"))?;
 
-        for opt in options {
-            let tokens: Vec<&str> = opt.split('=').filter(|tok| !tok.is_empty()).collect();
-            match tokens[0] {
-                "cmdline" => cmdline = Some(tokens[1..].join("=")),
-                "path" => {
-                    if tokens.len() != 2 {
-                        return Err(ConversionError::ParseKernel(opt.to_string()));
-                    }
-                    path = Some(PathBuf::from(tokens[1]));
-                }
-                "himem_start" => {
-                    if tokens.len() != 2 {
-                        return Err(ConversionError::ParseKernel(opt.to_string()));
-                    }
-                    himem_start = Some(
-                        tokens[1]
-                            .parse::<u64>()
-                            .map_err(|_| ConversionError::ParseKernel(tokens[1].to_string()))?,
-                    );
-                }
-                _ => return Err(ConversionError::ParseKernel(kernel_cfg_str.to_string())),
-            }
-        }
+        let himem_start = arg_parser
+            .value_of("himem_start")
+            .map_err(ConversionError::new_kernel)?
+            .unwrap_or(DEFAULT_HIGH_RAM_START);
 
+        arg_parser
+            .all_consumed()
+            .map_err(ConversionError::new_kernel)?;
         Ok(KernelConfig {
-            cmdline: cmdline.unwrap_or_else(|| DEFAULT_KERNEL_CMDLINE.to_string()),
-            path: path.ok_or_else(|| ConversionError::ParseKernel(kernel_cfg_str.to_string()))?,
-            himem_start: himem_start.unwrap_or(DEFAULT_HIGH_RAM_START),
+            cmdline,
+            path,
+            himem_start,
         })
     }
 }
@@ -172,20 +164,17 @@ impl TryFrom<String> for NetConfig {
 
     fn try_from(net_config_str: String) -> Result<Self, Self::Error> {
         // Supported options: `tap=String`
-        let tokens: Vec<&str> = net_config_str
-            .split('=')
-            .filter(|tok| !tok.is_empty())
-            .collect();
-        if tokens.len() != 2 {
-            return Err(ConversionError::ParseNetwork(net_config_str));
-        }
-        if tokens[0] != "tap" {
-            return Err(ConversionError::ParseNetwork(tokens[0].to_string()));
-        }
+        let mut arg_parser = CfgArgParser::new(net_config_str);
 
-        Ok(Self {
-            tap_name: String::from(tokens[1]),
-        })
+        let tap_name = arg_parser
+            .value_of("tap")
+            .map_err(ConversionError::new_network)?
+            .ok_or_else(|| ConversionError::new_network("Missing required argument: tap"))?;
+
+        arg_parser
+            .all_consumed()
+            .map_err(ConversionError::new_network)?;
+        Ok(NetConfig { tap_name })
     }
 }
 
@@ -201,20 +190,17 @@ impl TryFrom<String> for BlockConfig {
 
     fn try_from(block_cfg_str: String) -> Result<Self, Self::Error> {
         // Supported options: `path=PathBuf`
-        let tokens: Vec<&str> = block_cfg_str
-            .split('=')
-            .filter(|tok| !tok.is_empty())
-            .collect();
-        if tokens.len() != 2 {
-            return Err(ConversionError::ParseBlock(block_cfg_str));
-        }
-        if tokens[0] != "path" {
-            return Err(ConversionError::ParseBlock(tokens[0].to_string()));
-        }
+        let mut arg_parser = CfgArgParser::new(block_cfg_str);
 
-        Ok(Self {
-            path: PathBuf::from(tokens[1]),
-        })
+        let path = arg_parser
+            .value_of("path")
+            .map_err(ConversionError::new_block)?
+            .ok_or_else(|| ConversionError::new_block("Missing required argument: path"))?;
+
+        arg_parser
+            .all_consumed()
+            .map_err(ConversionError::new_block)?;
+        Ok(BlockConfig { path })
     }
 }
 
@@ -240,9 +226,9 @@ mod tests {
     #[test]
     fn test_kernel_config() {
         // Check that additional commas in the kernel string do not cause a panic.
-        let kernel_str = "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42,";
+        let kernel_str = r#"path=/foo/bar,cmdline="foo=bar",himem_start=42,"#;
         let expected_kernel_config = KernelConfig {
-            cmdline: "\"foo=bar\"".to_string(),
+            cmdline: r#""foo=bar""#.to_string(),
             himem_start: 42,
             path: PathBuf::from("/foo/bar"),
         };
@@ -252,12 +238,13 @@ mod tests {
         );
 
         // Check that an empty path returns a conversion error.
-        let kernel_str = "path=,cmdline=\"foo=bar\",himem_start=42,";
-        let expected_error = ConversionError::ParseKernel("path=".to_string());
+        let kernel_str = r#"path=,cmdline="foo=bar",himem_start=42,"#;
         assert_eq!(
             KernelConfig::try_from(kernel_str.to_string()).unwrap_err(),
-            expected_error
+            ConversionError::ParseKernel("Missing required argument: path".to_string())
         );
+        assert!(KernelConfig::try_from("path=/something,not=valid".to_string()).is_err());
+        assert!(KernelConfig::try_from("path=/something,himem_start=invalid".to_string()).is_err());
     }
 
     #[test]
@@ -266,21 +253,30 @@ mod tests {
         let vcpu_str = "num=0";
         assert_eq!(
             VcpuConfig::try_from(vcpu_str.to_string()).unwrap_err(),
-            ConversionError::ParseVcpus("0".to_string())
+            ConversionError::ParseVcpus(
+                "Param \'num\', parsing failed: number would be zero for non-zero type".to_string()
+            )
         );
 
         let vcpu_str = "num=256";
         assert_eq!(
             VcpuConfig::try_from(vcpu_str.to_string()).unwrap_err(),
-            ConversionError::ParseVcpus("256".to_string())
+            ConversionError::ParseVcpus(
+                "Param 'num', parsing failed: number too large to fit in target type".to_string()
+            )
         );
 
-        // Missing vCPU number in config string.
+        // Missing vCPU number in config string, use default
         let vcpu_str = "num=";
-        assert_eq!(
-            VcpuConfig::try_from(vcpu_str.to_string()).unwrap_err(),
-            ConversionError::ParseVcpus("num=".to_string())
-        );
+        assert!(VcpuConfig::try_from(vcpu_str.to_string()).is_ok());
+
+        // vCPU number parsing error
+        let vcpu_str = "num=abc";
+        assert!(VcpuConfig::try_from(vcpu_str.to_string()).is_err());
+
+        // Extra argument
+        let vcpu_str = "num=1,foo=bar";
+        assert!(VcpuConfig::try_from(vcpu_str.to_string()).is_err());
     }
 
     #[test]
@@ -302,6 +298,10 @@ mod tests {
         // Test case: invalid string.
         let network_str = "blah=blah".to_string();
         assert!(NetConfig::try_from(network_str).is_err());
+
+        // Test case: unused parameters
+        let network_str = "tap=something,blah=blah".to_string();
+        assert!(NetConfig::try_from(network_str).is_err());
     }
 
     #[test]
@@ -316,12 +316,47 @@ mod tests {
         // Test case: empty string error.
         assert!(BlockConfig::try_from(String::new()).is_err());
 
-        // Test case: empty tap name error.
+        // Test case: empty path error.
         let block_str = "path=".to_string();
         assert!(BlockConfig::try_from(block_str).is_err());
 
         // Test case: invalid string.
         let block_str = "blah=blah".to_string();
         assert!(BlockConfig::try_from(block_str).is_err());
+
+        // Test case: unused parameters
+        let block_str = "path=/foo/bar,blah=blah".to_string();
+        assert!(BlockConfig::try_from(block_str).is_err());
+    }
+
+    #[test]
+    fn test_memory_config() {
+        let default = MemoryConfig { size_mib: 256 };
+        let size_str = "size_mib=42".to_string();
+        let memory_cfg = MemoryConfig::try_from(size_str).unwrap();
+        let expected_cfg = MemoryConfig { size_mib: 42 };
+        assert_eq!(memory_cfg, expected_cfg);
+
+        // Test case: empty string should use default
+        assert_eq!(MemoryConfig::try_from(String::new()).unwrap(), default);
+
+        // Test case: empty size_mib, use default
+        let memory_str = "size_mib=".to_string();
+        assert!(MemoryConfig::try_from(memory_str).is_ok());
+
+        // Test case: size_mib invalid input
+        let memory_str = "size_mib=ciao".to_string();
+        assert!(MemoryConfig::try_from(memory_str).is_err());
+
+        // Test case: invalid string.
+        let memory_str = "blah=blah".to_string();
+        assert_eq!(
+            MemoryConfig::try_from(memory_str).unwrap_err(),
+            ConversionError::ParseMemory("Unknown arguments found: \'blah\'".to_string())
+        );
+
+        // Test case: unused parameters
+        let memory_str = "size_mib=12,blah=blah".to_string();
+        assert!(MemoryConfig::try_from(memory_str).is_err());
     }
 }

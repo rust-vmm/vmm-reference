@@ -36,21 +36,19 @@ use vm_device::device_manager::IoManager;
 use vm_device::resources::Resource;
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 use vm_superio::Serial;
-use vm_vcpu::vcpu::{cpuid::filter_cpuid, VcpuState};
-use vm_vcpu::vm::{self, KvmVm, VmState};
 use vmm_sys_util::{eventfd::EventFd, terminal::Terminal};
 
+use boot::build_bootparams;
+pub use config::*;
 use devices::virtio::block::{self, BlockArgs};
 use devices::virtio::{CommonArgs, MmioConfig};
+use serial::SerialWrapper;
+use vm_vcpu::vcpu::{cpuid::filter_cpuid, VcpuState};
+use vm_vcpu::vm::{self, KvmVm, VmState};
 
 mod boot;
-use boot::build_bootparams;
-
 mod config;
-pub use config::*;
-
 mod serial;
-use serial::SerialWrapper;
 
 /// First address past 32 bits is where the MMIO gap ends.
 pub(crate) const MMIO_GAP_END: u64 = 1 << 32;
@@ -435,8 +433,6 @@ impl VMM {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::io::ErrorKind;
     use std::mem;
     use std::path::PathBuf;
@@ -446,6 +442,8 @@ mod tests {
     use vm_memory::bytes::{ByteValued, Bytes};
     use vm_memory::{Address, GuestAddress, GuestMemory};
     use vmm_sys_util::{tempdir::TempDir, tempfile::TempFile};
+
+    use super::*;
 
     const MEM_SIZE_MIB: u32 = 1024;
     const NUM_VCPUS: u8 = 1;
