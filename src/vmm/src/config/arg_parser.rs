@@ -28,7 +28,7 @@ pub(super) struct CfgArgParser {
 }
 
 impl CfgArgParser {
-    pub(super) fn new(input: String) -> Self {
+    pub(super) fn new(input: &str) -> Self {
         let args = input
             .split(',')
             .filter(|tok| !tok.is_empty())
@@ -90,7 +90,7 @@ mod tests {
 
     #[test]
     fn test_cfg_arg_parse() -> Result<(), CfgArgParseError> {
-        let input_params = "path=/path,string=HelloWorld,int=123,u8=1".to_string();
+        let input_params = "path=/path,string=HelloWorld,int=123,u8=1";
         let mut arg_parser = CfgArgParser::new(input_params);
 
         // No parameter was consumed yet
@@ -120,7 +120,7 @@ mod tests {
         // All params were consumed:
         assert!(arg_parser.all_consumed().is_ok());
 
-        let input_params = "path=".to_string();
+        let input_params = "path=";
         assert!(CfgArgParser::new(input_params)
             .value_of::<String>("path")?
             .is_none());
