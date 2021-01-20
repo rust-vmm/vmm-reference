@@ -48,6 +48,7 @@ use vm_vcpu::vm::{self, KvmVm, VmState};
 
 mod boot;
 mod config;
+
 mod serial;
 
 /// First address past 32 bits is where the MMIO gap ends.
@@ -184,7 +185,7 @@ impl TryFrom<VMMConfig> for VMM {
         }
 
         if !cmdline.as_str().is_empty() {
-            vmm.kernel_cfg.cmdline.push_str(" ");
+            vmm.kernel_cfg.cmdline.push(' ');
             vmm.kernel_cfg.cmdline.push_str(cmdline.as_str());
         }
 

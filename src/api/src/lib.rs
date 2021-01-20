@@ -6,11 +6,10 @@
 //! CLI for the Reference VMM.
 
 #![deny(missing_docs)]
-use std::convert::TryFrom;
 use std::result;
 
 use clap::{App, Arg};
-use vmm::{BlockConfig, KernelConfig, MemoryConfig, NetConfig, VMMConfig, VcpuConfig};
+use vmm::VMMConfig;
 
 /// Command line parser.
 pub struct CLI;
@@ -26,17 +25,13 @@ impl CLI {
             .arg(
                 Arg::with_name("memory")
                     .long("memory")
-                    .required(true)
                     .takes_value(true)
-                    .default_value("size_mib=256")
                     .help("Guest memory configuration.\n\tFormat: \"size_mib=<u32>\""),
             )
             .arg(
                 Arg::with_name("vcpu")
                     .long("vcpu")
-                    .required(true)
                     .takes_value(true)
-                    .default_value("num=1")
                     .help("vCPU configuration.\n\tFormat: \"num=<u8>\""),
             )
             .arg(
@@ -71,52 +66,14 @@ impl CLI {
             format!("Invalid command line arguments: {}", e)
         })?;
 
-        Ok(VMMConfig {
-            memory_config: MemoryConfig::try_from(
-                matches
-                    .value_of("memory")
-                    .expect("Missing memory configuration")
-                    .to_string(),
-            )
-            .map_err(|e| {
-                eprintln!("{}", help_msg);
-                format!("{}", e)
-            })?,
-            kernel_config: KernelConfig::try_from(
-                matches
-                    .value_of("kernel")
-                    .expect("Missing kernel configuration")
-                    .to_string(),
-            )
-            .map_err(|e| {
-                eprintln!("{}", help_msg);
-                format!("{}", e)
-            })?,
-            vcpu_config: VcpuConfig::try_from(
-                matches
-                    .value_of("vcpu")
-                    .expect("Missing vCPU configuration")
-                    .to_string(),
-            )
-            .map_err(|e| {
-                eprintln!("{}", help_msg);
-                format!("{}", e)
-            })?,
-            block_config: match matches.value_of("block") {
-                Some(value) => Some(BlockConfig::try_from(value.to_string()).map_err(|e| {
-                    eprintln!("{}", help_msg);
-                    format!("{}", e)
-                })?),
-                None => None,
-            },
-            network_config: match matches.value_of("net") {
-                Some(value) => Some(NetConfig::try_from(value.to_string()).map_err(|e| {
-                    eprintln!("{}", help_msg);
-                    format!("{}", e)
-                })?),
-                None => None,
-            },
-        })
+        Ok(VMMConfig::builder()
+            .memory_config(matches.value_of("memory"))
+            .kernel_config(matches.value_of("kernel"))
+            .vcpu_config(matches.value_of("vcpu"))
+            .network_config(matches.value_of("net"))
+            .block_config(matches.value_of("block"))
+            .build()
+            .map_err(|e| format!("{:?}", e))?)
     }
 }
 
@@ -126,6 +83,7 @@ mod tests {
 
     use std::path::PathBuf;
     use vmm::DEFAULT_KERNEL_CMDLINE;
+    use vmm::{KernelConfig, MemoryConfig, VcpuConfig};
 
     #[test]
     fn test_launch() {

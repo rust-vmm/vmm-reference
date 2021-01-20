@@ -11,10 +11,14 @@ use arg_parser::CfgArgParser;
 
 use super::{DEFAULT_HIGH_RAM_START, DEFAULT_KERNEL_CMDLINE};
 
+use builder::Builder;
+
 mod arg_parser;
 
+mod builder;
+
 /// Errors encountered converting the `*Config` objects.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ConversionError {
     /// Failed to parse the string representation for the kernel.
     ParseKernel(String),
@@ -46,6 +50,13 @@ impl ConversionError {
     }
 }
 
+impl VMMConfig {
+    /// Builds a builder
+    pub fn builder() -> Builder {
+        Builder::new()
+    }
+}
+
 impl fmt::Display for ConversionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use ConversionError::*;
@@ -60,10 +71,16 @@ impl fmt::Display for ConversionError {
 }
 
 /// Guest memory configurations.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MemoryConfig {
     /// Guest memory size in MiB.
     pub size_mib: u32,
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        MemoryConfig { size_mib: 256u32 }
+    }
 }
 
 impl TryFrom<&str> for MemoryConfig {
@@ -91,6 +108,12 @@ pub struct VcpuConfig {
     pub num: u8,
 }
 
+impl Default for VcpuConfig {
+    fn default() -> Self {
+        VcpuConfig { num: 1u8 }
+    }
+}
+
 impl TryFrom<&str> for VcpuConfig {
     type Error = ConversionError;
 
@@ -109,7 +132,7 @@ impl TryFrom<&str> for VcpuConfig {
 }
 
 /// Guest kernel configurations.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct KernelConfig {
     /// Kernel command line.
     pub cmdline: String,
@@ -117,6 +140,16 @@ pub struct KernelConfig {
     pub path: PathBuf,
     /// Start address for high memory.
     pub himem_start: u64,
+}
+
+impl Default for KernelConfig {
+    fn default() -> Self {
+        KernelConfig {
+            cmdline: String::from(DEFAULT_KERNEL_CMDLINE),
+            path: PathBuf::from(""), // FIXME: make it a const.
+            himem_start: DEFAULT_HIGH_RAM_START,
+        }
+    }
 }
 
 impl TryFrom<&str> for KernelConfig {
@@ -153,7 +186,7 @@ impl TryFrom<&str> for KernelConfig {
     }
 }
 /// Network device configuration.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct NetConfig {
     /// Name of tap device.
     pub tap_name: String,
@@ -179,7 +212,7 @@ impl TryFrom<&str> for NetConfig {
 }
 
 /// Block device configuration
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BlockConfig {
     /// Path to the block device backend.
     pub path: PathBuf,
