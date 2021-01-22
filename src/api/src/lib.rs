@@ -70,7 +70,7 @@ impl CLI {
             .memory_config(matches.value_of("memory"))
             .kernel_config(matches.value_of("kernel"))
             .vcpu_config(matches.value_of("vcpu"))
-            .network_config(matches.value_of("net"))
+            .net_config(matches.value_of("net"))
             .block_config(matches.value_of("block"))
             .build()
             .map_err(|e| format!("{:?}", e))?)
@@ -233,7 +233,7 @@ mod tests {
                 memory_config: MemoryConfig { size_mib: 128 },
                 vcpu_config: VcpuConfig { num: 1 },
                 block_config: None,
-                network_config: None,
+                net_config: None,
             }
         );
 
@@ -249,7 +249,7 @@ mod tests {
                 memory_config: MemoryConfig { size_mib: 256 },
                 vcpu_config: VcpuConfig { num: 1 },
                 block_config: None,
-                network_config: None,
+                net_config: None,
             }
         );
     }
