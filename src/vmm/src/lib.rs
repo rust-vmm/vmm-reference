@@ -469,7 +469,7 @@ mod tests {
             },
             vcpu_config: VcpuConfig { num: NUM_VCPUS },
             block_config: None,
-            network_config: None,
+            net_config: None,
         }
     }
 

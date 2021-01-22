@@ -141,14 +141,14 @@ impl Builder {
     /// You can see example of how to use this function in [`Example` section from
     /// `build`](#method.build)
     ///
-    pub fn network_config<T>(self, network: Option<T>) -> Self
+    pub fn net_config<T>(self, net: Option<T>) -> Self
     where
         NetConfig: TryFrom<T>,
         <NetConfig as TryFrom<T>>::Error: Into<ConversionError>,
     {
-        match network {
+        match net {
             Some(n) => self.and_then(|mut config| {
-                config.network_config = Some(TryFrom::try_from(n).map_err(Into::into)?);
+                config.net_config = Some(TryFrom::try_from(n).map_err(Into::into)?);
                 Ok(config)
             }),
             None => self,
@@ -274,22 +274,22 @@ mod tests {
     #[test]
     fn test_builder_net_config_none_default() {
         let vmm_config = Builder::default()
-            .network_config(None as Option<&str>)
+            .net_config(None as Option<&str>)
             .kernel_config(Some("path=bzImage"))
             .build();
         assert!(vmm_config.is_ok());
-        assert!(vmm_config.unwrap().network_config.is_none());
+        assert!(vmm_config.unwrap().net_config.is_none());
     }
 
     #[test]
     fn test_builder_net_config_success() {
         let vmm_config = Builder::default()
-            .network_config(Some("tap=tap0"))
+            .net_config(Some("tap=tap0"))
             .kernel_config(Some("path=bzImage"))
             .build();
         assert!(vmm_config.is_ok());
         assert_eq!(
-            vmm_config.unwrap().network_config,
+            vmm_config.unwrap().net_config,
             Some(NetConfig {
                 tap_name: "tap0".to_string()
             })

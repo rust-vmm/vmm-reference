@@ -27,7 +27,7 @@ pub enum ConversionError {
     /// Failed to parse the string representation for the vCPUs.
     ParseVcpus(String),
     /// Failed to parse the string representation for the network.
-    ParseNetwork(String),
+    ParseNet(String),
     /// Failed to parse the string representation for the block.
     ParseBlock(String),
 }
@@ -45,8 +45,8 @@ impl ConversionError {
     fn new_block<T: fmt::Display>(err: T) -> Self {
         Self::ParseBlock(err.to_string())
     }
-    fn new_network<T: fmt::Display>(err: T) -> Self {
-        Self::ParseNetwork(err.to_string())
+    fn new_net<T: fmt::Display>(err: T) -> Self {
+        Self::ParseNet(err.to_string())
     }
 }
 
@@ -64,8 +64,8 @@ impl fmt::Display for ConversionError {
             ParseKernel(ref s) => write!(f, "Invalid input for kernel: {}", s),
             ParseMemory(ref s) => write!(f, "Invalid input for memory: {}", s),
             ParseVcpus(ref s) => write!(f, "Invalid input for vCPUs: {}", s),
-            ParseNetwork(ref s) => write!(f, "Invalid input for network: {}", s),
-            ParseBlock(ref s) => write!(f, "Invalid input for network: {}", s),
+            ParseNet(ref s) => write!(f, "Invalid input for network: {}", s),
+            ParseBlock(ref s) => write!(f, "Invalid input for block: {}", s),
         }
     }
 }
@@ -201,12 +201,12 @@ impl TryFrom<&str> for NetConfig {
 
         let tap_name = arg_parser
             .value_of("tap")
-            .map_err(ConversionError::new_network)?
-            .ok_or_else(|| ConversionError::new_network("Missing required argument: tap"))?;
+            .map_err(ConversionError::new_net)?
+            .ok_or_else(|| ConversionError::new_net("Missing required argument: tap"))?;
 
         arg_parser
             .all_consumed()
-            .map_err(ConversionError::new_network)?;
+            .map_err(ConversionError::new_net)?;
         Ok(NetConfig { tap_name })
     }
 }
@@ -247,7 +247,7 @@ pub struct VMMConfig {
     /// Guest kernel configuration.
     pub kernel_config: KernelConfig,
     /// Network device configuration.
-    pub network_config: Option<NetConfig>,
+    pub net_config: Option<NetConfig>,
     /// Block device configuration.
     pub block_config: Option<BlockConfig>,
 }
@@ -313,28 +313,28 @@ mod tests {
     }
 
     #[test]
-    fn test_network_config() {
-        let network_str = "tap=vmtap";
-        let network_cfg = NetConfig::try_from(network_str).unwrap();
+    fn test_net_config() {
+        let net_str = "tap=vmtap";
+        let net_cfg = NetConfig::try_from(net_str).unwrap();
         let expected_cfg = NetConfig {
             tap_name: "vmtap".to_string(),
         };
-        assert_eq!(network_cfg, expected_cfg);
+        assert_eq!(net_cfg, expected_cfg);
 
         // Test case: empty string error.
         assert!(NetConfig::try_from("").is_err());
 
         // Test case: empty tap name error.
-        let network_str = "tap=";
-        assert!(NetConfig::try_from(network_str).is_err());
+        let net_str = "tap=";
+        assert!(NetConfig::try_from(net_str).is_err());
 
         // Test case: invalid string.
-        let network_str = "blah=blah";
-        assert!(NetConfig::try_from(network_str).is_err());
+        let net_str = "blah=blah";
+        assert!(NetConfig::try_from(net_str).is_err());
 
         // Test case: unused parameters
-        let network_str = "tap=something,blah=blah";
-        assert!(NetConfig::try_from(network_str).is_err());
+        let net_str = "tap=something,blah=blah";
+        assert!(NetConfig::try_from(net_str).is_err());
     }
 
     #[test]
