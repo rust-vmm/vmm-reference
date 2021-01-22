@@ -1,4 +1,4 @@
-// Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
 //! Config builder
@@ -16,17 +16,42 @@ pub struct Builder {
 
 impl Default for Builder {
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Builder {
-    pub fn new() -> Self {
         Builder {
             inner: Ok(VMMConfig::default()),
         }
     }
+}
 
+impl Builder {
+    /// Creates a Builder Object
+    ///
+    pub fn new() -> Self {
+        Builder::default()
+    }
+
+    /// Builds `VMMConfig`.
+    ///
+    /// This function should be called after all the configurations are setup using `*_config`
+    /// functions. If any of the required config is missing, this function returns appropriate
+    /// error.
+    ///
+    /// # Example
+    ///
+    /// ```
+    ///  # use vmm::VMMConfig;
+    ///
+    ///  let vmmconfig = VMMConfig::builder()
+    ///     .memory_config(Some("size_mib=1024"))
+    ///     .vcpu_config(Some("num=1"))
+    ///     .kernel_config(Some("path=/path/to/bzImage"))
+    ///     .net_config(Some("tap=tap0"))
+    ///     .block_config(Some("path=/dev/loop0"))
+    ///     .build();
+    ///
+    /// assert!(vmmconfig.is_ok());
+    ///
+    /// ```
+    ///
     pub fn build(&self) -> Result<VMMConfig, ConversionError> {
         // Check if there are any errors
         match &self.inner {
@@ -44,6 +69,13 @@ impl Builder {
         self.inner.clone()
     }
 
+    /// Configure Builder with Memory Configuration for the VMM.
+    ///
+    /// # Example
+    ///
+    /// You can see example of how to use this function in [`Example` section from
+    /// `build`](#method.build)
+    ///
     pub fn memory_config<T>(self, memory: Option<T>) -> Self
     where
         MemoryConfig: TryFrom<T>,
@@ -58,6 +90,13 @@ impl Builder {
         }
     }
 
+    /// Configure Builder with VCPU Configuration for the VMM.
+    ///
+    /// # Example
+    ///
+    /// You can see example of how to use this function in [`Example` section from
+    /// `build`](#method.build)
+    ///
     pub fn vcpu_config<T>(self, vcpu: Option<T>) -> Self
     where
         VcpuConfig: TryFrom<T>,
@@ -72,6 +111,15 @@ impl Builder {
         }
     }
 
+    /// Configure Builder with Kernel Configuration for the VMM.
+    ///
+    /// Note: Path argument of the Kernel Configuration is a required argument.
+    ///
+    /// # Example
+    ///
+    /// You can see example of how to use this function in [`Example` section from
+    /// `build`](#method.build)
+    ///
     pub fn kernel_config<T>(self, kernel: Option<T>) -> Self
     where
         KernelConfig: TryFrom<T>,
@@ -86,6 +134,13 @@ impl Builder {
         }
     }
 
+    /// Configure Builder with Network Configuration for the VMM.
+    ///
+    /// # Example
+    ///
+    /// You can see example of how to use this function in [`Example` section from
+    /// `build`](#method.build)
+    ///
     pub fn network_config<T>(self, network: Option<T>) -> Self
     where
         NetConfig: TryFrom<T>,
@@ -100,6 +155,13 @@ impl Builder {
         }
     }
 
+    /// Configure Builder with Block Device Configuration for the VMM.
+    ///
+    /// # Example
+    ///
+    /// You can see example of how to use this function in [`Example` section from
+    /// `build`](#method.build)
+    ///
     pub fn block_config<T>(self, block: Option<T>) -> Self
     where
         BlockConfig: TryFrom<T>,
@@ -121,5 +183,171 @@ impl Builder {
         Builder {
             inner: self.inner.and_then(func),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::path::PathBuf;
+
+    use super::*;
+    use crate::{DEFAULT_HIGH_RAM_START, DEFAULT_KERNEL_CMDLINE};
+
+    #[test]
+    fn test_builder_default_err() {
+        let vmm_config = Builder::default().build();
+        assert!(vmm_config.is_err());
+    }
+
+    #[test]
+    fn test_builder_memory_config_success() {
+        let vmm_config = Builder::default()
+            .memory_config(Some("size_mib=1024"))
+            .kernel_config(Some("path=bzImage"))
+            .build();
+        assert!(vmm_config.is_ok());
+        assert_eq!(
+            vmm_config.unwrap().memory_config,
+            MemoryConfig { size_mib: 1024 }
+        );
+    }
+
+    #[test]
+    fn test_builder_memory_config_none_default() {
+        let vmm_config = Builder::default()
+            .memory_config(None as Option<&str>)
+            .kernel_config(Some("path=bzImage"))
+            .build();
+        assert!(vmm_config.is_ok());
+        assert_eq!(
+            vmm_config.unwrap().memory_config,
+            MemoryConfig { size_mib: 256 }
+        );
+    }
+
+    #[test]
+    fn test_builder_vcpu_config_success() {
+        let vmm_config = Builder::default()
+            .vcpu_config(Some("num=2"))
+            .kernel_config(Some("path=bzImage"))
+            .build();
+        assert!(vmm_config.is_ok());
+        assert_eq!(vmm_config.unwrap().vcpu_config, VcpuConfig { num: 2 });
+    }
+
+    #[test]
+    fn test_builder_vcpu_config_none_default() {
+        let vmm_config = Builder::default()
+            .memory_config(None as Option<&str>)
+            .kernel_config(Some("path=bzImage"))
+            .build();
+        assert!(vmm_config.is_ok());
+        assert_eq!(vmm_config.unwrap().vcpu_config, VcpuConfig { num: 1 });
+    }
+
+    #[test]
+    fn test_builder_kernel_config_success_default() {
+        let vmm_config = Builder::default()
+            .kernel_config(Some("path=bzImage"))
+            .build();
+        assert!(vmm_config.is_ok());
+        assert_eq!(
+            vmm_config.unwrap().kernel_config,
+            KernelConfig {
+                cmdline: DEFAULT_KERNEL_CMDLINE.to_string(),
+                himem_start: DEFAULT_HIGH_RAM_START,
+                path: PathBuf::from("bzImage")
+            }
+        );
+    }
+
+    #[test]
+    fn test_builder_kernel_config_none_error() {
+        let vmm_config = Builder::default()
+            .kernel_config(None as Option<&str>)
+            .build();
+
+        assert!(vmm_config.is_err());
+    }
+
+    #[test]
+    fn test_builder_net_config_none_default() {
+        let vmm_config = Builder::default()
+            .network_config(None as Option<&str>)
+            .kernel_config(Some("path=bzImage"))
+            .build();
+        assert!(vmm_config.is_ok());
+        assert!(vmm_config.unwrap().network_config.is_none());
+    }
+
+    #[test]
+    fn test_builder_net_config_success() {
+        let vmm_config = Builder::default()
+            .network_config(Some("tap=tap0"))
+            .kernel_config(Some("path=bzImage"))
+            .build();
+        assert!(vmm_config.is_ok());
+        assert_eq!(
+            vmm_config.unwrap().network_config,
+            Some(NetConfig {
+                tap_name: "tap0".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn test_builder_block_config_none_default() {
+        let vmm_config = Builder::default()
+            .block_config(None as Option<&str>)
+            .kernel_config(Some("path=bzImage"))
+            .build();
+        assert!(vmm_config.is_ok());
+        assert!(vmm_config.unwrap().block_config.is_none());
+    }
+
+    #[test]
+    fn test_builder_block_config_success() {
+        let vmm_config = Builder::default()
+            .block_config(Some("path=/dev/loop0"))
+            .kernel_config(Some("path=bzImage"))
+            .build();
+        assert!(vmm_config.is_ok());
+        assert_eq!(
+            vmm_config.unwrap().block_config,
+            Some(BlockConfig {
+                path: PathBuf::from("/dev/loop0")
+            })
+        );
+    }
+
+    #[test]
+    fn test_builder_vmm_config_success() {
+        let vmm_config = Builder::default()
+            .memory_config(Some("size_mib=1024"))
+            .vcpu_config(Some("num=2"))
+            .net_config(Some("tap=tap0"))
+            .kernel_config(Some("path=bzImage"))
+            .block_config(Some("path=/dev/loop0"))
+            .build();
+        assert!(vmm_config.is_ok());
+        assert_eq!(
+            vmm_config.unwrap(),
+            VMMConfig {
+                memory_config: MemoryConfig { size_mib: 1024 },
+                vcpu_config: VcpuConfig { num: 2 },
+                kernel_config: KernelConfig {
+                    cmdline: DEFAULT_KERNEL_CMDLINE.to_string(),
+                    himem_start: DEFAULT_HIGH_RAM_START,
+                    path: PathBuf::from("bzImage")
+                },
+                net_config: Some(NetConfig {
+                    tap_name: "tap0".to_string()
+                }),
+                block_config: Some(BlockConfig {
+                    path: PathBuf::from("/dev/loop0")
+                })
+            }
+        );
     }
 }
