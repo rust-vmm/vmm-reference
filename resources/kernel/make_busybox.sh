@@ -20,7 +20,7 @@ popd_quiet() {
     popd &>/dev/null || die "Failed to return to previous directory."
 }
 
-# Usage: 
+# Usage:
 #   make_busybox                    \
 #       /path/to/busybox/workdir    \
 #       /path/to/busybox/config     \
@@ -44,29 +44,36 @@ make_busybox() {
 
     # Move to the work directory.
     mkdir -p "$workdir"
+    echo "Changing working directory to $workdir..."
     pushd_quiet "$workdir"
+
     # Prepare busybox.
     echo "Downloading busybox..."
     mkdir -p busybox_rootfs
     [ -f "$busybox_archive" ] || curl "$busybox_url" > "$busybox_archive"
+
     echo "Extracting busybox..."
     tar --skip-old-files -xf "$busybox_archive"
     # Move to the busybox sources directory.
     pushd_quiet "$busybox"
+
     # Build statically linked busybox.
     cp "$config" .config
     echo "Building busybox..."
     make -j "$nprocs"
     # Package all artefacts somewhere else.
+
     echo "Packaging busybox..."
     make CONFIG_PREFIX=../busybox_rootfs install
+
     # Back to workdir.
     popd_quiet
+
     # Back to wherever we were before.
     popd_quiet
 }
 
-# Usage: 
+# Usage:
 #   make_init [halt_value]
 make_init() {
     halt="$1"
