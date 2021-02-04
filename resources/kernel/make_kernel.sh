@@ -28,7 +28,7 @@ extract_kernel_srcs() {
     kernel_version="$1"
 
     [ -z "$kernel_version" ] && die "Kernel version not specified."
-    
+
     # This magic trick gets the major component of the version number.
     kernel_major="${kernel_version%%.*}"
     kernel_archive="linux-$kernel_version.tar.xz"
@@ -36,7 +36,7 @@ extract_kernel_srcs() {
 
     echo "Starting kernel build."
     # Download kernel sources.
-    echo "Downloading kernel..."
+    echo "Downloading kernel from $kernel_url"
     [ -f "$kernel_archive" ] || curl "$kernel_url" > "$kernel_archive"
     echo "Extracting kernel sources..."
     tar --skip-old-files -xf "$kernel_archive"
@@ -136,7 +136,7 @@ kernel_target() {
 # Prints the name of the generated kernel binary.
 kernel_binary() {
     format=$(validate_kernel_format "$1")
-    
+
     case "$format" in
     elf)        echo "vmlinux"
                 ;;
@@ -163,7 +163,7 @@ make_kernel() {
     [ ! -d "$kernel_dir" ] && die "Kernel directory not found."
     [ -z "$format" ] && die "Kernel format not specified."
     [ -z "$nprocs" ] && nprocs=1
-   
+
     kernel_binary=$(kernel_binary "$format")
 
     # Move to the directory with the kernel sources.

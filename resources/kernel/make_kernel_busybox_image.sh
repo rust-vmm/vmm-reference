@@ -16,12 +16,7 @@ export TOP_PID=$$
 
 source "$TEST_RESOURCE_DIR/make_busybox.sh"
 source "$TEST_RESOURCE_DIR/make_kernel.sh"
-
-KERNEL_VERSION="4.14.176"
-BUSYBOX_VERSION="1.26.0"
-
-KERNEL_CFG="microvm-kernel-initramfs-hello-x86_64.config"
-BUSYBOX_CFG="busybox_static_config"
+source "$TEST_RESOURCE_DIR/configs.sh"
 
 # Reset index for cmdline arguments for the following `getopts`.
 OPTIND=1
