@@ -13,13 +13,10 @@ KERNELS_INITRAMFS = [
     "/tmp/vmlinux_busybox/linux-4.14.176/bzimage-hello-busybox"
 ]
 
-"""
-Temporarily removed the ("bzimage-focal", "rootfs.ext4") pair from the
-list below, because the init startup sequence in the guest takes too
-long until getting to the cmdline prompt for some reason.
-"""
 KERNELS_DISK = [
     ("/tmp/ubuntu-focal/linux-5.4.81/vmlinux-focal",
+     "/tmp/ubuntu-focal-disk/rootfs.ext4"),
+    ("/tmp/ubuntu-focal/linux-5.4.81/bzimage-focal",
      "/tmp/ubuntu-focal-disk/rootfs.ext4"),
 ]
 
@@ -45,7 +42,7 @@ and run locally.
 
 def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=1024):
     # Kernel config
-    cmdline = "console=ttyS0 i8042.nokbd reboot=t panic=1 pci=off"
+    cmdline = "console=ttyS0 i8042.nokbd reboot=t panic=1 pci=off rw"
 
     himem_start = 1048576
 
@@ -55,7 +52,7 @@ def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=102
     vmm_cmd = [
         "target/release/vmm-reference",
         "--memory", "size_mib={}".format(mem_size_mib),
-        "--kernel", "cmdline=\"{}\",path={},himem_start={}".format(
+        "--kernel", "cmdline={},path={},himem_start={}".format(
             cmdline, kernel_path, himem_start
         ),
         "--vcpu", "num={}".format(num_vcpus)
@@ -135,7 +132,6 @@ def expect_string(vmm_process, expected_string, timeout=TEST_TIMEOUT):
             time.sleep(1)
             now = time.time()
             if now - then > giveup_after:
-            if now - then > giveup_after :
                 raise TimeoutError(
                         "Timed out {} waiting for {}".format(now - then, expected_string))
         except Exception as _:
