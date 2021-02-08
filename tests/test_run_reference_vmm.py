@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 """Run the reference VMM and shut it down through a command on the serial."""
 
-import os, signal, subprocess, time
+import os, signal, subprocess, time, fcntl
 import pytest
 from subprocess import PIPE, STDOUT
 import tempfile
@@ -23,6 +23,8 @@ KERNELS_DISK = [
      "/tmp/ubuntu-focal-disk/rootfs.ext4"),
 ]
 
+# No. of seconds after which to give up for the test
+TEST_TIMEOUT = 30
 
 def process_exists(pid):
     try:
@@ -93,33 +95,63 @@ def shutdown(vmm_process):
     # TimeoutExpired exception and fail the test.
     vmm_process.wait(timeout=3)
 
+def setup_stdout_nonblocking(vmm_process):
 
-def expect_string(vmm_process, expected_string):
-    while True:
-        nextline = vmm_process.stdout.readline()
-        if expected_string in nextline.decode():
-            break
-    # If the expected string is identified and the loop breaks, return the
-    # entire line from stdout
-    return nextline.decode()
+    ## We'll need to do non-blocking I/O with the underlying sub-process since
+    # we cannot use `communicate`, because `communicate` would close the
+    # `stdin` that we later want to use to `shutdown`, to do that by hand,
+    # we set `vmm_process.stdout` to non-blocking
+    # Then we can use `os.read` that would raise `BlockingIOError`
+
+    # FIXME: This should NOT be required to be done on every call, do it when we
+    #        'Class'ify the test case
+    flags = fcntl.fcntl(vmm_process.stdout, fcntl.F_GETFL)
+    fcntl.fcntl(vmm_process.stdout, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
+def expect_string(vmm_process, expected_string, timeout=TEST_TIMEOUT):
+
+    setup_stdout_nonblocking(vmm_process)
+
+    # No. of seconds after which we'll give up
+    giveup_after = timeout
+    then = time.time()
+    found = False
+    # This is required because the pattern we are expecting might get split across two reads
+    all_data = bytes()
+    while not found:
+        try:
+            x = os.read(vmm_process.stdout.fileno(), 4096)
+            all_data += x
+            for line in all_data.split(b'\r\n'):
+                if expected_string in line.decode():
+                    found = True
+                    return line.decode()
+            # Whatever remains is collected in `all_data`.
+            all_data = line
+        except Exception as e:
+            time.sleep(1)
+            now = time.time()
+            if now - then > giveup_after:
+                raise TimeoutError(
+                        "Timed out {} waiting for {}".format(now - then, expected_string))
+        except Exception as _:
+            raise
 
 
 def expect_vcpus(vmm_process, expected_vcpus):
+
+    # Actually following is not required because this function will be called after
+    # `expect_string` is called once, which sets non-blocking, but let's not be
+    # dependent on it, so it's just fine to call it again, less than ideal, but not
+    # wrong.
+    setup_stdout_nonblocking(vmm_process)
+
     # /proc/cpuinfo displays info about each vCPU
     vmm_process.stdin.write(b'cat /proc/cpuinfo\n')
     vmm_process.stdin.flush()
 
-    # Poll stdout to find the 'siblings' field, which displays the total number
-    # of vCPUs, and compare it against the expected number of vCPUs
-    # format of the field: 'siblings  : num'
-    while True:
-        nextline = vmm_process.stdout.readline().decode()
-        if "siblings" in nextline:
-            # collapse all whitespace (e.g., 'siblings:num')
-            nextline = "".join(nextline.split())
-            # extract the number of vCPUs
-            actual_vcpus = int(nextline.split(':')[1])
-            break
+    siblings_line = expect_string(vmm_process, "siblings")
+    actual_vcpus = int(siblings_line.split(":")[1].strip())
 
     assert actual_vcpus == expected_vcpus, \
             "Expected {}, found {} vCPUs".format(expected_vcpus, actual_vcpus)
@@ -146,6 +178,20 @@ def expect_mem(vmm_process, expected_mem_mib):
             "Expected {} KiB, found {} KiB of guest" \
             " memory".format(expected_mem_kib, actual_mem_kib)
 
+def test_reference_vmm_timeout():
+    """ Verifies timeout when the VM Boots but expected string is not found."""
+
+    kernel = KERNELS_INITRAMFS[0]
+    vmm_process, _ = start_vmm_process(kernel, None)
+
+    with pytest.raises(TimeoutError) as e:
+        expected_string = "Goodbye, world, from the rust-vmm reference VMM!"
+        _ = expect_string(vmm_process, expected_string, timeout=20)
+
+    shutdown(vmm_process)
+
+    assert e.type is TimeoutError
+
 
 @pytest.mark.parametrize("kernel", KERNELS_INITRAMFS)
 def test_reference_vmm(kernel):
@@ -157,7 +203,7 @@ def test_reference_vmm(kernel):
     # If we do not find the expected message, this loop will not break and the
     # test will fail when the timeout expires.
     expected_string = "Hello, world, from the rust-vmm reference VMM!"
-    expect_string(vmm_process, expected_string)
+    _ = expect_string(vmm_process, expected_string)
 
     shutdown(vmm_process)
 
@@ -168,7 +214,7 @@ def test_reference_vmm_with_disk(kernel, disk):
 
     vmm_process, tmp_disk_path = start_vmm_process(kernel, disk)
 
-    expect_string(vmm_process, "Ubuntu 20.04 LTS ubuntu-rust-vmm ttyS0")
+    _ = expect_string(vmm_process, "Ubuntu 20.04 LTS ubuntu-rust-vmm ttyS0")
 
     shutdown(vmm_process)
     if tmp_disk_path is not None:
@@ -188,10 +234,6 @@ def test_reference_vmm_num_vcpus(kernel):
         # Poll the output from /proc/cpuinfo for the field displaying the the
         # number of vCPUs.
         #
-        # If we do not find the field, this loop will not break and the
-        # test will fail when the timeout expires.  If we find the field, but
-        # the expected and actual number of vCPUs do not match, the test will
-        # fail immediately with an explanation.
         expect_vcpus(vmm_process, expected_vcpus)
 
         shutdown(vmm_process)
