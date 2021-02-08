@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 """Run the reference VMM and shut it down through a command on the serial."""
 
-import os, signal, subprocess, time, fcntl
-import pytest
-from subprocess import PIPE, STDOUT
+import os, subprocess, time, fcntl
+from subprocess import PIPE
 import tempfile
 
+import pytest
 
 KERNELS_INITRAMFS = [
     "/tmp/vmlinux_busybox/linux-4.14.176/vmlinux-hello-busybox",
@@ -43,7 +43,7 @@ and run locally.
 """
 
 
-def start_vmm_process(kernel_path, disk_path, num_vcpus = 1, mem_size_mib = 1024):
+def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=1024):
     # Kernel config
     cmdline = "console=ttyS0 i8042.nokbd reboot=t panic=1 pci=off"
 
@@ -95,9 +95,10 @@ def shutdown(vmm_process):
     # TimeoutExpired exception and fail the test.
     vmm_process.wait(timeout=3)
 
+
 def setup_stdout_nonblocking(vmm_process):
 
-    ## We'll need to do non-blocking I/O with the underlying sub-process since
+    # We'll need to do non-blocking I/O with the underlying sub-process since
     # we cannot use `communicate`, because `communicate` would close the
     # `stdin` that we later want to use to `shutdown`, to do that by hand,
     # we set `vmm_process.stdout` to non-blocking
@@ -107,6 +108,7 @@ def setup_stdout_nonblocking(vmm_process):
     #        'Class'ify the test case
     flags = fcntl.fcntl(vmm_process.stdout, fcntl.F_GETFL)
     fcntl.fcntl(vmm_process.stdout, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
 
 def expect_string(vmm_process, expected_string, timeout=TEST_TIMEOUT):
 
@@ -120,18 +122,20 @@ def expect_string(vmm_process, expected_string, timeout=TEST_TIMEOUT):
     all_data = bytes()
     while not found:
         try:
-            x = os.read(vmm_process.stdout.fileno(), 4096)
-            all_data += x
+            data = os.read(vmm_process.stdout.fileno(), 4096)
+            all_data += data
             for line in all_data.split(b'\r\n'):
                 if expected_string in line.decode():
                     found = True
                     return line.decode()
             # Whatever remains is collected in `all_data`.
             all_data = line
-        except Exception as e:
+        except BlockingIOError as _:
+            # Raised on `EWOULDBLOCK`, so it's better to wait for sometime before retrying
             time.sleep(1)
             now = time.time()
             if now - then > giveup_after:
+            if now - then > giveup_after :
                 raise TimeoutError(
                         "Timed out {} waiting for {}".format(now - then, expected_string))
         except Exception as _:
@@ -182,11 +186,11 @@ def test_reference_vmm_timeout():
     """ Verifies timeout when the VM Boots but expected string is not found."""
 
     kernel = KERNELS_INITRAMFS[0]
-    vmm_process, _ = start_vmm_process(kernel, None)
+    vmm_process, _ = start_vmm_process(kernel)
 
     with pytest.raises(TimeoutError) as e:
         expected_string = "Goodbye, world, from the rust-vmm reference VMM!"
-        _ = expect_string(vmm_process, expected_string, timeout=20)
+        expect_string(vmm_process, expected_string, timeout=20)
 
     shutdown(vmm_process)
 
@@ -197,13 +201,13 @@ def test_reference_vmm_timeout():
 def test_reference_vmm(kernel):
     """Start the reference VMM and verify that it works."""
 
-    vmm_process, _ = start_vmm_process(kernel, None)
+    vmm_process, _ = start_vmm_process(kernel)
 
     # Poll process for new output until we find the hello world message.
     # If we do not find the expected message, this loop will not break and the
     # test will fail when the timeout expires.
     expected_string = "Hello, world, from the rust-vmm reference VMM!"
-    _ = expect_string(vmm_process, expected_string)
+    expect_string(vmm_process, expected_string)
 
     shutdown(vmm_process)
 
@@ -212,9 +216,9 @@ def test_reference_vmm(kernel):
 def test_reference_vmm_with_disk(kernel, disk):
     """Start the reference VMM with a block device and verify that it works."""
 
-    vmm_process, tmp_disk_path = start_vmm_process(kernel, disk)
+    vmm_process, tmp_disk_path = start_vmm_process(kernel, disk_path=disk)
 
-    _ = expect_string(vmm_process, "Ubuntu 20.04 LTS ubuntu-rust-vmm ttyS0")
+    expect_string(vmm_process, "Ubuntu 20.04 LTS ubuntu-rust-vmm ttyS0")
 
     shutdown(vmm_process)
     if tmp_disk_path is not None:
@@ -229,7 +233,7 @@ def test_reference_vmm_num_vcpus(kernel):
 
     for expected_vcpus in num_vcpus:
         # Start a VM with a specified number of vCPUs
-        vmm_process, _ = start_vmm_process(kernel, None, expected_vcpus)
+        vmm_process, _ = start_vmm_process(kernel, num_vcpus=expected_vcpus)
 
         # Poll the output from /proc/cpuinfo for the field displaying the the
         # number of vCPUs.
@@ -265,7 +269,7 @@ def test_reference_vmm_mem(kernel):
 
     for expected_mem_mib in mem_sizes_mib:
         # Start a VM with a specified amount of memory
-        vmm_process, _ = start_vmm_process(kernel, None, 1, expected_mem_mib)
+        vmm_process, _ = start_vmm_process(kernel, mem_size_mib=expected_mem_mib)
 
         # Poll the output from /proc/meminfo for the field displaying the the
         # total amount of memory.
