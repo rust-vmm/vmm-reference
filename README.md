@@ -1,5 +1,8 @@
 # `vmm-reference`
 
+:exclamation: `vmm-reference` is for experimental purposes and should *NOT* be
+used in production. :exclamation:
+
 ## Design
 
 The purpose of the reference VMM is twofold:
@@ -123,7 +126,7 @@ sudo ./resources/make_test_resources.sh
 ```
 
 `vmm-reference` is a
-(workspace)[https://doc.rust-lang.org/book/ch14-03-cargo-workspaces.html], so to
+[workspace](https://doc.rust-lang.org/book/ch14-03-cargo-workspaces.html), so to
 run all the Rust tests, the following command should be used:
 
 ```bash
