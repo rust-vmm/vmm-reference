@@ -5,6 +5,7 @@
 import os, subprocess, time, fcntl
 from subprocess import PIPE
 import tempfile
+import json
 
 import pytest
 
@@ -138,6 +139,43 @@ def expect_string(vmm_process, expected_string, timeout=TEST_TIMEOUT):
             raise
 
 
+def run_cmd_inside_vm(cmd, vmm_process, prompt, timeout=5):
+    """Runs a command inside the VM process and returns the output.
+
+       If the command runs successfully, output of the command is returned or else a
+       suitable exception is raised. The `timeout` parameter is used to indicate how
+       much time to wait for the command to complete.
+
+       Note: `cmd` and `prompt` should be a `bytes` object and not `str`.
+    """
+    cmd = cmd.strip() + b'\r\n'
+
+    vmm_process.stdin.write(cmd)
+    vmm_process.stdin.flush()
+
+    then = time.time()
+    giveup_after = timeout
+    while True:
+        try:
+            data = os.read(vmm_process.stdout.fileno(), 4096)
+            output_lines = data.split(b'\r\n')
+            last = output_lines[-1].strip()
+            if prompt in last:
+                # FIXME: WE get the prompt twice in the output at the end,
+                # So removing it. No idea why twice?
+                # First one is 'cmd'
+                return output_lines[1:-2]
+
+        except BlockingIOError as _:
+            time.sleep(1)
+            now = time.time()
+            if now - then > giveup_after:
+                raise TimeoutError(
+                        "Timed out {} waiting for {}".format(now - then, cmd.decode()))
+        except Exception as e:
+            raise
+
+
 def expect_vcpus(vmm_process, expected_vcpus):
 
     # Actually following is not required because this function will be called after
@@ -178,6 +216,7 @@ def expect_mem(vmm_process, expected_mem_mib):
             "Expected {} KiB, found {} KiB of guest" \
             " memory".format(expected_mem_kib, actual_mem_kib)
 
+
 def test_reference_vmm_timeout():
     """ Verifies timeout when the VM Boots but expected string is not found."""
 
@@ -214,11 +253,20 @@ def test_reference_vmm_with_disk(kernel, disk):
 
     vmm_process, tmp_disk_path = start_vmm_process(kernel, disk_path=disk)
 
-    expect_string(vmm_process, "Ubuntu 20.04 LTS ubuntu-rust-vmm ttyS0")
+    prompt = 'root@ubuntu-rust-vmm:~#'
+    expect_string(vmm_process, prompt)
+
+    cmd = 'lsblk --json'
+    output = run_cmd_inside_vm(cmd.encode(), vmm_process, prompt.encode(), timeout=5)
 
     shutdown(vmm_process)
     if tmp_disk_path is not None:
         os.remove(tmp_disk_path)
+
+    output = b''.join(output).decode()
+    blockdevs_dict = json.loads(output)
+    assert blockdevs_dict["blockdevices"][0]["name"] == "vda"
+    assert blockdevs_dict["blockdevices"][0]["ro"] == False
 
 
 @pytest.mark.parametrize("kernel", KERNELS_INITRAMFS)
