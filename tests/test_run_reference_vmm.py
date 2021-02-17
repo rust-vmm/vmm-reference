@@ -219,13 +219,16 @@ def expect_mem(vmm_process, expected_mem_mib):
         " memory".format(expected_mem_kib, actual_mem_kib)
 
 
-def test_reference_vmm_timeout():
-    """ Verifies timeout when the VM Boots but expected string is not found."""
+def test_expect_string_timeout():
+    """ Verifies that a timeout error is raised when not finding the expected
+    string in the VMM output."""
 
     kernel = KERNELS_INITRAMFS[0]
     vmm_process, _ = start_vmm_process(kernel)
 
     with pytest.raises(TimeoutError) as e:
+        # Let's expect a string that cannot show up as part of booting the
+        # vmm reference.
         expected_string = "Goodbye, world, from the rust-vmm reference VMM!"
         expect_string(vmm_process, expected_string, timeout=20)
 
