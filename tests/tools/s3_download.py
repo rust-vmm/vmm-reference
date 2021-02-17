@@ -29,11 +29,17 @@ if __name__ == "__main__":
                            "This path represents the root used when creating the "
                            "structure. The full path is created by joining this path "
                            "and the relative_path defined in the resource manifest.")
+    parser.add_option("-1",
+                      dest="first",
+                      default=False,
+                      action="store_true",
+                      help="Download the first resource that matches the parameters.")
+
     (options, args) = parser.parse_args()
 
     required_ops = ["resource_type", "resource_name"]
     for r in required_ops:
-        if getattr(options, r) is None:
+        if not getattr(options, r):
             parser.error("Missing required parameter: %s" % r)
 
     resource_tags = options.tags
@@ -51,9 +57,12 @@ if __name__ == "__main__":
         resource_type=options.resource_type,
         resource_name=options.resource_name,
         tags=resource_tags,
-        download_location=options.path
+        download_location=options.path,
+        first=options.first
     )
 
-    # This script returns to stdout the results.
+    # When there is a single resource, this is not returned in an array.
+    # Create an array with a single element in this case.
+    res = [res] if options.first is True else res
     for resource in res:
         print(resource)

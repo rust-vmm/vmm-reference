@@ -6,10 +6,8 @@
 use std::convert::TryFrom;
 use std::path::PathBuf;
 
+use utils::resource_download::s3_download;
 use vmm::{KernelConfig, MemoryConfig, VMMConfig, VcpuConfig, VMM};
-
-const DEFAULT_BZIMAGE: &str = "/tmp/vmlinux_busybox/linux-4.14.176/bzimage-hello-busybox-halt";
-const DEFAULT_ELF: &str = "/tmp/vmlinux_busybox/linux-4.14.176/vmlinux-hello-busybox-halt";
 
 fn default_memory_config() -> MemoryConfig {
     MemoryConfig { size_mib: 1024 }
@@ -42,12 +40,26 @@ fn run_vmm(kernel_path: PathBuf) {
 
 #[test]
 fn test_dummy_vmm_elf() {
-    let kernel_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(DEFAULT_ELF);
-    run_vmm(kernel_path);
+    let elf_halt = s3_download(
+        "kernel",
+        "vmlinux-hello-busybox-halt",
+        // This test needs to finish immediately after boot.
+        // We need to select an image that halts after boot.
+        Some("{\"halt-after-boot\": true}"),
+    )
+    .unwrap();
+    run_vmm(elf_halt);
 }
 
 #[test]
 fn test_dummy_vmm_bzimage() {
-    let kernel_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(DEFAULT_BZIMAGE);
-    run_vmm(kernel_path);
+    let bzimage_halt = s3_download(
+        "kernel",
+        "bzimage-hello-busybox-halt",
+        // This test needs to finish immediately after boot.
+        // We need to select an image that halts after boot.
+        Some("{\"halt-after-boot\": true}"),
+    )
+    .unwrap();
+    run_vmm(bzimage_halt);
 }

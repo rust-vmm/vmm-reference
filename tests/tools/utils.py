@@ -49,12 +49,24 @@ class S3ResourceFetcher:
             self._default_download_location
         )
 
-    def download(self, resource_type, resource_name, tags={}, version=None, download_location=None):
-        """Downloads the resource specified by name and type. Optionally, the user can
-        specify what tags the resource needs to have, and its version.
+    def download(
+            self,
+            resource_type,
+            resource_name,
+            tags={},
+            version=None,
+            download_location=None,
+            first=False
+    ):
+        """Downloads **all** the resources that match the parameters.
 
         The default version used when downloading is the latest version as defined in the
-        resource manifest."""
+        resource manifest.
+
+        If only one resource that confirms to the specification (i.e. type & tags) is needed,
+        then the user needs to set `first` to True. With this option, the first resource
+        that matches the parameters is downloaded.
+        """
         # TODO: The resource_name does not need to be required, because we can download
         # resources by type & tags.
         version = version or self.get_latest_version()
@@ -73,6 +85,11 @@ class S3ResourceFetcher:
             self.log.error("No resources found")
             exit(1)
 
+        if first:
+            # When only one resource is needed, we don't need to download all
+            # of them, so we make `resources` a single element array.
+            resources = resources[:1]
+
         downloaded_file_paths = []
         for resource in resources:
             abs_dir = os.path.join(download_location, resource["relative_path"])
@@ -84,14 +101,23 @@ class S3ResourceFetcher:
             abs_path = os.path.join(abs_dir, resource_name)
 
             object_key = "{}/{}/{}".format(version, resource_type, resource_name)
-            self.log.info("Object to download from S3:", object_key)
-            self.log.info("Downloading file to: ", abs_path, file=sys.stderr)
 
             if not os.path.exists(abs_path):
+                self.log.info("Object to download from S3:", object_key)
+                self.log.info("Downloading file to: ", abs_path)
                 self._s3.download_file(self._resource_bucket, object_key, abs_path)
+            else:
+                print("File already exists locally.", file=sys.stderr)
             downloaded_file_paths.append(abs_path)
 
-        return downloaded_file_paths
+        if len(downloaded_file_paths) == 0:
+            self.log.error("Failed to download resources from S3")
+            exit(1)
+
+        if first:
+            return downloaded_file_paths[0]
+        else:
+            return downloaded_file_paths
 
     def get_latest_version(self):
         """Returns the latest version as defined in the resource manifest file."""

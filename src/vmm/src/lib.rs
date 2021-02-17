@@ -513,16 +513,29 @@ mod tests {
     use vmm_sys_util::{tempdir::TempDir, tempfile::TempFile};
 
     use super::*;
+    use utils::resource_download::s3_download;
 
     const MEM_SIZE_MIB: u32 = 1024;
     const NUM_VCPUS: u8 = 1;
 
     fn default_bzimage_path() -> PathBuf {
-        PathBuf::from("/tmp/vmlinux_busybox/linux-4.14.176/bzimage-hello-busybox-halt")
+        s3_download(
+            "kernel",
+            "bzimage-hello-busybox-halt",
+            // This test needs to finish immediately after boot.
+            // We need to select an image that halts after boot.
+            Some("{\"halt-after-boot\": true}"),
+        ).unwrap()
     }
 
     fn default_elf_path() -> PathBuf {
-        PathBuf::from("/tmp/vmlinux_busybox/linux-4.14.176/vmlinux-hello-busybox-halt")
+        s3_download(
+            "kernel",
+            "vmlinux-hello-busybox-halt",
+            // This test needs to finish immediately after boot.
+            // We need to select an image that halts after boot.
+            Some("{\"halt-after-boot\": true}"),
+        ).unwrap()
     }
 
     fn default_vmm_config() -> VMMConfig {
