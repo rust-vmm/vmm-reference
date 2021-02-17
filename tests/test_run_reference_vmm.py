@@ -2,10 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 """Run the reference VMM and shut it down through a command on the serial."""
 
-import os, subprocess, time, fcntl
-from subprocess import PIPE
-import tempfile
+import fcntl
 import json
+import os
+import subprocess
+import tempfile
+
+import time
+from subprocess import PIPE
 
 import pytest
 
@@ -23,6 +27,7 @@ KERNELS_DISK = [
 
 # No. of seconds after which to give up for the test
 TEST_TIMEOUT = 30
+
 
 def process_exists(pid):
     try:
@@ -80,7 +85,7 @@ def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=102
         # The process is still alive.
         pass
 
-    assert(process_exists(vmm_process.pid))
+    assert process_exists(vmm_process.pid)
 
     return vmm_process, tmp_file_path
 
@@ -95,7 +100,6 @@ def shutdown(vmm_process):
 
 
 def setup_stdout_nonblocking(vmm_process):
-
     # We'll need to do non-blocking I/O with the underlying sub-process since
     # we cannot use `communicate`, because `communicate` would close the
     # `stdin` that we later want to use to `shutdown`, to do that by hand,
@@ -109,7 +113,6 @@ def setup_stdout_nonblocking(vmm_process):
 
 
 def expect_string(vmm_process, expected_string, timeout=TEST_TIMEOUT):
-
     setup_stdout_nonblocking(vmm_process)
 
     # No. of seconds after which we'll give up
@@ -134,7 +137,7 @@ def expect_string(vmm_process, expected_string, timeout=TEST_TIMEOUT):
             now = time.time()
             if now - then > giveup_after:
                 raise TimeoutError(
-                        "Timed out {} waiting for {}".format(now - then, expected_string))
+                    "Timed out {} waiting for {}".format(now - then, expected_string))
         except Exception as _:
             raise
 
@@ -177,7 +180,6 @@ def run_cmd_inside_vm(cmd, vmm_process, prompt, timeout=5):
 
 
 def expect_vcpus(vmm_process, expected_vcpus):
-
     # Actually following is not required because this function will be called after
     # `expect_string` is called once, which sets non-blocking, but let's not be
     # dependent on it, so it's just fine to call it again, less than ideal, but not
@@ -192,7 +194,7 @@ def expect_vcpus(vmm_process, expected_vcpus):
     actual_vcpus = int(siblings_line.split(":")[1].strip())
 
     assert actual_vcpus == expected_vcpus, \
-            "Expected {}, found {} vCPUs".format(expected_vcpus, actual_vcpus)
+        "Expected {}, found {} vCPUs".format(expected_vcpus, actual_vcpus)
 
 
 def expect_mem(vmm_process, expected_mem_mib):
@@ -213,8 +215,8 @@ def expect_mem(vmm_process, expected_mem_mib):
     # should be under 0.1% of the expected memory size.
     normalized_diff = (expected_mem_kib - float(actual_mem_kib)) / expected_mem_kib
     assert normalized_diff < 0.001, \
-            "Expected {} KiB, found {} KiB of guest" \
-            " memory".format(expected_mem_kib, actual_mem_kib)
+        "Expected {} KiB, found {} KiB of guest" \
+        " memory".format(expected_mem_kib, actual_mem_kib)
 
 
 def test_reference_vmm_timeout():
@@ -305,11 +307,11 @@ def test_reference_vmm_mem(kernel):
     mmio_gap_start_mib = mmio_gap_start >> 20
 
     mem_sizes_mib = [
-            512,
-            mmio_gap_start_mib - 1,
-            mmio_gap_start_mib,
-            mmio_gap_start_mib + 1,
-            8192]
+        512,
+        mmio_gap_start_mib - 1,
+        mmio_gap_start_mib,
+        mmio_gap_start_mib + 1,
+        8192]
 
     for expected_mem_mib in mem_sizes_mib:
         # Start a VM with a specified amount of memory
