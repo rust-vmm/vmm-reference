@@ -22,3 +22,4 @@ vm-device = { git = "https://github.com/rust-vmm/vm-device", rev = "5847f12" }
 
 devices = { path = "../devices" }
 vm-vcpu = { path = "../vm-vcpu" }
+utils = { path = "../utils" }
