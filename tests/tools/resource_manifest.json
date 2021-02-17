@@ -1,0 +1,55 @@
+{
+  "v1": [
+    {
+      "resource_type": "kernel",
+      "resource_name": "bzimage-hello-busybox-halt",
+      "relative_path": "kernel/bzimage",
+      "image_format": "bzimage",
+      "halt_after_boot": true
+    },
+    {
+      "resource_type": "kernel",
+      "resource_name": "vmlinux-hello-busybox-halt",
+      "relative_path": "kernel/elf",
+      "image_format": "elf",
+      "halt_after_boot": true
+    },
+    {
+      "resource_type": "kernel",
+      "resource_name": "vmlinux-hello-busybox",
+      "relative_path": "kernel/elf",
+      "image_format": "elf",
+      "halt_after_boot": false
+    },
+    {
+      "resource_type": "kernel",
+      "resource_name": "bzimage-hello-busybox",
+      "relative_path": "kernel/bzimage",
+      "image_format": "bzimage",
+      "halt_after_boot": false
+    },
+    {
+      "resource_type": "kernel",
+      "resource_name": "bzimage-focal",
+      "relative_path": "kernel/bzimage",
+      "image_format": "bzimage",
+      "halt_after_boot": false,
+      "distro": "Ubuntu"
+    },
+    {
+      "resource_type": "kernel",
+      "resource_name": "vmlinux-focal",
+      "relative_path": "kernel/elf",
+      "image_format": "elf",
+      "halt_after_boot": false,
+      "distro": "Ubuntu"
+    },
+    {
+      "resource_type": "disk",
+      "resource_name": "ubuntu-focal-rootfs.ext4",
+      "relative_path": "disk/",
+      "distro": "Ubuntu",
+      "compatible_kernels": "v1/kernel/bzimage/bzimage-focal|v1/kernel/elf/vmlinux-focal"
+    }
+  ]
+}
