@@ -4,12 +4,9 @@
 """Script for downloading the resources required for tests.
 It returns the absolute path of the downloaded resource to stdout."""
 
-import json
 from optparse import OptionParser
-import os
-import pathlib
 
-from utils import S3ResourceFetcher
+from s3 import s3_download
 
 
 if __name__ == "__main__":
@@ -42,23 +39,12 @@ if __name__ == "__main__":
         if not getattr(options, r):
             parser.error("Missing required parameter: %s" % r)
 
-    resource_tags = options.tags
-    if resource_tags is not {}:
-        resource_tags = json.loads(resource_tags)
-
-    s3_resource_fetcher = S3ResourceFetcher(
-        "vmm-reference-test-resources",
-        os.path.join(
-            pathlib.Path(__file__).parent.absolute(),
-            "resource_manifest.json"
-        ))
-
-    res = s3_resource_fetcher.download(
-        resource_type=options.resource_type,
-        resource_name=options.resource_name,
-        tags=resource_tags,
-        download_location=options.path,
-        first=options.first
+    res = s3_download(
+        options.resource_type,
+        options.resource_name,
+        options.tags,
+        options.path,
+        options.first
     )
 
     # When there is a single resource, this is not returned in an array.

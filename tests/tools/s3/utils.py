@@ -39,7 +39,7 @@ class S3ResourceFetcher:
         if download_location is None:
             path = os.path.join(
                 os.path.dirname(__file__),
-                "../../resources")
+                "../../../resources")
             self._default_download_location = os.path.abspath(path)
         else:
             self._default_download_location = download_location
