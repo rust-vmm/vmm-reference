@@ -1,11 +1,9 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 """Run the reference VMM and shut it down through a command on the serial."""
-
 import fcntl
 import json
 import os
-import pathlib
 import subprocess
 import tempfile
 
@@ -14,6 +12,7 @@ from subprocess import PIPE
 
 import pytest
 
+from tools.s3 import s3_download
 
 # No. of seconds after which to give up for the test
 TEST_TIMEOUT = 30
@@ -28,45 +27,44 @@ def process_exists(pid):
         return True
 
 
-def download_resource(params):
-    """Calls the tools/s3_download.py script with `params` and returns the
-    result as a list of strings"""
-    dld_script = os.path.join(pathlib.Path(__file__).parent.absolute(), "tools/s3_download.py")
-    assert os.path.exists(dld_script)
-    proc = subprocess.run(
-        "{} {}".format(dld_script, params),
-        stdout=PIPE,
-        stderr=PIPE,
-        shell=True,
-        check=True
-    )
-
-    return proc.stdout.decode().split("\n")
-
-
 def default_busybox_bzimage():
-    params = "-t kernel -n bzimage-hello-busybox"
-    return download_resource(params)[0]
+    return s3_download(
+        resource_type="kernel",
+        resource_name="bzimage-hello-busybox",
+        first=True
+    )
 
 
 def default_busybox_elf():
-    params = "-t kernel -n vmlinux-hello-busybox"
-    return download_resource(params)[0]
+    return s3_download(
+        resource_type="kernel",
+        resource_name="vmlinux-hello-busybox",
+        first=True
+    )
 
 
 def default_ubuntu_bzimage():
-    params = "-t kernel -n bzimage-focal"
-    return download_resource(params)[0]
+    return s3_download(
+        resource_type="kernel",
+        resource_name="bzimage-focal",
+        first=True
+    )
 
 
 def default_ubuntu_elf():
-    params = "-t kernel -n vmlinux-focal"
-    return download_resource(params)[0]
+    return s3_download(
+        resource_type="kernel",
+        resource_name="vmlinux-focal",
+        first=True
+    )
 
 
 def default_disk():
-    params = "-t disk -n ubuntu-focal-rootfs.ext4"
-    return download_resource(params)[0]
+    return s3_download(
+        resource_type="disk",
+        resource_name="ubuntu-focal-rootfs.ext4",
+        first=True
+    )
 
 
 KERNELS_INITRAMFS = [
