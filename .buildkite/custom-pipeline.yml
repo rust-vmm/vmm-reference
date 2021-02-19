@@ -10,7 +10,7 @@ steps:
     plugins:
       - docker#v3.0.1:
           privileged: true
-          image: "rustvmm/dev:v7"
+          image: "rustvmm/dev:v11"
           always-pull: true
           volumes:
             - "/tmp:/tmp"
