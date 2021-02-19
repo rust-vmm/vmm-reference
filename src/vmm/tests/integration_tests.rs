@@ -40,26 +40,25 @@ fn run_vmm(kernel_path: PathBuf) {
 
 #[test]
 fn test_dummy_vmm_elf() {
-    let elf_halt = s3_download(
-        "kernel",
-        "vmlinux-hello-busybox-halt",
-        // This test needs to finish immediately after boot.
-        // We need to select an image that halts after boot.
-        Some("{\"halt-after-boot\": true}"),
-    )
-    .unwrap();
+    let tags = r#"
+    {
+        "halt_after_boot": true,
+        "image_format": "elf"
+    }
+    "#;
+
+    let elf_halt = s3_download("kernel", Some(tags)).unwrap();
     run_vmm(elf_halt);
 }
 
 #[test]
 fn test_dummy_vmm_bzimage() {
-    let bzimage_halt = s3_download(
-        "kernel",
-        "bzimage-hello-busybox-halt",
-        // This test needs to finish immediately after boot.
-        // We need to select an image that halts after boot.
-        Some("{\"halt-after-boot\": true}"),
-    )
-    .unwrap();
+    let tags = r#"
+    {
+        "halt_after_boot": true,
+        "image_format": "bzimage"
+    }
+    "#;
+    let bzimage_halt = s3_download("kernel", Some(tags)).unwrap();
     run_vmm(bzimage_halt);
 }

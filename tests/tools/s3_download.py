@@ -34,10 +34,8 @@ if __name__ == "__main__":
 
     (options, args) = parser.parse_args()
 
-    required_ops = ["resource_type", "resource_name"]
-    for r in required_ops:
-        if not getattr(options, r):
-            parser.error("Missing required parameter: %s" % r)
+    if not options.resource_type:
+        parser.error("Missing required parameter: resource_type")
 
     res = s3_download(
         options.resource_type,
