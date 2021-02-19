@@ -519,23 +519,23 @@ mod tests {
     const NUM_VCPUS: u8 = 1;
 
     fn default_bzimage_path() -> PathBuf {
-        s3_download(
-            "kernel",
-            "bzimage-hello-busybox-halt",
-            // This test needs to finish immediately after boot.
-            // We need to select an image that halts after boot.
-            Some("{\"halt-after-boot\": true}"),
-        ).unwrap()
+        let tags = r#"
+        {
+            "halt_after_boot": true,
+            "image_format": "bzimage"
+        }
+        "#;
+        s3_download("kernel", Some(tags)).unwrap()
     }
 
     fn default_elf_path() -> PathBuf {
-        s3_download(
-            "kernel",
-            "vmlinux-hello-busybox-halt",
-            // This test needs to finish immediately after boot.
-            // We need to select an image that halts after boot.
-            Some("{\"halt-after-boot\": true}"),
-        ).unwrap()
+        let tags = r#"
+        {
+            "halt_after_boot": true,
+            "image_format": "elf"
+        }
+        "#;
+        s3_download("kernel", Some(tags)).unwrap()
     }
 
     fn default_vmm_config() -> VMMConfig {

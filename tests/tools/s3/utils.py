@@ -52,7 +52,7 @@ class S3ResourceFetcher:
     def download(
             self,
             resource_type,
-            resource_name,
+            resource_name=None,
             tags={},
             version=None,
             download_location=None,
@@ -67,8 +67,6 @@ class S3ResourceFetcher:
         then the user needs to set `first` to True. With this option, the first resource
         that matches the parameters is downloaded.
         """
-        # TODO: The resource_name does not need to be required, because we can download
-        # resources by type & tags.
         version = version or self.get_latest_version()
         download_location = download_location or self._default_download_location
 
@@ -79,7 +77,7 @@ class S3ResourceFetcher:
 
         resources = [r for r in resource_parent
                      if r["resource_type"] == resource_type
-                     and r["resource_name"] == resource_name
+                     and (resource_name is None or r["resource_name"] == resource_name)
                      and resource_has_tags(r, tags)]
         if len(resources) == 0:
             self.log.error("No resources found")
@@ -98,9 +96,9 @@ class S3ResourceFetcher:
                 abs_dir
             )
             os.makedirs(abs_dir, exist_ok=True)
-            abs_path = os.path.join(abs_dir, resource_name)
+            abs_path = os.path.join(abs_dir, resource["resource_name"])
 
-            object_key = "{}/{}/{}".format(version, resource_type, resource_name)
+            object_key = "{}/{}/{}".format(version, resource_type, resource["resource_name"])
 
             if not os.path.exists(abs_path):
                 self.log.info("Object to download from S3:", object_key)
