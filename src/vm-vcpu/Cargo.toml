@@ -12,6 +12,7 @@ kvm-bindings = { version = "0.3.0", features = ["fam-wrappers"] }
 kvm-ioctls = "0.5.0"
 vm-memory = { version = "0.4.0" }
 vmm-sys-util = "0.6.1"
+utils = { path = "../utils" }
 
 # vm-device is not yet published on crates.io.
 # To make sure that breaking changes to vm-device are not breaking the
