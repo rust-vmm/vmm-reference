@@ -55,25 +55,38 @@ impl<W: Write> MutDevicePio for SerialWrapper<W> {
     fn pio_read(&mut self, _base: PioAddress, offset: PioAddressValue, data: &mut [u8]) {
         // TODO: this function can't return an Err, so we'll mark error conditions
         // (data being more than 1 byte, offset overflowing an u8) with logs & metrics.
-        assert_eq!(data.len(), 1);
-        data[0] = self.0.read(
-            offset
-                .try_into()
-                .expect("Invalid offset for serial console read"),
-        );
+        if data.len() != 1 {
+            dbg!(
+                "Serial console invalid data length on PIO read: {}",
+                data.len()
+            );
+        }
+
+        match offset.try_into() {
+            Ok(offset) => data[0] = self.0.read(offset),
+            Err(_) => dbg!("Invalid serial console read offset."),
+        }
     }
 
     fn pio_write(&mut self, _base: PioAddress, offset: PioAddressValue, data: &[u8]) {
         // TODO: this function can't return an Err, so we'll mark error conditions
         // (data being more than 1 byte, offset overflowing an u8) with logs & metrics.
-        assert_eq!(data.len(), 1);
-        // TODO #2: log / meter write errors.
-        let _ = self.0.write(
-            offset
-                .try_into()
-                .expect("Invalid offset for serial console write"),
-            data[0],
-        );
+        if data.len() != 1 {
+            dbg!(
+                "Serial console invalid data length on PIO write: {}",
+                data.len()
+            );
+        }
+
+        match offset.try_into() {
+            Ok(offset) => {
+                let res = self.0.write(offset, data[0]);
+                if res.is_err() {
+                    dbg!("Error writing to serial console: {:#?}", res.unwrap_err())
+                }
+            }
+            Err(_) => dbg!("Invalid serial console read offset."),
+        }
     }
 }
 
