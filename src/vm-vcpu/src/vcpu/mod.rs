@@ -19,6 +19,8 @@ use vmm_sys_util::errno::Error as Errno;
 use vmm_sys_util::signal::{register_signal_handler, SIGRTMIN};
 use vmm_sys_util::terminal::Terminal;
 
+use utils::debug;
+
 mod gdt;
 use gdt::*;
 mod interrupts;
@@ -331,7 +333,7 @@ impl KvmVcpu {
                                     .pio_write(PioAddress(addr), data)
                                     .is_err()
                                 {
-                                    eprintln!("Failed to write to serial port");
+                                    debug!("Failed to write to serial port");
                                 }
                             } else if addr == 0x060 || addr == 0x061 || addr == 0x064 {
                                 // Write at the i8042 port.
@@ -352,7 +354,7 @@ impl KvmVcpu {
                                     .pio_read(PioAddress(addr), data)
                                     .is_err()
                                 {
-                                    eprintln!("Failed to read from serial port");
+                                    debug!("Failed to read from serial port");
                                 }
                             } else {
                                 // Read from some other port.
@@ -366,7 +368,7 @@ impl KvmVcpu {
                                 .mmio_read(MmioAddress(addr), data)
                                 .is_err()
                             {
-                                eprintln!("Failed to read from mmio");
+                                debug!("Failed to read from mmio");
                             }
                         }
                         VcpuExit::MmioWrite(addr, data) => {
@@ -377,12 +379,12 @@ impl KvmVcpu {
                                 .mmio_write(MmioAddress(addr), data)
                                 .is_err()
                             {
-                                eprintln!("Failed to write to mmio");
+                                debug!("Failed to write to mmio");
                             }
                         }
-                        other => {
+                        _other => {
                             // Unhandled KVM exit.
-                            eprintln!("Unhandled vcpu exit: {:#?}", other);
+                            debug!("Unhandled vcpu exit: {:#?}", _other);
                         }
                     }
                 }
@@ -395,7 +397,7 @@ impl KvmVcpu {
                             interrupted_by_signal = true;
                         }
                         _ => {
-                            eprintln!("Emulation error: {}", e);
+                            debug!("Emulation error: {}", e);
                             break;
                         }
                     }
