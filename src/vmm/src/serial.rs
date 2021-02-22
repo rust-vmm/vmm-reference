@@ -14,6 +14,8 @@ use vm_device::{
 use vm_superio::Serial;
 use vmm_sys_util::epoll::EventSet;
 
+use utils::debug;
+
 /// Newtype for implementing `event-manager` functionalities.
 pub(crate) struct SerialWrapper<W: Write>(pub Serial<W>);
 
@@ -55,25 +57,38 @@ impl<W: Write> MutDevicePio for SerialWrapper<W> {
     fn pio_read(&mut self, _base: PioAddress, offset: PioAddressValue, data: &mut [u8]) {
         // TODO: this function can't return an Err, so we'll mark error conditions
         // (data being more than 1 byte, offset overflowing an u8) with logs & metrics.
-        assert_eq!(data.len(), 1);
-        data[0] = self.0.read(
-            offset
-                .try_into()
-                .expect("Invalid offset for serial console read"),
-        );
+        if data.len() != 1 {
+            debug!(
+                "Serial console invalid data length on PIO read: {}",
+                data.len()
+            );
+        }
+
+        match offset.try_into() {
+            Ok(offset) => data[0] = self.0.read(offset),
+            Err(_) => debug!("Invalid serial console read offset."),
+        }
     }
 
     fn pio_write(&mut self, _base: PioAddress, offset: PioAddressValue, data: &[u8]) {
         // TODO: this function can't return an Err, so we'll mark error conditions
         // (data being more than 1 byte, offset overflowing an u8) with logs & metrics.
-        assert_eq!(data.len(), 1);
-        // TODO #2: log / meter write errors.
-        let _ = self.0.write(
-            offset
-                .try_into()
-                .expect("Invalid offset for serial console write"),
-            data[0],
-        );
+        if data.len() != 1 {
+            debug!(
+                "Serial console invalid data length on PIO write: {}",
+                data.len()
+            );
+        }
+
+        match offset.try_into() {
+            Ok(offset) => {
+                let res = self.0.write(offset, data[0]);
+                if res.is_err() {
+                    debug!("Error writing to serial console: {:#?}", res.unwrap_err())
+                }
+            }
+            Err(_) => debug!("Invalid serial console read offset."),
+        }
     }
 }
 
@@ -82,4 +97,37 @@ impl<W: Write> MutDevicePio for SerialWrapper<W> {
 pub enum Error {
     /// Failed to create an event manager for device events.
     EventManager(event_manager::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SerialWrapper;
+
+    use std::io::sink;
+
+    use vm_device::{bus::PioAddress, MutDevicePio};
+    use vm_superio::Serial;
+    use vmm_sys_util::eventfd::EventFd;
+
+    #[test]
+    fn test_invalid_data_len() {
+        let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let mut serial_console = SerialWrapper(Serial::new(interrupt_evt, sink()));
+
+        // In case the data length is more than 1, the read succeeds as we send
+        // to the serial console just the first byte.
+        let mut invalid_data = [0, 0];
+        let valid_iir_offset = 2;
+        serial_console.pio_read(PioAddress(0), valid_iir_offset, invalid_data.as_mut());
+        // Check that the emulation added a value to `invalid_data`.
+        assert_ne!(invalid_data[0], 0);
+
+        // The same scenario happens for writes.
+        serial_console.pio_write(PioAddress(0), valid_iir_offset, &invalid_data);
+
+        // Check that passing an invalid offset does not result in a crash.
+        let data = [0];
+        let invalid_offset = u16::MAX;
+        serial_console.pio_write(PioAddress(0), invalid_offset, &data);
+    }
 }
