@@ -19,6 +19,11 @@ def resource_has_tags(resource, tags={}):
     )
 
 
+class DownloadError(RuntimeError):
+    def __init__(self, arg):
+        self.args = arg
+
+
 class S3ResourceFetcher:
     """A class for fetching vmm-reference test resources from S3."""
 
@@ -80,8 +85,7 @@ class S3ResourceFetcher:
                      and (resource_name is None or r["resource_name"] == resource_name)
                      and resource_has_tags(r, tags)]
         if len(resources) == 0:
-            self.log.error("No resources found")
-            exit(1)
+            raise DownloadError("No resources found")
 
         if first:
             # When only one resource is needed, we don't need to download all
@@ -109,8 +113,7 @@ class S3ResourceFetcher:
             downloaded_file_paths.append(abs_path)
 
         if len(downloaded_file_paths) == 0:
-            self.log.error("Failed to download resources from S3")
-            exit(1)
+            raise DownloadError("Failed to download resources from S3")
 
         if first:
             return downloaded_file_paths[0]
