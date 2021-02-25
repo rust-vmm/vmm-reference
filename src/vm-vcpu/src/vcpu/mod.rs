@@ -115,7 +115,9 @@ impl KvmVcpu {
         memory: &M,
     ) -> Result<Self> {
         let vcpu = KvmVcpu {
-            vcpu_fd: vm_fd.create_vcpu(state.id).map_err(Error::KvmIoctl)?,
+            vcpu_fd: vm_fd
+                .create_vcpu(state.id.into())
+                .map_err(Error::KvmIoctl)?,
             device_mgr,
             state,
             run_barrier,
@@ -138,7 +140,8 @@ impl KvmVcpu {
     /// Configure MSRs.
     fn configure_msrs(&self) -> Result<()> {
         let entry_vec = msrs::create_boot_msr_entries();
-        let msrs = Msrs::from_entries(&entry_vec);
+        // This unwrap is safe because we are creating valid kvm_msrs entries.
+        let msrs = Msrs::from_entries(&entry_vec).unwrap();
         self.vcpu_fd
             .set_msrs(&msrs)
             .map_err(Error::KvmIoctl)

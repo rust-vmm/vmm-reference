@@ -19,7 +19,3 @@ codegen-units = 1
 lto = true
 panic = "abort"
 
-# We need these patches until the latest changes get released.
-[patch.crates-io]
-event-manager = { git = "https://github.com/rust-vmm/event-manager.git", rev = "19ddbaa" }
-linux-loader = { git = "https://github.com/rust-vmm/linux-loader.git", rev ="acf9c21"}
