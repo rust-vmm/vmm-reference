@@ -8,10 +8,10 @@ edition = "2018"
 
 [dependencies]
 libc = "0.2.76"
-kvm-bindings = { version = "0.3.0", features = ["fam-wrappers"] }
-kvm-ioctls = "0.5.0"
-vm-memory = { version = "0.4.0" }
-vmm-sys-util = "0.7.0"
+kvm-bindings = { version = "0.4.0", features = ["fam-wrappers"] }
+kvm-ioctls = "0.8.0"
+vm-memory = "0.5.0"
+vmm-sys-util = "0.8.0"
 
 utils = { path = "../utils" }
 
@@ -21,4 +21,4 @@ utils = { path = "../utils" }
 vm-device = { git = "https://github.com/rust-vmm/vm-device", rev = "5847f12" }
 
 [dev-dependencies]
-vm-memory = { version = "0.4.0", features = ["backend-mmap"] }
+vm-memory = { version = "0.5.0", features = ["backend-mmap"] }
