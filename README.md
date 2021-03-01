@@ -117,13 +117,26 @@ The Python integration tests make use of the VMM in varied configurations that
 aren’t overly complex and illustrate realistic use cases (e.g. one test runs a
 VMM with a virtio block device, one test will run a VMM with PCI, etc.).
 
-To be able to successfully run all the tests in this repo, there are a couple of
-resources that need to be found in `/tmp`. To generate the resources at the
-expected locations, you can run the following command:
+To be able to successfully run all the tests in this repo, pre-created
+resources are stored in S3. The resources are downloaded locally inside the
+`resources` directory. This is handled transparently by the test cases.
+Note: The resources once downloaded are cached, so they are not downloaded on
+every run.
 
-```bash
-sudo ./resources/make_test_resources.sh
+### Running Tests
+
+Recommended way is to run the tests inside a container using the `rustvmm/dev`
+docker image as below. (Note: You may need to run `docker` as `sudo`.)
+
+```shell
+docker run --device=/dev/kvm -it \
+    --security-opt seccomp=unconfined \
+    --volume $(pwd):/vmm-reference rustvmm/dev:v11
+
 ```
+
+Inside the container, to run the tests, first `cd vmm-reference` and then follow
+the instructions as follows.
 
 `vmm-reference` is a
 [workspace](https://doc.rust-lang.org/book/ch14-03-cargo-workspaces.html), so to
@@ -137,30 +150,24 @@ There is no single command yet for running all the Python integration tests in
 one shot. To run the tests from a single file, you can use:
 
 ```bash
-pytest-3 <path_to_the_file>
+pytest <path_to_the_file>
 ```
 For example:
 
 ```bash
-pytest-3 tests/test_run_reference_vmm.py
+pytest tests/test_run_reference_vmm.py
 ```
 
 A single Python test can be run as well, as shown below:
 
 ```bash
-pytest-3 <path_to_the_file>::<test_name>
+pytest <path_to_the_file>::<test_name>
 ```
 For example:
 
 ```bash
-pytest-3 tests/test_run_reference_vmm.py::test_reference_vmm_with_disk
+pytest tests/test_run_reference_vmm.py::test_reference_vmm_with_disk
 ```
-
-We plan on adding a testing framework that will ease the test running and will
-allow different paths for the resources (`./tmp` is terrible, we know :( ).
-Please see
-[tracking issue](https://github.com/rust-vmm/vmm-reference/issues/51) for
-progress on this topic.
 
 ## License
 
