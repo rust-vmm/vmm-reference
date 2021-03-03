@@ -7,6 +7,7 @@
  * From upstream linux msr-index.h at commit:
  * 806276b7f07a39a1cc3f38bb1ef5c573d4594a38
  */
+#![cfg(target_arch = "x86_64")]
 
 #![allow(non_upper_case_globals, unused, clippy::unreadable_literal)]
 
