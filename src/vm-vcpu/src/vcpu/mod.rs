@@ -10,7 +10,7 @@ use std::os::raw::c_int;
 use std::result;
 use std::sync::{Arc, Barrier, Condvar, Mutex};
 
-use kvm_bindings::{kvm_fpu, kvm_regs, CpuId, Msrs};
+use kvm_bindings::{kvm_fpu, kvm_regs, CpuId};
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
 use vm_device::bus::{MmioAddress, PioAddress};
 use vm_device::device_manager::{IoManager, MmioManager, PioManager};
@@ -58,6 +58,8 @@ pub enum Error {
     KvmIoctl(kvm_ioctls::Error),
     /// Failed to configure mptables.
     Mptable(mptable::Error),
+    /// Failed to initialize MSRS.
+    CreateMsrs,
     /// Failed to configure MSRs.
     SetModelSpecificRegistersCount,
     /// TLS already initialized.
@@ -139,9 +141,7 @@ impl KvmVcpu {
 
     /// Configure MSRs.
     fn configure_msrs(&self) -> Result<()> {
-        let entry_vec = msrs::create_boot_msr_entries();
-        // This unwrap is safe because we are creating valid kvm_msrs entries.
-        let msrs = Msrs::from_entries(&entry_vec).unwrap();
+        let msrs = msrs::create_boot_msr_entries()?;
         self.vcpu_fd
             .set_msrs(&msrs)
             .map_err(Error::KvmIoctl)
