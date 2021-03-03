@@ -1,8 +1,5 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
-
-#![cfg(target_arch = "x86_64")]
-
 //! Reference VMM built with rust-vmm components and minimal glue.
 #![deny(missing_docs)]
 
@@ -15,21 +12,27 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use event_manager::{EventManager, EventOps, Events, MutEventSubscriber, SubscriberOps};
-use kvm_bindings::{KVM_API_VERSION, KVM_MAX_CPUID_ENTRIES};
+use kvm_bindings::KVM_API_VERSION;
+#[cfg(target_arch = "x86_64")]
+use kvm_bindings::KVM_MAX_CPUID_ENTRIES;
 use kvm_ioctls::{
     Cap::{self, Ioeventfd, Irqchip, Irqfd, UserMemory},
     Kvm,
 };
+#[cfg(target_arch = "x86_64")]
 use linux_loader::bootparam::boot_params;
 use linux_loader::cmdline::{self, Cmdline};
+#[cfg(target_arch = "x86_64")]
 use linux_loader::configurator::{
     self, linux::LinuxBootConfigurator, BootConfigurator, BootParams,
 };
+
+use linux_loader::loader::{self, KernelLoader, KernelLoaderResult};
+#[cfg(target_arch = "x86_64")]
 use linux_loader::loader::{
-    self,
     bzimage::BzImage,
     elf::{self, Elf},
-    load_cmdline, KernelLoader, KernelLoaderResult,
+    load_cmdline,
 };
 use vm_device::bus::{MmioAddress, MmioRange};
 #[cfg(target_arch = "x86_64")]
@@ -45,6 +48,7 @@ use vm_superio::Rtc;
 use vm_superio::{Serial, Trigger};
 use vmm_sys_util::{epoll::EventSet, eventfd::EventFd, terminal::Terminal};
 
+#[cfg(target_arch = "x86_64")]
 use boot::build_bootparams;
 pub use config::*;
 use devices::virtio::block::{self, BlockArgs};
@@ -54,6 +58,7 @@ use devices::virtio::{Env, MmioConfig};
 use devices::legacy::SerialWrapper;
 use vm_vcpu::vcpu::VcpuState;
 use vm_vcpu::vm::{self, ExitHandler, KvmVm, VmState};
+#[cfg(target_arch = "x86_64")]
 use vm_vcpu_ref::x86_64::cpuid::filter_cpuid;
 
 #[cfg(target_arch = "aarch64")]
@@ -100,8 +105,10 @@ pub enum Error {
     /// Failed to create block device.
     Block(block::Error),
     /// Failed to write boot parameters to guest memory.
+    #[cfg(target_arch = "x86_64")]
     BootConfigure(configurator::Error),
     /// Error configuring boot parameters.
+    #[cfg(target_arch = "x86_64")]
     BootParam(boot::Error),
     /// Error configuring the kernel command line.
     Cmdline(cmdline::Error),
@@ -286,6 +293,7 @@ impl TryFrom<VMMConfig> for Vmm {
         };
 
         vmm.create_vcpus(&config.vcpu_config)?;
+        #[cfg(target_arch = "x86_64")]
         vmm.add_serial_console()?;
         #[cfg(target_arch = "aarch64")]
         vmm.add_rtc_device();
@@ -307,7 +315,10 @@ impl Vmm {
     /// Run the VMM.
     pub fn run(&mut self) -> Result<()> {
         let load_result = self.load_kernel()?;
+        #[cfg(target_arch = "x86_64")]
         let kernel_load_addr = self.compute_kernel_load_addr(&load_result)?;
+        #[cfg(target_arch = "aarch64")]
+        let kernel_load_addr = load_result.kernel_load;
 
         if stdin().lock().set_raw_mode().is_err() {
             eprintln!("Failed to set raw mode on terminal. Stdin will echo.");
@@ -349,6 +360,7 @@ impl Vmm {
     }
 
     // Load the kernel into guest memory.
+    #[cfg(target_arch = "x86_64")]
     fn load_kernel(&mut self) -> Result<KernelLoaderResult> {
         let mut kernel_image = File::open(&self.kernel_cfg.path).map_err(Error::IO)?;
         let zero_page_addr = GuestAddress(ZEROPG_START);
@@ -411,7 +423,20 @@ impl Vmm {
         Ok(kernel_load)
     }
 
+    #[cfg(target_arch = "aarch64")]
+    fn load_kernel(&mut self) -> Result<KernelLoaderResult> {
+        let mut kernel_image = File::open(&self.kernel_cfg.path).map_err(Error::IO)?;
+        Ok(linux_loader::loader::pe::PE::load(
+            &self.guest_memory,
+            Some(GuestAddress(0x1_0000_0000)),
+            &mut kernel_image,
+            None,
+        )
+        .map_err(Error::KernelLoad)?)
+    }
+
     // Create and add a serial console to the VMM.
+    #[cfg(target_arch = "x86_64")]
     fn add_serial_console(&mut self) -> Result<()> {
         // Create the serial console.
         let interrupt_evt = EventFdTrigger::new(libc::EFD_NONBLOCK).map_err(Error::IO)?;
@@ -540,6 +565,7 @@ impl Vmm {
 
     // Helper function that computes the kernel_load_addr needed by the
     // VcpuState when creating the Vcpus.
+    #[cfg(target_arch = "x86_64")]
     fn compute_kernel_load_addr(&self, kernel_load: &KernelLoaderResult) -> Result<GuestAddress> {
         // If the kernel format is bzImage, the real-mode code is offset by
         // 0x200, so that's where we have to point the rip register for the
@@ -571,6 +597,7 @@ impl Vmm {
             return Err(Error::VcpuNumber(vcpu_cfg.num));
         }
 
+        #[cfg(target_arch = "x86_64")]
         let base_cpuid = self
             .kvm
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
@@ -578,10 +605,15 @@ impl Vmm {
 
         for index in 0..vcpu_cfg.num {
             // Set CPUID.
+            #[cfg(target_arch = "x86_64")]
             let mut cpuid = base_cpuid.clone();
+            #[cfg(target_arch = "x86_64")]
             filter_cpuid(&self.kvm, index, vcpu_cfg.num, &mut cpuid);
 
+            #[cfg(target_arch = "x86_64")]
             let vcpu_state = VcpuState { cpuid, id: index };
+            #[cfg(target_arch = "aarch64")]
+            let vcpu_state = VcpuState { id: index };
             self.vm
                 .create_vcpu(self.device_mgr.clone(), vcpu_state, &self.guest_memory)?;
         }

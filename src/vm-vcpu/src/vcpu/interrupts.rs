@@ -4,7 +4,7 @@
 // Portions Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
-
+#![cfg(target_arch = "x86_64")]
 use kvm_bindings::kvm_lapic_state;
 
 // Yanked from byte_order

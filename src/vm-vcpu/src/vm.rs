@@ -14,9 +14,8 @@ use vmm_sys_util::errno::Error as Errno;
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::signal::{Killable, SIGRTMIN};
 
-use vm_vcpu_ref::x86_64::mptable;
-use vm_vcpu_ref::x86_64::mptable::MpTable;
-
+#[cfg(target_arch = "x86_64")]
+use vm_vcpu_ref::x86_64::mptable::{self, MpTable};
 use crate::vcpu::{self, KvmVcpu, VcpuRunState, VcpuState};
 
 /// Defines the state from which a `KvmVm` is initialized.
@@ -58,6 +57,7 @@ pub enum Error {
     /// Failed to run the vcpus.
     RunVcpus(io::Error),
     /// Failed to configure mptables.
+    #[cfg(target_arch = "x86_64")]
     Mptable(mptable::Error),
     /// Failed to pause the vcpus.
     PauseVcpus(Errno),
@@ -67,6 +67,7 @@ pub enum Error {
 
 // TODO: Implement std::error::Error for Error.
 
+#[cfg(target_arch = "x86_64")]
 impl From<mptable::Error> for Error {
     fn from(err: mptable::Error) -> Self {
         Error::Mptable(err)
@@ -119,8 +120,11 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
 
         vm.configure_memory_regions(guest_memory, kvm)?;
 
+        #[cfg(target_arch = "x86_64")]
         MpTable::new(vm.state.num_vcpus)?.write(guest_memory)?;
 
+        #[cfg(target_arch = "x86_64")]
+        // TODO: reuse this for setting up the GIC.
         vm.setup_irq_controller()?;
 
         Ok(vm)
@@ -162,6 +166,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
 
     // Configures the in kernel interrupt controller.
     // This function should be reused to configure the aarch64 interrupt controller (GIC).
+    #[cfg(target_arch = "x86_64")]
     fn setup_irq_controller(&self) -> Result<()> {
         // First, create the irqchip.
         // On `x86_64`, this _must_ be created _before_ the vCPUs.
