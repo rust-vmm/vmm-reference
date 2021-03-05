@@ -71,7 +71,7 @@ dependencies = [
  "linux-loader",
  "log",
  "vm-device",
- "vm-memory",
+ "vm-memory 0.4.0",
  "vm-virtio",
  "vmm-sys-util",
 ]
@@ -125,7 +125,7 @@ name = "linux-loader"
 version = "0.2.0"
 source = "git+https://github.com/rust-vmm/linux-loader.git?rev=acf9c21#acf9c21591813c87dc77f667618d433f62c821af"
 dependencies = [
- "vm-memory",
+ "vm-memory 0.5.0",
 ]
 
 [[package]]
@@ -184,6 +184,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vm-memory"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "625f401b1b8b3ac3d43f53903cd138cfe840bd985f8581e553027b31d2bb8ae8"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "vm-superio"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -202,7 +212,7 @@ dependencies = [
  "libc",
  "utils",
  "vm-device",
- "vm-memory",
+ "vm-memory 0.4.0",
  "vmm-sys-util",
 ]
 
@@ -214,7 +224,7 @@ dependencies = [
  "byteorder",
  "libc",
  "log",
- "vm-memory",
+ "vm-memory 0.5.0",
  "vmm-sys-util",
 ]
 
@@ -230,7 +240,7 @@ dependencies = [
  "linux-loader",
  "utils",
  "vm-device",
- "vm-memory",
+ "vm-memory 0.5.0",
  "vm-superio",
  "vm-vcpu",
  "vmm-sys-util",
