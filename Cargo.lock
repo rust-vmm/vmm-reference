@@ -73,7 +73,7 @@ dependencies = [
  "vm-device",
  "vm-memory",
  "vm-virtio",
- "vmm-sys-util",
+ "vmm-sys-util 0.7.0",
 ]
 
 [[package]]
@@ -82,7 +82,7 @@ version = "0.2.0"
 source = "git+https://github.com/rust-vmm/event-manager.git?rev=19ddbaa#19ddbaa4ab8332c6f9694b64d7cb993e5ef70f65"
 dependencies = [
  "libc",
- "vmm-sys-util",
+ "vmm-sys-util 0.7.0",
 ]
 
 [[package]]
@@ -96,11 +96,20 @@ dependencies = [
 
 [[package]]
 name = "kvm-bindings"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f1c07667561c3d12d77342baf28ca5d0f8c3ea2160778485640ec84a4571da2"
+checksum = "4e9742810f4cb95388955853c032cd50415d18834357f67b7b299fc28217cd3d"
 dependencies = [
- "vmm-sys-util",
+ "vmm-sys-util 0.7.0",
+]
+
+[[package]]
+name = "kvm-bindings"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04936b66155d2b23a0df85c411c234b329206e548e1d7f94b8e47c66c87a8a4f"
+dependencies = [
+ "vmm-sys-util 0.8.0",
 ]
 
 [[package]]
@@ -109,9 +118,9 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d99720f5df3814a7188f095ad6774775b7635dfdd62b7c091ce7e00a51c3c109"
 dependencies = [
- "kvm-bindings",
+ "kvm-bindings 0.4.0",
  "libc",
- "vmm-sys-util",
+ "vmm-sys-util 0.7.0",
 ]
 
 [[package]]
@@ -190,20 +199,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d690c241393f2b9cbe4d37279c8b994fdf244faa15c71f4a7196632880324c77"
 dependencies = [
  "libc",
- "vmm-sys-util",
+ "vmm-sys-util 0.7.0",
 ]
 
 [[package]]
 name = "vm-vcpu"
 version = "0.1.0"
 dependencies = [
- "kvm-bindings",
+ "kvm-bindings 0.3.1",
  "kvm-ioctls",
  "libc",
  "utils",
  "vm-device",
  "vm-memory",
- "vmm-sys-util",
+ "vmm-sys-util 0.7.0",
 ]
 
 [[package]]
@@ -215,7 +224,7 @@ dependencies = [
  "libc",
  "log",
  "vm-memory",
- "vmm-sys-util",
+ "vmm-sys-util 0.7.0",
 ]
 
 [[package]]
@@ -224,7 +233,7 @@ version = "0.1.0"
 dependencies = [
  "devices",
  "event-manager",
- "kvm-bindings",
+ "kvm-bindings 0.4.0",
  "kvm-ioctls",
  "libc",
  "linux-loader",
@@ -233,7 +242,7 @@ dependencies = [
  "vm-memory",
  "vm-superio",
  "vm-vcpu",
- "vmm-sys-util",
+ "vmm-sys-util 0.7.0",
 ]
 
 [[package]]
@@ -249,6 +258,16 @@ name = "vmm-sys-util"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1cdd1d72e262bbfb014de65ada24c1ac50e10a2e3b1e8ec052df188c2ee5dfa"
+dependencies = [
+ "bitflags",
+ "libc",
+]
+
+[[package]]
+name = "vmm-sys-util"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01cf11afbc4ebc0d5c7a7748a77d19e2042677fc15faa2f4ccccb27c18a60605"
 dependencies = [
  "bitflags",
  "libc",
