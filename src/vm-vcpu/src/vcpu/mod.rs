@@ -295,6 +295,10 @@ impl KvmVcpu {
     fn set_local_immediate_exit(value: u8) {
         Self::TLS_VCPU_PTR.with(|v| {
             if let Some(vcpu) = *v.borrow() {
+                // The block below modifies a mmaped memory region (`kvm_run` struct) which is valid
+                // as long as the `VMM` is still in scope. This function is called in response to
+                // SIGRTMIN(), while the vCPU threads are still active. Their termination are
+                // strictly bound to the lifespan of the `VMM` and it precedes the `VMM` dropping.
                 unsafe {
                     let vcpu_ref = &*vcpu;
                     vcpu_ref.vcpu_fd.set_kvm_immediate_exit(value);
