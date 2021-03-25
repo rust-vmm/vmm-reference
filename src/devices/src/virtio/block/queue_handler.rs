@@ -1,8 +1,9 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
-use event_manager::{EventOps, Events, MutEventSubscriber};
 use log::error;
+
+use event_manager::{EventOps, Events, MutEventSubscriber};
 use vm_memory::GuestAddressSpace;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;

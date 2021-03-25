@@ -6,6 +6,8 @@
 use std::convert::TryInto;
 use std::io::{stdin, Read, Write};
 
+use log::warn;
+
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use vm_device::{
     bus::{PioAddress, PioAddressValue},
@@ -13,8 +15,6 @@ use vm_device::{
 };
 use vm_superio::Serial;
 use vmm_sys_util::epoll::EventSet;
-
-use utils::debug;
 
 /// Newtype for implementing `event-manager` functionalities.
 pub(crate) struct SerialWrapper<W: Write>(pub Serial<W>);
@@ -27,7 +27,7 @@ impl<W: Write> MutEventSubscriber for SerialWrapper<W> {
         let mut out = [0u8; 32];
         match stdin().read(&mut out) {
             Err(e) => {
-                eprintln!("Error while reading stdin: {:?}", e);
+                warn!("Error while reading stdin: {:?}", e);
             }
             Ok(count) => {
                 let event_set = events.event_set();
@@ -35,7 +35,7 @@ impl<W: Write> MutEventSubscriber for SerialWrapper<W> {
                     event_set.contains(EventSet::ERROR) | event_set.contains(EventSet::HANG_UP);
                 if count > 0 {
                     if self.0.enqueue_raw_bytes(&out[..count]).is_err() {
-                        eprintln!("Failed to send bytes to the guest via serial input");
+                        warn!("Failed to send bytes to the guest via serial input");
                     }
                 } else if unregister_condition {
                     // Got 0 bytes from serial input; is it a hang-up or error?
@@ -58,7 +58,7 @@ impl<W: Write> MutDevicePio for SerialWrapper<W> {
         // TODO: this function can't return an Err, so we'll mark error conditions
         // (data being more than 1 byte, offset overflowing an u8) with logs & metrics.
         if data.len() != 1 {
-            debug!(
+            log::debug!(
                 "Serial console invalid data length on PIO read: {}",
                 data.len()
             );
@@ -66,7 +66,7 @@ impl<W: Write> MutDevicePio for SerialWrapper<W> {
 
         match offset.try_into() {
             Ok(offset) => data[0] = self.0.read(offset),
-            Err(_) => debug!("Invalid serial console read offset."),
+            Err(_) => log::debug!("Invalid serial console read offset."),
         }
     }
 
@@ -74,7 +74,7 @@ impl<W: Write> MutDevicePio for SerialWrapper<W> {
         // TODO: this function can't return an Err, so we'll mark error conditions
         // (data being more than 1 byte, offset overflowing an u8) with logs & metrics.
         if data.len() != 1 {
-            debug!(
+            log::debug!(
                 "Serial console invalid data length on PIO write: {}",
                 data.len()
             );
@@ -84,10 +84,10 @@ impl<W: Write> MutDevicePio for SerialWrapper<W> {
             Ok(offset) => {
                 let res = self.0.write(offset, data[0]);
                 if res.is_err() {
-                    debug!("Error writing to serial console: {:#?}", res.unwrap_err())
+                    log::debug!("Error writing to serial console: {:#?}", res.unwrap_err())
                 }
             }
-            Err(_) => debug!("Invalid serial console read offset."),
+            Err(_) => log::debug!("Invalid serial console read offset."),
         }
     }
 }
