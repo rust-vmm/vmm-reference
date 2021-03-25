@@ -8,6 +8,8 @@ license = "Apache-2.0 OR BSD-3-Clause"
 [dependencies]
 vmm = { path = "src/vmm" }
 api = { path = "src/api" }
+log = "0.4.14"
+simple_logger = "1.11.0"
 
 [workspace]
 

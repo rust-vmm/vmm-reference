@@ -8,6 +8,8 @@
 #![deny(missing_docs)]
 use std::result;
 
+use log::error;
+
 use clap::{App, Arg};
 use vmm::VMMConfig;
 
@@ -62,7 +64,7 @@ impl CLI {
         let help_msg = String::from_utf8_lossy(&help_msg_buf);
 
         let matches = app.get_matches_from_safe(cmdline_args).map_err(|e| {
-            eprintln!("{}", help_msg);
+            error!("{}", help_msg);
             format!("Invalid command line arguments: {}", e)
         })?;
 

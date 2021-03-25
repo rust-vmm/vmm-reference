@@ -10,6 +10,8 @@ use std::os::raw::c_int;
 use std::result;
 use std::sync::{Arc, Barrier, Condvar, Mutex};
 
+use log::{warn, info};
+
 use kvm_bindings::{kvm_fpu, kvm_regs, CpuId};
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
 use vm_device::bus::{MmioAddress, PioAddress};
@@ -18,8 +20,6 @@ use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
 use vmm_sys_util::errno::Error as Errno;
 use vmm_sys_util::signal::{register_signal_handler, SIGRTMIN};
 use vmm_sys_util::terminal::Terminal;
-
-use utils::debug;
 
 mod gdt;
 use gdt::*;
@@ -323,9 +323,9 @@ impl KvmVcpu {
                 Ok(exit_reason) => {
                     match exit_reason {
                         VcpuExit::Shutdown | VcpuExit::Hlt => {
-                            println!("Guest shutdown: {:?}. Bye!", exit_reason);
+                            info!("Guest shutdown: {:?}. Bye!", exit_reason);
                             if stdin().lock().set_canon_mode().is_err() {
-                                eprintln!("Failed to set canon mode. Stdin will not echo.");
+                                warn!("Failed to set canon mode. Stdin will not echo.");
                             }
                             self.run_state.set_and_notify(VmRunState::Exiting);
                             break;
@@ -340,7 +340,7 @@ impl KvmVcpu {
                                     .pio_write(PioAddress(addr), data)
                                     .is_err()
                                 {
-                                    debug!("Failed to write to serial port");
+                                    log::debug!("Failed to write to serial port");
                                 }
                             } else if addr == 0x060 || addr == 0x061 || addr == 0x064 {
                                 // Write at the i8042 port.
@@ -361,7 +361,7 @@ impl KvmVcpu {
                                     .pio_read(PioAddress(addr), data)
                                     .is_err()
                                 {
-                                    debug!("Failed to read from serial port");
+                                    log::debug!("Failed to read from serial port");
                                 }
                             } else {
                                 // Read from some other port.
@@ -375,7 +375,7 @@ impl KvmVcpu {
                                 .mmio_read(MmioAddress(addr), data)
                                 .is_err()
                             {
-                                debug!("Failed to read from mmio");
+                                log::debug!("Failed to read from mmio");
                             }
                         }
                         VcpuExit::MmioWrite(addr, data) => {
@@ -386,12 +386,12 @@ impl KvmVcpu {
                                 .mmio_write(MmioAddress(addr), data)
                                 .is_err()
                             {
-                                debug!("Failed to write to mmio");
+                                log::debug!("Failed to write to mmio");
                             }
                         }
                         _other => {
                             // Unhandled KVM exit.
-                            debug!("Unhandled vcpu exit: {:#?}", _other);
+                            log::debug!("Unhandled vcpu exit: {:#?}", _other);
                         }
                     }
                 }
@@ -404,7 +404,7 @@ impl KvmVcpu {
                             interrupted_by_signal = true;
                         }
                         _ => {
-                            debug!("Emulation error: {}", e);
+                            log::debug!("Emulation error: {}", e);
                             break;
                         }
                     }

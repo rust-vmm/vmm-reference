@@ -5,12 +5,21 @@ use std::convert::TryFrom;
 #[cfg(target_arch = "x86_64")]
 use std::env;
 
+use simple_logger::SimpleLogger;
+use log::{LevelFilter, error};
+
 #[cfg(target_arch = "x86_64")]
 use api::CLI;
 #[cfg(target_arch = "x86_64")]
 use vmm::VMM;
 
 fn main() {
+    if cfg!(debug_assertions) {
+        SimpleLogger::new().with_level(LevelFilter::Trace).init().unwrap();
+    } else {
+        SimpleLogger::new().with_level(LevelFilter::Info).init().unwrap();
+    }
+
     #[cfg(target_arch = "x86_64")]
     {
         match CLI::launch(
@@ -28,10 +37,10 @@ fn main() {
                 vmm.run().unwrap();
             }
             Err(e) => {
-                eprintln!("Failed to parse command line options. {}", e);
+                error!("Failed to parse command line options. {}", e);
             }
         }
     }
     #[cfg(target_arch = "aarch64")]
-    println!("Reference VMM under construction!")
+    error!("Reference VMM under construction!")
 }
