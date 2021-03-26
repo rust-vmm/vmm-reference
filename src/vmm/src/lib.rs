@@ -42,7 +42,7 @@ use vm_device::device_manager::IoManager;
 use vm_device::device_manager::MmioManager;
 #[cfg(target_arch = "x86_64")]
 use vm_device::device_manager::PioManager;
-use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
+use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
 use vm_superio::{Serial, Trigger};
@@ -66,6 +66,11 @@ use arch::AARCH64_MMIO_BASE;
 
 #[cfg(target_arch = "aarch64")]
 use devices::legacy::RTCWrapper;
+
+#[cfg(target_arch = "aarch64")]
+use arch::{create_fdt, AARCH64_PHYS_MEM_START, AARCH64_FDT_MAX_SIZE};
+
+use std::convert::TryInto;
 
 mod boot;
 mod config;
@@ -320,6 +325,8 @@ impl Vmm {
         #[cfg(target_arch = "aarch64")]
         let kernel_load_addr = load_result.kernel_load;
 
+        #[cfg(target_arch = "aarch64")]
+        self.setup_fdt();
         if stdin().lock().set_raw_mode().is_err() {
             eprintln!("Failed to set raw mode on terminal. Stdin will echo.");
         }
@@ -340,11 +347,20 @@ impl Vmm {
     }
 
     // Create guest memory regions.
-    // On x86_64, they surround the MMIO gap (dedicated space for MMIO device slots) if the
-    // configured memory size exceeds the latter's starting address.
     fn create_guest_memory(memory_config: &MemoryConfig) -> Result<GuestMemoryMmap> {
         let mem_size = ((memory_config.size_mib as u64) << 20) as usize;
-        let mem_regions = match mem_size.checked_sub(MMIO_GAP_START as usize) {
+        let mem_regions = Vmm::create_memory_regions(mem_size);
+
+        // Create guest memory from regions.
+        GuestMemoryMmap::from_ranges(&mem_regions)
+            .map_err(|e| Error::Memory(MemoryError::VmMemory(e)))
+    }
+
+    fn create_memory_regions(mem_size: usize) -> Vec<(GuestAddress, usize)> {
+        #[cfg(target_arch = "x86_64")]
+        // On x86_64, they surround the MMIO gap (dedicated space for MMIO device slots) if the
+        // configured memory size exceeds the latter's starting address.
+        match mem_size.checked_sub(MMIO_GAP_START as usize) {
             // Guest memory fits before the MMIO gap.
             None | Some(0) => vec![(GuestAddress(0), mem_size)],
             // Guest memory extends beyond the MMIO gap.
@@ -352,11 +368,9 @@ impl Vmm {
                 (GuestAddress(0), MMIO_GAP_START as usize),
                 (GuestAddress(MMIO_GAP_END), remaining),
             ],
-        };
-
-        // Create guest memory from regions.
-        GuestMemoryMmap::from_ranges(&mem_regions)
-            .map_err(|e| Error::Memory(MemoryError::VmMemory(e)))
+        }
+        #[cfg(target_arch = "aarch64")]
+        vec![(GuestAddress(AARCH64_PHYS_MEM_START), mem_size)]
     }
 
     // Load the kernel into guest memory.
@@ -633,6 +647,20 @@ impl Vmm {
         } else {
             Ok(())
         }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    // TODO: move this where it makes sense from a config point of view as we add all
+    // needed stuff in FDT.
+    fn setup_fdt(&mut self) {
+        let mut fdt_offset: u64 = self.guest_memory.iter().map(|region| region.len()).sum();
+        fdt_offset = fdt_offset - AARCH64_FDT_MAX_SIZE - 0x10000;
+        create_fdt(
+            DEFAULT_KERNEL_CMDLINE,
+            &self.guest_memory,
+            fdt_offset,
+            AARCH64_FDT_MAX_SIZE.try_into().unwrap(),
+        ).unwrap();
     }
 }
 

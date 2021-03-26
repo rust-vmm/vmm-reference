@@ -374,7 +374,7 @@ mod tests {
         let root_node = fdt.begin_node("").unwrap();
         fdt.end_node(root_node).unwrap();
         let actual_fdt = fdt.finish(0x48).unwrap();
-        let expected_fdt =  [
+        let expected_fdt = [
             0xd0, 0x0d, 0xfe, 0xed, // 0000: magic (0xd00dfeed)
             0x00, 0x00, 0x00, 0x48, // 0004: totalsize (0x48)
             0x00, 0x00, 0x00, 0x38, // 0008: off_dt_struct (0x38)
@@ -485,7 +485,7 @@ mod tests {
         fdt.property_u32("u32", 0x12345678).unwrap();
         fdt.end_node(root_node).unwrap();
         let actual_fdt = fdt.finish(0x5C).unwrap();
-        let expected_fdt =             [
+        let expected_fdt = [
             0xd0, 0x0d, 0xfe, 0xed, // 0000: magic (0xd00dfeed)
             0x00, 0x00, 0x00, 0x5c, // 0004: totalsize (0x5C)
             0x00, 0x00, 0x00, 0x38, // 0008: off_dt_struct (0x38)
@@ -601,7 +601,7 @@ mod tests {
         fdt.end_node(nested_node).unwrap();
         fdt.end_node(root_node).unwrap();
         let actual_fdt = fdt.finish(0x80).unwrap();
-        let expected_fdt =             [
+        let expected_fdt = [
             0xd0, 0x0d, 0xfe, 0xed, // 0000: magic (0xd00dfeed)
             0x00, 0x00, 0x00, 0x80, // 0004: totalsize (0x80)
             0x00, 0x00, 0x00, 0x38, // 0008: off_dt_struct (0x38)
@@ -649,7 +649,7 @@ mod tests {
         fdt.end_node(nested_node).unwrap();
         fdt.end_node(root_node).unwrap();
         let actual_fdt = fdt.finish(0x90).unwrap();
-        let expected_fdt =             [
+        let expected_fdt = [
             0xd0, 0x0d, 0xfe, 0xed, // 0000: magic (0xd00dfeed)
             0x00, 0x00, 0x00, 0x90, // 0004: totalsize (0x90)
             0x00, 0x00, 0x00, 0x38, // 0008: off_dt_struct (0x38)
