@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 vm-fdt = { path = "../vm-fdt" }
+vm-memory = "0.6.0"
