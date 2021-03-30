@@ -12,6 +12,8 @@ use std::sync::{Arc, Barrier, Condvar, Mutex};
 
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::{kvm_fpu, kvm_regs, CpuId};
+#[cfg(target_arch = "aarch64")]
+use kvm_bindings::{kvm_vcpu_init};
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
 use vm_device::bus::{MmioAddress, PioAddress};
 use vm_device::device_manager::{IoManager, MmioManager, PioManager};
@@ -121,7 +123,7 @@ impl KvmVcpu {
         run_state: Arc<VcpuRunState>,
         memory: &M,
     ) -> Result<Self> {
-        let vcpu = KvmVcpu {
+        let mut vcpu = KvmVcpu {
             vcpu_fd: vm_fd
                 .create_vcpu(state.id.into())
                 .map_err(Error::KvmIoctl)?,
@@ -132,15 +134,29 @@ impl KvmVcpu {
         };
 
         #[cfg(target_arch = "x86_64")]
+            {
+                vcpu.configure_cpuid(&vcpu.state.cpuid)?;
+                vcpu.configure_msrs()?;
+                vcpu.configure_sregs(memory)?;
+                vcpu.configure_lapic()?;
+                vcpu.configure_fpu()?;
+            }
+
+        # [cfg(target_arch = "aarch64")]
         {
-            vcpu.configure_cpuid(&vcpu.state.cpuid)?;
-            vcpu.configure_msrs()?;
-            vcpu.configure_sregs(memory)?;
-            vcpu.configure_lapic()?;
-            vcpu.configure_fpu()?;
+            vcpu.init(vm_fd);
         }
 
         Ok(vcpu)
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn init(&mut self, vm_fd: &VmFd) -> Result<()> {
+        let mut kvi: kvm_vcpu_init = kvm_vcpu_init::default();
+        vm_fd.get_preferred_target(&mut kvi).map_err(Error::KvmIoctl)?;
+        self.vcpu_fd.vcpu_init(&kvi).map_err(Error::KvmIoctl)?;
+
+        Ok(())
     }
 
     /// Set CPUID.

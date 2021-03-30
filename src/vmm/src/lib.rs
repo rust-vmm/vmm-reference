@@ -34,7 +34,7 @@ use linux_loader::loader::{
     elf::{self, Elf},
     load_cmdline,
 };
-use vm_device::bus::{MmioAddress, MmioRange};
+use vm_device::bus::{MmioAddress, MmioRange, BusManager};
 #[cfg(target_arch = "x86_64")]
 use vm_device::bus::{PioAddress, PioRange};
 use vm_device::device_manager::IoManager;
@@ -42,6 +42,8 @@ use vm_device::device_manager::IoManager;
 use vm_device::device_manager::MmioManager;
 #[cfg(target_arch = "x86_64")]
 use vm_device::device_manager::PioManager;
+#[cfg(target_arch = "x86_64")]
+use vm_device::resources::Resource;
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
@@ -68,7 +70,7 @@ use arch::AARCH64_MMIO_BASE;
 use devices::legacy::RTCWrapper;
 
 #[cfg(target_arch = "aarch64")]
-use arch::{create_fdt, AARCH64_PHYS_MEM_START, AARCH64_FDT_MAX_SIZE};
+use arch::{create_fdt, AARCH64_PHYS_MEM_START, AARCH64_FDT_MAX_SIZE, AARCH64_MMIO_BASE};
 
 use std::convert::TryInto;
 
@@ -298,7 +300,6 @@ impl TryFrom<VMMConfig> for Vmm {
         };
 
         vmm.create_vcpus(&config.vcpu_config)?;
-        #[cfg(target_arch = "x86_64")]
         vmm.add_serial_console()?;
         #[cfg(target_arch = "aarch64")]
         vmm.add_rtc_device();
@@ -450,7 +451,6 @@ impl Vmm {
     }
 
     // Create and add a serial console to the VMM.
-    #[cfg(target_arch = "x86_64")]
     fn add_serial_console(&mut self) -> Result<()> {
         // Create the serial console.
         let interrupt_evt = EventFdTrigger::new(libc::EFD_NONBLOCK).map_err(Error::IO)?;

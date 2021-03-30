@@ -14,6 +14,9 @@ pub const AARCH64_FDT_MAX_SIZE: u64 = 0x200000;
 // This indicates the start of DRAM inside the physical address space.
 pub const AARCH64_PHYS_MEM_START: u64 = 0x80000000;
 
+// This is the base address of MMIO devices.
+pub const AARCH64_MMIO_BASE: u64 = 0x1010000;
+
 pub fn create_fdt<T: GuestMemory>(
     cmdline: &str,
     guest_mem: &T,
@@ -22,7 +25,8 @@ pub fn create_fdt<T: GuestMemory>(
 ) -> Result<()> {
     let mut fdt = FdtWriter::new(&[]);
 
-    // The whole thing is put into one giant node with some top level properties
+    // The whole thing is put into one giant node with s
+    // ome top level properties
     let root_node = fdt.begin_node("")?;
     fdt.property_u32("interrupt-parent", PHANDLE_GIC)?;
     fdt.property_string("compatible", "linux,dummy-virt")?;
