@@ -295,6 +295,7 @@ checksum = "3be26a7083513b8302a0053a93f03592ec8875803ff312e0bd3a373e1bee4cfd"
 name = "vm-vcpu"
 version = "0.1.0"
 dependencies = [
+ "arch",
  "kvm-bindings",
  "kvm-ioctls",
  "libc",

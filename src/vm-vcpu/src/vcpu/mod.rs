@@ -18,21 +18,26 @@ use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
 use vm_device::bus::{MmioAddress, PioAddress};
 use vm_device::device_manager::{IoManager, MmioManager, PioManager};
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
+#[cfg(target_arch = "x86_64")]
+use vm_vcpu_ref::x86_64::gdt::{self, write_idt_value, Gdt, BOOT_GDT_OFFSET, BOOT_IDT_OFFSET};
+#[cfg(target_arch = "x86_64")]
+use vm_vcpu_ref::x86_64::gdt::{self, write_idt_value, Gdt, BOOT_GDT_OFFSET, BOOT_IDT_OFFSET};
 use vmm_sys_util::errno::Error as Errno;
 use vmm_sys_util::signal::{register_signal_handler, SIGRTMIN};
 use vmm_sys_util::terminal::Terminal;
 
-#[cfg(target_arch = "x86_64")]
-use interrupts::*;
 use utils::debug;
-#[cfg(target_arch = "x86_64")]
-use vm_vcpu_ref::x86_64::gdt::{self, write_idt_value, Gdt, BOOT_GDT_OFFSET, BOOT_IDT_OFFSET};
-use vm_vcpu_ref::x86_64::mptable;
-
-use crate::vm::VmRunState;
 
 #[cfg(target_arch = "x86_64")]
 mod interrupts;
+#[cfg(target_arch = "x86_64")]
+use interrupts::*;
+
+use crate::vm::VmRunState;
+use arch::{AARCH64_PHYS_MEM_START, AARCH64_FDT_MAX_SIZE};
+
+pub mod mpspec;
+pub mod mptable;
 pub mod msr_index;
 pub mod msrs;
 
@@ -49,6 +54,9 @@ const PDE_START: u64 = 0xb000;
 const X86_CR0_PE: u64 = 0x1;
 const X86_CR0_PG: u64 = 0x8000_0000;
 const X86_CR4_PAE: u64 = 0x20;
+
+#[cfg(target_arch = "aarch64")]
+use kvm_bindings::{PSR_A_BIT, PSR_F_BIT, PSR_D_BIT, PSR_MODE_EL1h, PSR_I_BIT};
 
 /// Errors encountered during vCPU operation.
 #[derive(Debug)]
@@ -72,6 +80,7 @@ pub enum Error {
     TlsInitialized,
     /// Unable to register signal handler.
     RegisterSignalHandler(Errno),
+    SetReg(kvm_ioctls::Error),
 }
 
 /// Dedicated Result type.
@@ -94,6 +103,26 @@ impl VcpuRunState {
     pub fn set_and_notify(&self, state: VmRunState) {
         *self.vm_state.lock().unwrap() = state;
         self.condvar.notify_all();
+    }
+}
+
+const KVM_REG_ARM64: u64 = 0x6000000000000000;
+const KVM_REG_SIZE_U64: u64 = 0x0030000000000000;
+const KVM_REG_ARM_COPROC_SHIFT: u64 = 16;
+const KVM_REG_ARM_CORE: u64 = 0x0010 << KVM_REG_ARM_COPROC_SHIFT;
+
+macro_rules! arm64_core_reg {
+    ($reg: tt) => {
+        KVM_REG_ARM64
+            | KVM_REG_SIZE_U64
+            | KVM_REG_ARM_CORE
+            | ((offset__of!(kvm_bindings::user_pt_regs, $reg) / 4) as u64)
+    };
+}
+
+macro_rules! offset__of {
+    ($str:ty, $($field:ident).+ $([$idx:expr])*) => {
+        unsafe { &(*(0 as *const $str))$(.$field)*  $([$idx])* as *const _ as usize }
     }
 }
 
@@ -144,10 +173,37 @@ impl KvmVcpu {
 
         # [cfg(target_arch = "aarch64")]
         {
-            vcpu.init(vm_fd);
+            vcpu.init(vm_fd)?;
+            vcpu.configure_regs(memory);
         }
 
         Ok(vcpu)
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn configure_regs<M: GuestMemory>(&mut self, guest_mem: &M) -> Result<()> {
+
+        // set up registers
+        let mut data: u64;
+        let mut reg_id: u64;
+
+        // All interrupts masked
+        data = (PSR_D_BIT | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT | PSR_MODE_EL1h).into();
+        reg_id = arm64_core_reg!(pstate);
+        self.vcpu_fd.set_one_reg(reg_id, data).map_err(Error::SetReg)?;
+
+        // Other cpus are powered off initially
+        if self.state.id == 0 {
+            /* X0 -- fdt address */
+            let mut fdt_offset: u64 = guest_mem.iter().map(|region| region.len()).sum();
+            fdt_offset = fdt_offset - AARCH64_FDT_MAX_SIZE - 0x10000;
+            data = (AARCH64_PHYS_MEM_START + fdt_offset) as u64;
+            // hack -- can't get this to do offsetof(regs[0]) but luckily it's at offset 0
+            reg_id = arm64_core_reg!(regs);
+            self.vcpu_fd.set_one_reg(reg_id, data).map_err(Error::SetReg)?;
+        }
+
+        Ok(())
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -342,6 +398,13 @@ impl KvmVcpu {
     pub fn run(&mut self, instruction_pointer: GuestAddress) -> Result<()> {
         #[cfg(target_arch = "x86_64")]
         self.configure_regs(instruction_pointer)?;
+        #[cfg(target_arch = "aarch64")]
+        if self.state.id == 0 {
+            let data = AARCH64_PHYS_MEM_START + instruction_pointer.0;
+            println!("data={}", data);
+            let reg_id = arm64_core_reg!(pc);
+            self.vcpu_fd.set_one_reg(reg_id, data).map_err(Error::SetReg)?;
+        }
         self.init_tls()?;
 
         self.run_barrier.wait();
