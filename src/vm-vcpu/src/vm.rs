@@ -9,6 +9,8 @@ use std::thread::{self, JoinHandle};
 use kvm_bindings::{kvm_pit_config, kvm_userspace_memory_region, KVM_PIT_SPEAKER_DUMMY};
 #[cfg(target_arch = "aarch64")]
 use kvm_bindings::{kvm_device_attr, kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V3, kvm_create_device, kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V2, KVM_DEV_ARM_VGIC_CTRL_INIT, KVM_VGIC_V3_ADDR_TYPE_REDIST, KVM_DEV_ARM_VGIC_GRP_CTRL, KVM_DEV_ARM_VGIC_GRP_NR_IRQS, KVM_VGIC_V3_ADDR_TYPE_DIST, KVM_VGIC_V2_ADDR_TYPE_CPU, KVM_VGIC_V2_ADDR_TYPE_DIST, KVM_DEV_ARM_VGIC_GRP_ADDR};
+
+use arch::{AARCH64_GIC_CPUI_BASE, AARCH64_GIC_DIST_BASE, AARCH64_GIC_REDIST_SIZE, AARCH64_GIC_NR_IRQS};
 use kvm_ioctls::{Kvm, VmFd, DeviceFd};
 use vm_device::device_manager::IoManager;
 use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryRegion};
@@ -98,22 +100,6 @@ impl Default for VmRunState {
         Self::Running
     }
 }
-
-const AARCH64_AXI_BASE: u64 = 0x40000000;
-
-// These constants indicate the address space used by the ARM vGIC.
-const AARCH64_GIC_DIST_SIZE: u64 = 0x10000;
-const AARCH64_GIC_CPUI_SIZE: u64 = 0x20000;
-
-// These constants indicate the placement of the GIC registers in the physical
-// address space.
-const AARCH64_GIC_DIST_BASE: u64 = AARCH64_AXI_BASE - AARCH64_GIC_DIST_SIZE;
-const AARCH64_GIC_CPUI_BASE: u64 = AARCH64_GIC_DIST_BASE - AARCH64_GIC_CPUI_SIZE;
-const AARCH64_GIC_REDIST_SIZE: u64 = 0x20000;
-
-// This is the minimum number of SPI interrupts aligned to 32 + 32 for the
-// PPI (16) and GSI (16).
-pub const AARCH64_GIC_NR_IRQS: u32 = 64;
 
 enum DeviceKind {
     ArmVgicV3,
