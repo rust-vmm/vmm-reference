@@ -73,6 +73,7 @@ use devices::legacy::RTCWrapper;
 use arch::{create_fdt, AARCH64_PHYS_MEM_START, AARCH64_FDT_MAX_SIZE, AARCH64_MMIO_BASE};
 
 use std::convert::TryInto;
+use crate::device::{EventFdTrigger, SerialError};
 
 mod boot;
 mod config;
@@ -232,37 +233,6 @@ impl MutEventSubscriber for VmmExitHandler {
     fn init(&mut self, ops: &mut EventOps) {
         ops.add(Events::new(&self.exit_event, EventSet::IN))
             .expect("Cannot initialize exit handler.");
-    }
-}
-
-/// Newtype for implementing [Trigger](https://docs.rs/vm-superio/latest/vm_superio/trait.Trigger.html) trait
-struct EventFdTrigger(EventFd);
-
-impl Trigger for EventFdTrigger {
-    type E = io::Error;
-
-    fn trigger(&self) -> io::Result<()> {
-        self.0.write(1)
-    }
-}
-
-impl Deref for EventFdTrigger {
-    type Target = EventFd;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl EventFdTrigger {
-    pub fn new(flag: i32) -> io::Result<Self> {
-        let event_fd = EventFd::new(flag)?;
-        Ok(EventFdTrigger(event_fd))
-    }
-
-    pub fn try_clone(&self) -> io::Result<Self> {
-        let event_fd = (**self).try_clone()?;
-        Ok(EventFdTrigger(event_fd))
     }
 }
 
