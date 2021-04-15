@@ -727,6 +727,7 @@ mod tests {
             exit_handler,
             block_devices: Vec::new(),
             net_devices: Vec::new(),
+            num_vcpus: vmm_config.vcpu_config.num as u64,
         }
     }
 

@@ -499,6 +499,7 @@ mod tests {
             fd: Arc::new(kvm.create_vm().unwrap()),
             exit_handler: WrappedExitHandler::default(),
             vcpu_run_state: Arc::new(VcpuRunState::default()),
+            irq_initialized: false
         };
 
         // Setting up the irq_controller twice should return an error.
