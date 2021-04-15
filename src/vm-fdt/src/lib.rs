@@ -53,9 +53,9 @@ const FDT_END: u32 = 0x00000009;
 /// # Example
 ///
 /// ```rust
-/// use arch::fdt::FdtWriter;
+/// use vm_fdt::FdtWriter;
 ///
-/// # fn main() -> arch::fdt::Result<()> {
+/// # fn main() -> vm_fdt::Result<()> {
 /// let mut fdt = FdtWriter::new(&[]);
 /// let root_node = fdt.begin_node("")?;
 /// fdt.property_string("compatible", "linux,dummy-virt")?;
