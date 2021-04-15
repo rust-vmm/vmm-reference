@@ -451,7 +451,7 @@ impl Vmm {
         const AARCH64_KERNEL_OFFSET: u64 = 0x80000;
         Ok(linux_loader::loader::pe::PE::load(
             &self.guest_memory,
-            Some(GuestAddress(AARCH64_PHYS_MEM_START + AARCH64_KERNEL_OFFSET)),
+            Some(GuestAddress(0x8000_0000)),
             &mut kernel_image,
             None,
         )

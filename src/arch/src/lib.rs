@@ -15,7 +15,7 @@ pub const AARCH64_FDT_MAX_SIZE: u64 = 0x200000;
 pub const AARCH64_PHYS_MEM_START: u64 = 0x80000000;
 
 // This is the base address of MMIO devices.
-pub const AARCH64_MMIO_BASE: u64 = 0x1010000;
+pub const AARCH64_MMIO_BASE: u64 = 1 << 30;
 
 const AARCH64_AXI_BASE: u64 = 0x40000000;
 

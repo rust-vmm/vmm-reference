@@ -400,7 +400,7 @@ impl KvmVcpu {
         self.configure_regs(instruction_pointer)?;
         #[cfg(target_arch = "aarch64")]
         if self.state.id == 0 {
-            let data = AARCH64_PHYS_MEM_START + instruction_pointer.0;
+            let data = instruction_pointer.0;
             println!("data={}", data);
             let reg_id = arm64_core_reg!(pc);
             self.vcpu_fd.set_one_reg(reg_id, data).map_err(Error::SetReg)?;
