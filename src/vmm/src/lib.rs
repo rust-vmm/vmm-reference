@@ -73,7 +73,7 @@ use devices::legacy::RTCWrapper;
 use arch::{create_fdt, AARCH64_PHYS_MEM_START, AARCH64_FDT_MAX_SIZE, AARCH64_MMIO_BASE};
 
 use std::convert::TryInto;
-use crate::device::{EventFdTrigger, SerialError};
+use crate::device::{EventFdTrigger, SerialError, RTCWrapper};
 
 mod boot;
 mod config;
@@ -530,7 +530,7 @@ impl Vmm {
     fn add_net_device(&mut self, cfg: &NetConfig) -> Result<()> {
         let mem = Arc::new(self.guest_memory.clone());
 
-        let range = MmioRange::new(MmioAddress(MMIO_GAP_START + 0x1000), 0x1000).unwrap();
+        let range = MmioRange::new(MmioAddress(MMIO_GAP_START + 0x2000), 0x1000).unwrap();
         let mmio_cfg = MmioConfig { range, gsi: 6 };
 
         let mut guard = self.device_mgr.lock().unwrap();

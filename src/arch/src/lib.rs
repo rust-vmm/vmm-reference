@@ -45,6 +45,10 @@ const IRQ_TYPE_LEVEL_HIGH: u32 = 0x00000004;
 const IRQ_TYPE_LEVEL_LOW: u32 = 0x00000008;
 // PMU PPI interrupt, same as qemu
 const AARCH64_PMU_IRQ: u32 = 7;
+// The RTC device gets the second interrupt line
+const AARCH64_RTC_IRQ: u32 = 1;
+const AARCH64_RTC_ADDR: u64 = 0x2000;
+const AARCH64_RTC_SIZE: u64 = 0x1000;
 
 pub fn create_fdt<T: GuestMemory>(
     cmdline: &str,
@@ -70,7 +74,9 @@ pub fn create_fdt<T: GuestMemory>(
     create_cpu_nodes(&mut fdt, num_vcpus)?;
     create_gic_node(&mut fdt, true, num_vcpus as u64)?;
     create_serial_nodes(&mut fdt);
+    create_rtc_node(&mut fdt);
     create_timer_node(&mut fdt, num_vcpus);
+    create_psci_node(&mut fdt);
     create_pmu_node(&mut fdt, num_vcpus);
 
     fdt.end_node(root_node)?;
@@ -146,20 +152,46 @@ fn create_gic_node(fdt: &mut FdtWriter, is_gicv3: bool, num_cpus: u64) -> Result
     Ok(())
 }
 
-fn create_serial_nodes(fdt: &mut FdtWriter) -> Result<()> {
-    const SERIAL_ADDR: [u64; 4] = [0x3f8, 0x2f8, 0x3e8, 0x2e8];
-    // The serial device gets the first interrupt line
-    // Which gets mapped to the first SPI interrupt (physical 32).
-    const AARCH64_SERIAL_1_3_IRQ: u32 = 0;
-    const AARCH64_SERIAL_2_4_IRQ: u32 = 2;
-    // Note that SERIAL_ADDR contains the I/O port addresses conventionally used
-    // for serial ports on x86. This uses the same addresses (but on the MMIO bus)
-    // to simplify the shared serial code.
-    create_serial_node(fdt, SERIAL_ADDR[0], AARCH64_SERIAL_1_3_IRQ)?;
-    create_serial_node(fdt, SERIAL_ADDR[1], AARCH64_SERIAL_2_4_IRQ)?;
-    create_serial_node(fdt, SERIAL_ADDR[2], AARCH64_SERIAL_1_3_IRQ)?;
-    create_serial_node(fdt, SERIAL_ADDR[3], AARCH64_SERIAL_2_4_IRQ)?;
+fn create_psci_node(fdt: &mut FdtWriter) -> Result<()> {
+    let compatible = "arm,psci-0.2";
+    let psci_node = fdt.begin_node("psci")?;
+    fdt.property_string("compatible", compatible);
+    // Two methods available: hvc and smc.
+    // As per documentation, PSCI calls between a guest and hypervisor may use the HVC conduit instead of SMC.
+    // So, since we are using kvm, we need to use hvc.
+    fdt.property_string( "method", "hvc")?;
+    fdt.end_node(psci_node)?;
 
+    Ok(())
+}
+
+fn create_serial_nodes(fdt: &mut FdtWriter) -> Result<()> {
+    // const SERIAL_ADDR: [u64; 4] = [0x3f8, 0x2f8, 0x3e8, 0x2e8];
+    // // The serial device gets the first interrupt line
+    // // Which gets mapped to the first SPI interrupt (physical 32).
+    // const AARCH64_SERIAL_1_3_IRQ: u32 = 0;
+    // const AARCH64_SERIAL_2_4_IRQ: u32 = 2;
+    // // Note that SERIAL_ADDR contains the I/O port addresses conventionally used
+    // // for serial ports on x86. This uses the same addresses (but on the MMIO bus)
+    // // to simplify the shared serial code.
+    // create_serial_node(fdt, SERIAL_ADDR[0], AARCH64_SERIAL_1_3_IRQ)?;
+    // create_serial_node(fdt, SERIAL_ADDR[1], AARCH64_SERIAL_2_4_IRQ)?;
+    // create_serial_node(fdt, SERIAL_ADDR[2], AARCH64_SERIAL_1_3_IRQ)?;
+    // create_serial_node(fdt, SERIAL_ADDR[3], AARCH64_SERIAL_2_4_IRQ)?;
+    let addr =  0x40000000;
+    const AARCH64_SERIAL_SPEED: u32 = 1843200;
+    let serial_node = fdt.begin_node(&format!("uart@{:x}", addr))?;
+    fdt.property_string("compatible", "ns16550a")?;
+    let serial_reg_prop = [addr, 0x1000];
+    fdt.property_array_u64("reg", &serial_reg_prop)?;
+
+    // fdt.property_u32("clock-frequency", AARCH64_SERIAL_SPEED)?;
+    const CLK_PHANDLE: u32 = 24;
+    fdt.property_u32("clocks", CLK_PHANDLE);
+    fdt.property_string("clock-names", "apb_pclk");
+    let irq = [GIC_FDT_IRQ_TYPE_SPI, 4, IRQ_TYPE_EDGE_RISING];
+    fdt.property_array_u32("interrupts", &irq)?;
+    fdt.end_node(serial_node)?;
     Ok(())
 }
 
@@ -220,5 +252,36 @@ fn create_pmu_node(fdt: &mut FdtWriter, num_cpus: u32) -> Result<()> {
     fdt.property_string("compatible", compatible)?;
     fdt.property_array_u32("interrupts", &irq)?;
     fdt.end_node(pmu_node)?;
+    Ok(())
+}
+
+fn create_rtc_node(fdt: &mut FdtWriter) -> Result<()> {
+    // the kernel driver for pl030 really really wants a clock node
+    // associated with an AMBA device or it will fail to probe, so we
+    // need to make up a clock node to associate with the pl030 rtc
+    // node and an associated handle with a unique phandle value.
+    const CLK_PHANDLE: u32 = 24;
+    let clock_node = fdt.begin_node("apb-pclk")?;
+    fdt.property_u32("#clock-cells", 0)?;
+    fdt.property_string("compatible", "fixed-clock")?;
+    fdt.property_u32("clock-frequency", 24_000_000)?;
+    fdt.property_string("clock-output-names", "clk24mhz");
+    fdt.property_u32("phandle", CLK_PHANDLE)?;
+    fdt.end_node(clock_node)?;
+
+    let rtc_addr = 0x40001000;
+    let rtc_name = format!("rtc@{:x}", rtc_addr);
+    let reg = [rtc_addr, 0x1000];
+    let irq = [GIC_FDT_IRQ_TYPE_SPI, 33, IRQ_TYPE_LEVEL_HIGH];
+
+    let rtc_node = fdt.begin_node(&rtc_name)?;
+    fdt.property_string_list("compatible", vec![String::from("arm,pl031"), String::from("arm,primecell")])?;
+    // const PL030_AMBA_ID: u32 = 0x00041030;
+    // fdt.property_string("arm,pl031", PL030_AMBA_ID)?;
+    fdt.property_array_u64("reg", &reg)?;
+    fdt.property_array_u32("interrupts", &irq)?;
+    fdt.property_u32("clocks", CLK_PHANDLE)?;
+    fdt.property_string("clock-names", "apb_pclk")?;
+    fdt.end_node(rtc_node)?;
     Ok(())
 }
