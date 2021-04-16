@@ -2,6 +2,9 @@ mod serial;
 pub use serial::SerialWrapper;
 pub use serial::Error as SerialError;
 
+pub mod rtc;
+pub use rtc::RTCWrapper;
+
 use std::io;
 use std::ops::Deref;
 
