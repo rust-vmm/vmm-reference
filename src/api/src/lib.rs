@@ -9,7 +9,16 @@
 use std::result;
 
 use clap::{App, Arg};
+use thiserror::Error;
 use vmm::VMMConfig;
+
+#[derive(Error, Debug)]
+/// Cli api errors.
+pub enum CliError {
+    /// Failed to parse CLI.
+    #[error("Failed to parse cli {0}")]
+    Parse(String),
+}
 
 /// Command line parser.
 pub struct CLI;
@@ -20,7 +29,7 @@ impl CLI {
     /// # Arguments
     ///
     /// * `cmdline_args` - command line arguments passed to the application.
-    pub fn launch(cmdline_args: Vec<&str>) -> result::Result<VMMConfig, String> {
+    pub fn launch(cmdline_args: Vec<&str>) -> result::Result<VMMConfig, CliError> {
         let mut app = App::new(cmdline_args[0].to_string())
             .arg(
                 Arg::with_name("memory")
@@ -59,21 +68,19 @@ impl CLI {
         let mut help_msg_buf: Vec<u8> = vec![];
         // If the write fails, we'll just have an empty help message.
         let _ = app.write_long_help(&mut help_msg_buf);
-        let help_msg = String::from_utf8_lossy(&help_msg_buf);
 
-        let matches = app.get_matches_from_safe(cmdline_args).map_err(|e| {
-            eprintln!("{}", help_msg);
-            format!("Invalid command line arguments: {}", e)
-        })?;
+        let matches = app
+            .get_matches_from_safe(cmdline_args)
+            .map_err(|e| CliError::Parse(format!("{}", e)))?;
 
-        Ok(VMMConfig::builder()
+        VMMConfig::builder()
             .memory_config(matches.value_of("memory"))
             .kernel_config(matches.value_of("kernel"))
             .vcpu_config(matches.value_of("vcpu"))
             .net_config(matches.value_of("net"))
             .block_config(matches.value_of("block"))
             .build()
-            .map_err(|e| format!("{:?}", e))?)
+            .map_err(|e| CliError::Parse(format!("{}", e)))
     }
 }
 
