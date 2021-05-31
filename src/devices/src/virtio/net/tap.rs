@@ -199,5 +199,36 @@ impl AsRawFd for Tap {
     }
 }
 
-// TODO: If we don't end up using an external abstraction for `Tap` interfaces, add unit tests
-// based on a mock framework that do not require elevated privileges to run.
+#[cfg(test)]
+pub mod tap_mock {
+    use mockall::mock;
+
+    use super::{c_int, c_uint, Result, Tap};
+
+    use std::io::{Read, Result as IoResult, Write};
+    pub trait TapAbstract: Read + Write {
+        fn open_named(if_name: &str) -> Result<Tap>;
+        fn if_name_as_str(&self) -> &str;
+        fn set_offload(&self, flags: c_uint) -> Result<()>;
+        fn set_vnet_hdr_size(&self, size: c_int) -> Result<()>;
+    }
+
+    mock! {
+        pub Tap {}
+        impl TapAbstract for Tap {
+            fn open_named(if_name: &str) -> Result<Tap>;
+            fn if_name_as_str(&self) -> &str;
+            fn set_offload(&self, flags: c_uint) -> Result<()>;
+            fn set_vnet_hdr_size(&self, size: c_int) -> Result<()>;
+        }
+
+        impl Read for Tap {
+            fn read(&mut self, buf: &mut [u8]) -> IoResult<usize>;
+        }
+
+        impl Write for Tap {
+            fn write(&mut self, buf: &[u8]) -> IoResult<usize>;
+            fn flush(&mut self) -> IoResult<()>;
+        }
+    }
+}

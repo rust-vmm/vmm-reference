@@ -184,3 +184,27 @@ impl<M: GuestAddressSpace, S: SignalUsedQueue> SimpleHandler<M, S> {
         self.process_tap()
     }
 }
+
+#[cfg(test)]
+mod test {
+    use mockall_double::double;
+    use std::io::Read;
+
+    #[double]
+    use super::super::tap::tap_mock::Tap;
+
+    #[test]
+    fn test_use_tap() {
+        let mut tap = Tap::new(); // can be used as virtio::device::tap::Tap
+        tap.expect_read().returning(|buf| {
+            buf.copy_from_slice(b"abc");
+            Ok(3)
+        });
+
+        let mut buf = vec![0; 3];
+        assert_eq!(tap.read(&mut buf).unwrap(), 3);
+        assert_eq!(buf, b"abc");
+
+        // use tap in simple handler...
+    }
+}
