@@ -7,7 +7,7 @@ use std::convert::TryFrom;
 use std::path::PathBuf;
 
 use utils::resource_download::s3_download;
-use vmm::{KernelConfig, MemoryConfig, VMMConfig, VcpuConfig, VMM};
+use vmm::{KernelConfig, MemoryConfig, SerialConfig, VMMConfig, VcpuConfig, VMM};
 
 fn default_memory_config() -> MemoryConfig {
     MemoryConfig { size_mib: 1024 }
@@ -32,6 +32,7 @@ fn run_vmm(kernel_path: PathBuf) {
         vcpu_config: default_vcpu_config(),
         block_config: None,
         net_config: None,
+        serial_config: SerialConfig::default(),
     };
 
     let mut vmm = VMM::try_from(vmm_config).unwrap();
