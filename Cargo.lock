@@ -60,7 +60,7 @@ name = "devices"
 version = "0.1.0"
 dependencies = [
  "event-manager",
- "kvm-ioctls",
+ "kvm-ioctls 0.8.0",
  "libc",
  "linux-loader",
  "log",
@@ -105,6 +105,17 @@ name = "kvm-ioctls"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "74058b16912c6723db02d4ca3ec919b73cd41512ccd3b6202cf91ae8d6c9dce5"
+dependencies = [
+ "kvm-bindings",
+ "libc",
+ "vmm-sys-util",
+]
+
+[[package]]
+name = "kvm-ioctls"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2924454e22895c738e43331ae310459c74a11ded9c97dc250129ee10d2f9ca2"
 dependencies = [
  "kvm-bindings",
  "libc",
@@ -228,7 +239,7 @@ name = "vm-vcpu"
 version = "0.1.0"
 dependencies = [
  "kvm-bindings",
- "kvm-ioctls",
+ "kvm-ioctls 0.8.0",
  "libc",
  "utils",
  "vm-device",
@@ -243,7 +254,7 @@ dependencies = [
  "devices",
  "event-manager",
  "kvm-bindings",
- "kvm-ioctls",
+ "kvm-ioctls 0.9.0",
  "libc",
  "linux-loader",
  "utils",
