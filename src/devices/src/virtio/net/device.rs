@@ -5,12 +5,12 @@ use std::borrow::{Borrow, BorrowMut};
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 
+use virtio_device::{VirtioConfig, VirtioDeviceActions, VirtioDeviceType, VirtioMmioDevice};
+use virtio_queue::Queue;
 use vm_device::bus::MmioAddress;
 use vm_device::device_manager::MmioManager;
 use vm_device::{DeviceMmio, MutDeviceMmio};
 use vm_memory::GuestAddressSpace;
-use vm_virtio::device::{VirtioConfig, VirtioDeviceActions, VirtioDeviceType, VirtioMmioDevice};
-use vm_virtio::Queue;
 
 use crate::virtio::features::{VIRTIO_F_IN_ORDER, VIRTIO_F_RING_EVENT_IDX, VIRTIO_F_VERSION_1};
 use crate::virtio::net::features::*;

@@ -6,8 +6,8 @@ use std::io::{self, Read, Write};
 use std::result;
 
 use log::warn;
+use virtio_queue::{DescriptorChain, Queue};
 use vm_memory::{Bytes, GuestAddressSpace};
-use vm_virtio::{DescriptorChain, Queue};
 
 use crate::virtio::net::tap::Tap;
 use crate::virtio::net::{RXQ_INDEX, TXQ_INDEX};
@@ -25,12 +25,12 @@ const MAX_BUFFER_SIZE: usize = 65562;
 #[derive(Debug)]
 pub enum Error {
     GuestMemory(vm_memory::GuestMemoryError),
-    Queue(vm_virtio::Error),
+    Queue(virtio_queue::Error),
     Tap(io::Error),
 }
 
-impl From<vm_virtio::Error> for Error {
-    fn from(e: vm_virtio::Error) -> Self {
+impl From<virtio_queue::Error> for Error {
+    fn from(e: virtio_queue::Error) -> Self {
         Error::Queue(e)
     }
 }

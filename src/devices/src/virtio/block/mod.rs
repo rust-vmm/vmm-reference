@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::{self, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use vm_virtio::block::stdio_executor;
+use virtio_blk::stdio_executor;
 
 use crate::virtio::features::{VIRTIO_F_IN_ORDER, VIRTIO_F_RING_EVENT_IDX, VIRTIO_F_VERSION_1};
 

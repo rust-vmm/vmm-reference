@@ -7,13 +7,13 @@ use std::ops::DerefMut;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use virtio_blk::stdio_executor::StdIoBackend;
+use virtio_device::{VirtioConfig, VirtioDeviceActions, VirtioDeviceType, VirtioMmioDevice};
+use virtio_queue::Queue;
 use vm_device::bus::MmioAddress;
 use vm_device::device_manager::MmioManager;
 use vm_device::{DeviceMmio, MutDeviceMmio};
 use vm_memory::GuestAddressSpace;
-use vm_virtio::block::stdio_executor::StdIoBackend;
-use vm_virtio::device::{VirtioConfig, VirtioDeviceActions, VirtioDeviceType, VirtioMmioDevice};
-use vm_virtio::Queue;
 
 use crate::virtio::block::{BLOCK_DEVICE_ID, VIRTIO_BLK_F_RO};
 use crate::virtio::{CommonConfig, Env, SingleFdSignalQueue, QUEUE_MAX_SIZE};
