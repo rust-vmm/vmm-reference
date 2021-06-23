@@ -6,6 +6,7 @@ edition = "2018"
 license = "Apache-2.0 OR BSD-3-Clause"
 
 [dependencies]
+anyhow = "1.0"
 vmm = { path = "src/vmm" }
 api = { path = "src/api" }
 

@@ -49,6 +49,8 @@ use serial::SerialWrapper;
 use vm_vcpu::vcpu::{cpuid::filter_cpuid, VcpuState};
 use vm_vcpu::vm::{self, ExitHandler, KvmVm, VmState};
 
+use thiserror::Error;
+
 mod boot;
 mod config;
 
@@ -81,41 +83,58 @@ pub enum MemoryError {
 }
 
 /// VMM errors.
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum Error {
     /// Failed to create block device.
+    #[error("Failed to create block device {0:?}.")]
     Block(block::Error),
     /// Failed to write boot parameters to guest memory.
+    #[error("Failed to write boot parameters to guest memory {0:?}.")]
     BootConfigure(configurator::Error),
     /// Error configuring boot parameters.
+    #[error("Error configuring boot parameters {0:?}.")]
     BootParam(boot::Error),
     /// Error configuring the kernel command line.
+    #[error("Error configuring the kernel command line {0:?}.")]
     Cmdline(cmdline::Error),
     /// Error setting up devices.
+    #[error("Error setting up devices {0:?}.")]
     Device(serial::Error),
     /// Event management error.
+    #[error("Event management error {0}.")]
     EventManager(event_manager::Error),
     /// I/O error.
+    #[error("I/O error {0}.")]
     IO(io::Error),
     /// Failed to load kernel.
+    #[error("Failed to load kernel {0}.")]
     KernelLoad(loader::Error),
     /// Failed to create net device.
+    #[error("Failed to create net device {0:?}.")]
     Net(net::Error),
     /// Address stored in the rip registry does not fit in guest memory.
+    #[error("Address stored in the rip registry does not fit in guest memory.")]
     RipOutOfGuestMemory,
     /// Invalid KVM API version.
+    #[error("Invalid KVM API version {0}.")]
     KvmApiVersion(i32),
     /// Unsupported KVM capability.
+    #[error("Unsupported KVM capability {0:?}.")]
     KvmCap(Cap),
     /// Error issuing an ioctl to KVM.
+    #[error("Error issuing an ioctl to KVM {0:?}.")]
     KvmIoctl(kvm_ioctls::Error),
     /// Memory error.
+    #[error("Memory error {0:?}.")]
     Memory(MemoryError),
     /// Invalid number of vCPUs specified.
+    #[error("Invalid number of vCPUs specified {0:?}.")]
     VcpuNumber(u8),
     /// VM errors.
+    #[error("VM errors {0:?}.")]
     Vm(vm::Error),
     /// Exit event errors.
+    #[error("Exit event errors {0:?}.")]
     ExitEvent(io::Error),
 }
 
