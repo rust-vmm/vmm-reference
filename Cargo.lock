@@ -215,13 +215,9 @@ dependencies = [
 
 [[package]]
 name = "vm-superio"
-version = "0.1.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d690c241393f2b9cbe4d37279c8b994fdf244faa15c71f4a7196632880324c77"
-dependencies = [
- "libc",
- "vmm-sys-util",
-]
+checksum = "e04e8579e93095777eaf185dcfe0d9cfa824615be0100af4f965b7e35bdffd04"
 
 [[package]]
 name = "vm-vcpu"
