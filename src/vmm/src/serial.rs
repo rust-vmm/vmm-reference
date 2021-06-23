@@ -3,10 +3,11 @@
 
 #![cfg(target_arch = "x86_64")]
 
-use std::convert::TryInto;
-use std::io::{stdin, Read, Write};
-
+use crate::console::ConsoleReaderWrapper;
 use event_manager::{EventOps, Events, MutEventSubscriber};
+use std::convert::TryInto;
+use std::io::{Read, Write};
+use utils::debug;
 use vm_device::{
     bus::{PioAddress, PioAddressValue},
     MutDevicePio,
@@ -14,10 +15,8 @@ use vm_device::{
 use vm_superio::Serial;
 use vmm_sys_util::epoll::EventSet;
 
-use utils::debug;
-
 /// Newtype for implementing `event-manager` functionalities.
-pub(crate) struct SerialWrapper<W: Write>(pub Serial<W>);
+pub(crate) struct SerialWrapper<W: Write>(pub Serial<W>, pub ConsoleReaderWrapper);
 
 impl<W: Write> MutEventSubscriber for SerialWrapper<W> {
     fn process(&mut self, events: Events, ops: &mut EventOps) {
@@ -25,9 +24,11 @@ impl<W: Write> MutEventSubscriber for SerialWrapper<W> {
         // `EventSet::IN` => send what's coming from stdin to the guest.
         // `EventSet::HANG_UP` or `EventSet::ERROR` => deregister the serial input.
         let mut out = [0u8; 32];
-        match stdin().read(&mut out) {
+        let reader = self.1.read(&mut out);
+
+        match reader {
             Err(e) => {
-                eprintln!("Error while reading stdin: {:?}", e);
+                eprintln!("Error while reading input: {:?}", e);
             }
             Ok(count) => {
                 let event_set = events.event_set();
@@ -48,7 +49,7 @@ impl<W: Write> MutEventSubscriber for SerialWrapper<W> {
 
     fn init(&mut self, ops: &mut EventOps) {
         // Hook to stdin events.
-        ops.add(Events::new(&stdin(), EventSet::IN))
+        ops.add(Events::new(&self.1, EventSet::IN))
             .expect("Failed to register serial input event");
     }
 }
@@ -101,10 +102,10 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
-    use super::SerialWrapper;
-
     use std::io::sink;
 
+    use super::SerialWrapper;
+    use crate::console::ConsoleReaderWrapper;
     use vm_device::{bus::PioAddress, MutDevicePio};
     use vm_superio::Serial;
     use vmm_sys_util::eventfd::EventFd;
@@ -112,7 +113,10 @@ mod tests {
     #[test]
     fn test_invalid_data_len() {
         let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-        let mut serial_console = SerialWrapper(Serial::new(interrupt_evt, sink()));
+        let mut serial_console = SerialWrapper(
+            Serial::new(interrupt_evt, sink()),
+            ConsoleReaderWrapper::new(None),
+        );
 
         // In case the data length is more than 1, the read succeeds as we send
         // to the serial console just the first byte.

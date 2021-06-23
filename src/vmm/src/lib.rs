@@ -9,7 +9,7 @@
 use std::convert::TryFrom;
 use std::ffi::CString;
 use std::fs::File;
-use std::io::{self, stdin, stdout};
+use std::io::{self, stdin, Write};
 use std::ops::DerefMut;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -45,6 +45,7 @@ use devices::virtio::block::{self, BlockArgs};
 use devices::virtio::net::{self, NetArgs};
 use devices::virtio::{Env, MmioConfig};
 
+use console::{ConsoleReaderWrapper, ConsoleWriterWrapper};
 use serial::SerialWrapper;
 use vm_vcpu::vcpu::{cpuid::filter_cpuid, VcpuState};
 use vm_vcpu::vm::{self, ExitHandler, KvmVm, VmState};
@@ -52,6 +53,8 @@ use vm_vcpu::vm::{self, ExitHandler, KvmVm, VmState};
 mod boot;
 mod config;
 
+mod console;
+mod pipe;
 mod serial;
 
 /// First address past 32 bits is where the MMIO gap ends.
@@ -147,6 +150,7 @@ pub struct VMM {
     exit_handler: WrappedExitHandler,
     block_devices: Vec<Arc<Mutex<Block>>>,
     net_devices: Vec<Arc<Mutex<Net>>>,
+    serial_config: SerialConfig,
 }
 
 // The `VmmExitHandler` is used as the mechanism for exiting from the event manager loop.
@@ -238,6 +242,7 @@ impl TryFrom<VMMConfig> for VMM {
             exit_handler: wrapped_exit_handler,
             block_devices: Vec::new(),
             net_devices: Vec::new(),
+            serial_config: config.serial_config,
         };
 
         vmm.create_vcpus(&config.vcpu_config)?;
@@ -379,11 +384,17 @@ impl VMM {
     // Create and add a serial console to the VMM.
     fn add_serial_console(&mut self) -> Result<()> {
         // Create the serial console.
+        let serial;
         let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::IO)?;
-        let serial = Arc::new(Mutex::new(SerialWrapper(Serial::new(
-            interrupt_evt.try_clone().map_err(Error::IO)?,
-            stdout(),
-        ))));
+
+        let input = ConsoleReaderWrapper::new(self.serial_config.serial_input.clone());
+        let output = ConsoleWriterWrapper::new(self.serial_config.serial_output.clone());
+
+        let out_writer: Box<dyn Write + Send> = Box::new(output);
+        serial = Arc::new(Mutex::new(SerialWrapper(
+            Serial::new(interrupt_evt.try_clone().map_err(Error::IO)?, out_writer),
+            input,
+        )));
 
         // Register its interrupt fd with KVM. IRQ line 4 is typically used for serial port 1.
         // See more IRQ assignments & info: https://tldp.org/HOWTO/Serial-HOWTO-8.html
@@ -595,6 +606,7 @@ mod tests {
             vcpu_config: VcpuConfig { num: NUM_VCPUS },
             block_config: None,
             net_config: None,
+            serial_config: SerialConfig::default(),
         }
     }
 
@@ -628,6 +640,7 @@ mod tests {
             exit_handler,
             block_devices: Vec::new(),
             net_devices: Vec::new(),
+            serial_config: vmm_config.serial_config,
         }
     }
 

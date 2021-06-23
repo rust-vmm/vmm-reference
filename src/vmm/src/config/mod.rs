@@ -30,6 +30,8 @@ pub enum ConversionError {
     ParseNet(String),
     /// Failed to parse the string representation for the block.
     ParseBlock(String),
+    /// Failed to parse the string representation for the serial config.
+    ParseSerial(String),
 }
 
 impl ConversionError {
@@ -47,6 +49,9 @@ impl ConversionError {
     }
     fn new_net<T: fmt::Display>(err: T) -> Self {
         Self::ParseNet(err.to_string())
+    }
+    fn new_serial<T: fmt::Display>(err: T) -> Self {
+        Self::ParseSerial(err.to_string())
     }
 }
 
@@ -66,6 +71,7 @@ impl fmt::Display for ConversionError {
             ParseVcpus(ref s) => write!(f, "Invalid input for vCPUs: {}", s),
             ParseNet(ref s) => write!(f, "Invalid input for network: {}", s),
             ParseBlock(ref s) => write!(f, "Invalid input for block: {}", s),
+            ParseSerial(ref s) => write!(f, "Invalid input for serial: {}", s),
         }
     }
 }
@@ -211,6 +217,54 @@ impl TryFrom<&str> for NetConfig {
     }
 }
 
+/// Serial communication configuration
+#[derive(Clone, Debug, PartialEq)]
+pub struct SerialConfig {
+    /// Optional path to pipe the input of the guest OS.
+    pub serial_input: Option<PathBuf>,
+    /// Optional path to pipe the output of the guest OS.
+    pub serial_output: Option<PathBuf>,
+}
+
+impl Default for SerialConfig {
+    fn default() -> Self {
+        SerialConfig {
+            serial_input: None,
+            serial_output: None,
+        }
+    }
+}
+
+impl TryFrom<&str> for SerialConfig {
+    type Error = ConversionError;
+
+    fn try_from(serial_console_str: &str) -> Result<Self, Self::Error> {
+        let mut arg_parser = CfgArgParser::new(serial_console_str);
+
+        let serial_input: Option<String> = arg_parser
+            .value_of("serial_input")
+            .map_err(ConversionError::new_serial)?;
+
+        let serial_output: Option<String> = arg_parser
+            .value_of("serial_output")
+            .map_err(ConversionError::new_serial)?;
+
+        arg_parser
+            .all_consumed()
+            .map_err(ConversionError::new_serial)?;
+        Ok(SerialConfig {
+            serial_input: match serial_input {
+                None => None,
+                Some(x) => Some(PathBuf::from(x)),
+            },
+            serial_output: match serial_output {
+                None => None,
+                Some(x) => Some(PathBuf::from(x)),
+            },
+        })
+    }
+}
+
 /// Block device configuration
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlockConfig {
@@ -250,6 +304,8 @@ pub struct VMMConfig {
     pub net_config: Option<NetConfig>,
     /// Block device configuration.
     pub block_config: Option<BlockConfig>,
+    /// Serial communication configuration.
+    pub serial_config: SerialConfig,
 }
 
 #[cfg(test)]
@@ -360,6 +416,17 @@ mod tests {
         // Test case: unused parameters
         let block_str = "path=/foo/bar,blah=blah";
         assert!(BlockConfig::try_from(block_str).is_err());
+    }
+
+    #[test]
+    fn test_serial_config() {
+        let serial_str = r#"serial_input=/foo/bar/in,serial_output=/foo/bar/out"#;
+        let serial_cfg = SerialConfig::try_from(serial_str).unwrap();
+        let expected_cfg = SerialConfig {
+            serial_input: Some(PathBuf::from(String::from("/foo/bar/in"))),
+            serial_output: Some(PathBuf::from(String::from("/foo/bar/out"))),
+        };
+        assert_eq!(serial_cfg, expected_cfg);
     }
 
     #[test]
