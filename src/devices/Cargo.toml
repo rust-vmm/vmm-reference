@@ -19,7 +19,9 @@ vmm-sys-util = "0.8.0"
 # vm-vcpu build, we're using a fixed revision.
 vm-device = { git = "https://github.com/rust-vmm/vm-device", rev = "5847f12" }
 
-vm-virtio = { git = "https://github.com/rust-vmm/vm-virtio.git", features = ["backend-stdio"] }
+virtio-blk = { git = "https://github.com/rust-vmm/vm-virtio.git", features = ["backend-stdio"] }
+virtio-device = { git = "https://github.com/rust-vmm/vm-virtio.git"}
+virtio-queue = { git = "https://github.com/rust-vmm/vm-virtio.git"}
 
 [dev-dependencies]
 vm-memory = { version = "0.5.0", features = ["backend-mmap"] }

@@ -18,11 +18,11 @@ use event_manager::{
 };
 use kvm_ioctls::{IoEventAddress, VmFd};
 use linux_loader::cmdline::Cmdline;
+use virtio_device::VirtioConfig;
 use vm_device::bus::{self, MmioAddress, MmioRange};
 use vm_device::device_manager::MmioManager;
 use vm_device::DeviceMmio;
 use vm_memory::{GuestAddress, GuestAddressSpace};
-use vm_virtio::device::VirtioConfig;
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::{EventFd, EFD_NONBLOCK};
 
@@ -277,7 +277,7 @@ pub(crate) mod tests {
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     use event_manager::{EventOps, Events};
-    use vm_virtio::Queue;
+    use virtio_queue::Queue;
 
     use super::features::VIRTIO_F_VERSION_1;
     use super::*;
