@@ -1,0 +1,47 @@
+version: 2
+updates:
+- package-ecosystem: gitsubmodule
+  directory: "/"
+  schedule:
+    interval: daily
+  open-pull-requests-limit: 10
+- package-ecosystem: cargo
+  directory: "/"
+  schedule:
+    interval: daily
+  open-pull-requests-limit: 10
+  allow:
+  - dependency-type: direct
+  - dependency-type: indirect
+  ignore:
+  - dependency-name: libc
+    versions:
+    - 0.2.86
+    - 0.2.88
+    - 0.2.89
+    - 0.2.92
+    - 0.2.93
+  - dependency-name: byteorder
+    versions:
+    - 1.4.2
+    - 1.4.3
+  - dependency-name: kvm-ioctls
+    versions:
+    - 0.7.0
+    - 0.8.0
+  - dependency-name: kvm-bindings
+    versions:
+    - 0.3.1
+    - 0.4.0
+  - dependency-name: log
+    versions:
+    - 0.4.14
+  - dependency-name: vm-memory
+    versions:
+    - 0.5.0
+  - dependency-name: vmm-sys-util
+    versions:
+    - 0.8.0
+  - dependency-name: hermit-abi
+    versions:
+    - 0.1.18
