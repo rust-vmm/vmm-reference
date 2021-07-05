@@ -91,6 +91,8 @@ impl BlockArgs {
 
             if self.read_only {
                 s.push_str(" ro");
+            } else {
+                s.push_str(" rw");
             }
         }
         s
@@ -178,6 +180,6 @@ mod tests {
         assert_eq!(args.cmdline_config_substring(), "root=/dev/vda ro");
 
         args.read_only = false;
-        assert_eq!(args.cmdline_config_substring(), "root=/dev/vda");
+        assert_eq!(args.cmdline_config_substring(), "root=/dev/vda rw");
     }
 }
