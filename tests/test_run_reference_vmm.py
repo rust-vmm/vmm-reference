@@ -88,7 +88,7 @@ and run locally.
 
 def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=1024):
     # Kernel config
-    cmdline = "console=ttyS0 i8042.nokbd reboot=t panic=1 pci=off rw"
+    cmdline = "console=ttyS0 i8042.nokbd reboot=t panic=1 pci=off"
 
     himem_start = 1048576
 
