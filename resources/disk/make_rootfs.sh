@@ -29,19 +29,25 @@ DISKMNT="mnt/rootfs"
 UBUNTUVER="focal"
 # Hostname for the guest image we're building.
 HOSTNAME="ubuntu-rust-vmm"
+# Installation script.
+INSTALL_SCRIPT="$TEST_RESOURCE_DIR/install_system.sh"
 
 USAGE="
-Usage: $(basename $SOURCE) -d debdir [-w workdir] [-o diskfile] [-c]
+Usage: $(basename $SOURCE) -d debdir [-w workdir] [-o diskfile] [-v version] [-s size] [-c] [-n]
 
 Options:
   -d debdir         Directory containing .deb packages for the Linux image.
   -w workdir        Working directory for the kernel build.
   -o diskfile       Name of the resulting disk file.
+  -v version        The Ubuntu version desired. Defaults to focal.
+  -s disk size      The size of the resulting rootfs. This needs to be
+                    an integer followed by an unit (10K, 500M, 1G).
   -c                Clean up the working directory after the build.
+  -n                Do not perform default system installation.
 "
 export USAGE
 
-while getopts ":cd:w:o:" opt; do
+while getopts ":cd:w:o:v:s:n" opt; do
     case "$opt" in
     c)  CLEAN=1
         ;;
@@ -51,6 +57,12 @@ while getopts ":cd:w:o:" opt; do
         WORKDIR="$OPTARG"
         ;;
     o)  DISKFILE="$OPTARG"
+        ;;
+    v)  UBUNTUVER="$OPTARG"
+        ;;
+    s)  DISKSIZE="$OPTARG"
+        ;;
+    n)  NOINSTALL=1
         ;;
     *)  echo "$USAGE"
         exit 1
@@ -63,8 +75,6 @@ die() {
     echo "$USAGE"
     exit 1
 }
-
-[ ! -d "$DEBDIR" ] && die "$DEBDIR does not exist."
 
 cleanup() {
     if [ -n "$CLEAN" ]; then
@@ -103,17 +113,21 @@ ExecStart=
 ExecStart=-/sbin/agetty --autologin root -o '-p -- \\u' --keep-baud 115200,38400,9600 %I $TERM
 EOF
 
-# OS is bootstrapped now, time to install the kernel packages.
-# This is done from inside a chroot, to trick dpkg.
-# First, copy the .deb packages inside the chroot folder, in /mnt/root.
-mkdir -p "$WORKDIR/$DISKMNT/mnt/root/"
-cp "$DEBDIR"/*.deb "$WORKDIR/$DISKMNT/mnt/root/"
+if [ -z "$NOINSTALL" ]; then
+    [ ! -d "$DEBDIR" ] && die "$DEBDIR does not exist."
 
-# Copy the script that calls dpkg (and some other things) inside the chroot.
-cp "$TEST_RESOURCE_DIR/install_system.sh" "$WORKDIR/$DISKMNT"
+    # OS is bootstrapped now, time to install the kernel packages.
+    # This is done from inside a chroot, to trick dpkg.
+    # First, copy the .deb packages inside the chroot folder, in /mnt/root.
+    mkdir -p "$WORKDIR/$DISKMNT/mnt/root/"
+    cp "$DEBDIR"/*.deb "$WORKDIR/$DISKMNT/mnt/root/"
 
-# Chroot.
-chroot "$WORKDIR/$DISKMNT" /bin/bash "/install_system.sh"
+    # Copy the script that calls dpkg (and some other things) inside the chroot.
+    cp "$INSTALL_SCRIPT" "$WORKDIR/$DISKMNT/install_system.sh"
+
+    # Chroot.
+    chroot "$WORKDIR/$DISKMNT" /bin/bash "/install_system.sh"
+fi
 
 # Unmount.
 umount "$WORKDIR/$DISKMNT"
