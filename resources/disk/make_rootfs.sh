@@ -37,11 +37,12 @@ Options:
   -d debdir         Directory containing .deb packages for the Linux image.
   -w workdir        Working directory for the kernel build.
   -o diskfile       Name of the resulting disk file.
+  -f flavour        The Ubuntu flavour desired. Defaults to "focal"
   -c                Clean up the working directory after the build.
 "
 export USAGE
 
-while getopts ":cd:w:o:" opt; do
+while getopts ":cd:w:o:f:" opt; do
     case "$opt" in
     c)  CLEAN=1
         ;;
@@ -51,6 +52,8 @@ while getopts ":cd:w:o:" opt; do
         WORKDIR="$OPTARG"
         ;;
     o)  DISKFILE="$OPTARG"
+        ;;
+    f)  UBUNTUVER="$OPTARG"
         ;;
     *)  echo "$USAGE"
         exit 1
