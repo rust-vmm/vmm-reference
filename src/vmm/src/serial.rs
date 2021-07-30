@@ -4,22 +4,23 @@
 #![cfg(target_arch = "x86_64")]
 
 use std::convert::TryInto;
-use std::io::{stdin, Read, Write};
+use std::io::{self, stdin, Read, Write};
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use vm_device::{
     bus::{PioAddress, PioAddressValue},
     MutDevicePio,
 };
-use vm_superio::Serial;
+use vm_superio::serial::{NoEvents, SerialEvents};
+use vm_superio::{Serial, Trigger};
 use vmm_sys_util::epoll::EventSet;
 
 use utils::debug;
 
 /// Newtype for implementing `event-manager` functionalities.
-pub(crate) struct SerialWrapper<W: Write>(pub Serial<W>);
+pub(crate) struct SerialWrapper<T: Trigger, EV: SerialEvents, W: Write>(pub Serial<T, EV, W>);
 
-impl<W: Write> MutEventSubscriber for SerialWrapper<W> {
+impl<T: Trigger, W: Write> MutEventSubscriber for SerialWrapper<T, NoEvents, W> {
     fn process(&mut self, events: Events, ops: &mut EventOps) {
         // Respond to stdin events.
         // `EventSet::IN` => send what's coming from stdin to the guest.
@@ -53,7 +54,7 @@ impl<W: Write> MutEventSubscriber for SerialWrapper<W> {
     }
 }
 
-impl<W: Write> MutDevicePio for SerialWrapper<W> {
+impl<T: Trigger<E = io::Error>, W: Write> MutDevicePio for SerialWrapper<T, NoEvents, W> {
     fn pio_read(&mut self, _base: PioAddress, offset: PioAddressValue, data: &mut [u8]) {
         // TODO: this function can't return an Err, so we'll mark error conditions
         // (data being more than 1 byte, offset overflowing an u8) with logs & metrics.
@@ -101,17 +102,18 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
+    use crate::EventFdTrigger;
+
     use super::SerialWrapper;
 
     use std::io::sink;
 
     use vm_device::{bus::PioAddress, MutDevicePio};
     use vm_superio::Serial;
-    use vmm_sys_util::eventfd::EventFd;
 
     #[test]
     fn test_invalid_data_len() {
-        let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let interrupt_evt = EventFdTrigger::new(libc::EFD_NONBLOCK).unwrap();
         let mut serial_console = SerialWrapper(Serial::new(interrupt_evt, sink()));
 
         // In case the data length is more than 1, the read succeeds as we send
