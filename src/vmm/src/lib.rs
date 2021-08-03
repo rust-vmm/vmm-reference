@@ -10,7 +10,7 @@ use std::convert::TryFrom;
 use std::ffi::CString;
 use std::fs::File;
 use std::io::{self, stdin, stdout};
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -36,7 +36,7 @@ use vm_device::bus::{MmioAddress, MmioRange};
 use vm_device::device_manager::IoManager;
 use vm_device::resources::Resource;
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
-use vm_superio::Serial;
+use vm_superio::{Serial, Trigger};
 use vmm_sys_util::{epoll::EventSet, eventfd::EventFd, terminal::Terminal};
 
 use boot::build_bootparams;
@@ -198,6 +198,37 @@ impl MutEventSubscriber for VmmExitHandler {
     fn init(&mut self, ops: &mut EventOps) {
         ops.add(Events::new(&self.exit_event, EventSet::IN))
             .expect("Cannot initialize exit handler.");
+    }
+}
+
+/// Newtype for implementing [Trigger](https://docs.rs/vm-superio/latest/vm_superio/trait.Trigger.html) trait
+struct EventFdTrigger(EventFd);
+
+impl Trigger for EventFdTrigger {
+    type E = io::Error;
+
+    fn trigger(&self) -> io::Result<()> {
+        self.0.write(1)
+    }
+}
+
+impl Deref for EventFdTrigger {
+    type Target = EventFd;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl EventFdTrigger {
+    pub fn new(flag: i32) -> io::Result<Self> {
+        let event_fd = EventFd::new(flag)?;
+        Ok(EventFdTrigger(event_fd))
+    }
+
+    pub fn try_clone(&self) -> io::Result<Self> {
+        let event_fd = (**self).try_clone()?;
+        Ok(EventFdTrigger(event_fd))
     }
 }
 
@@ -379,7 +410,7 @@ impl VMM {
     // Create and add a serial console to the VMM.
     fn add_serial_console(&mut self) -> Result<()> {
         // Create the serial console.
-        let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::IO)?;
+        let interrupt_evt = EventFdTrigger::new(libc::EFD_NONBLOCK).map_err(Error::IO)?;
         let serial = Arc::new(Mutex::new(SerialWrapper(Serial::new(
             interrupt_evt.try_clone().map_err(Error::IO)?,
             stdout(),

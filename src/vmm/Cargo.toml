@@ -12,7 +12,7 @@ kvm-ioctls = "0.8.0"
 libc = "0.2.91"
 linux-loader = { version = "0.3.0", features = ["bzimage", "elf"] }
 vm-memory = { version = "0.5.0", features = ["backend-mmap"] }
-vm-superio = "0.1.1"
+vm-superio = "0.3.0"
 vmm-sys-util = "0.8.0"
 
 # vm-device is not yet published on crates.io.
