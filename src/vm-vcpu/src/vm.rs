@@ -223,7 +223,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
     }
 
     #[cfg(target_arch = "aarch64")]
-    fn setup_irq_controller(&self) -> Result<()> {
+    pub fn setup_irq_controller(&self) -> Result<()> {
         let cpu_if_addr: u64 = AARCH64_GIC_CPUI_BASE;
         let dist_if_addr: u64 = AARCH64_GIC_DIST_BASE;
         let redist_addr: u64 = dist_if_addr - (AARCH64_GIC_REDIST_SIZE * self.state.num_vcpus as u64);
@@ -306,7 +306,39 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
         Ok(())
     }
 
+    /// Creates vcpus based on the passed configuration.
+    ///
+    /// Once this function is called, no more calls to `create_vcpu` are
+    /// allowed.
+    pub fn create_vcpus<M: GuestMemory>(
+        &mut self,
+        bus: Arc<Mutex<IoManager>>,
+        vcpu_states: Vec<VcpuState>,
+        memory: &M,
+    ) -> Result<()> {
+        for state in vcpu_states {
+            let vcpu = KvmVcpu::new(
+                &self.fd,
+                bus.clone(),
+                state,
+                self.vcpu_barrier.clone(),
+                self.vcpu_run_state.clone(),
+                memory,
+            )
+                .map_err(Error::CreateVcpu)?;
+            self.vcpus.push(vcpu);
+        }
+        #[cfg(target_arch = "aarch64")]
+        self.setup_irq_controller()?;
+
+        Ok(())
+    }
+
     /// Create a Vcpu based on the passed configuration.
+    ///
+    /// On aarch64, `setup_irq_controller` needs to be called after creating
+    /// all needed vCPUs. The preferred way is using the `create_vcpus`
+    /// function that does all required configuration.
     pub fn create_vcpu<M: GuestMemory>(
         &mut self,
         bus: Arc<Mutex<IoManager>>,
@@ -323,11 +355,6 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
         )
         .map_err(Error::CreateVcpu)?;
         self.vcpus.push(vcpu);
-        #[cfg(target_arch = "aarch64")]
-        if !self.irq_initialized {
-            self.setup_irq_controller()?;
-            self.irq_initialized = true;
-        }
         Ok(())
     }
 
