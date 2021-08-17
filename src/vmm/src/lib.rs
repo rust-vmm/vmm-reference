@@ -595,6 +595,7 @@ impl Vmm {
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
             .map_err(Error::KvmIoctl)?;
 
+        let mut vcpu_states = Vec::new();
         for index in 0..vcpu_cfg.num {
             // Set CPUID.
             #[cfg(target_arch = "x86_64")]
@@ -606,9 +607,11 @@ impl Vmm {
             let vcpu_state = VcpuState { cpuid, id: index };
             #[cfg(target_arch = "aarch64")]
             let vcpu_state = VcpuState { id: index };
-            self.vm
-                .create_vcpu(self.device_mgr.clone(), vcpu_state, &self.guest_memory)?;
+            vcpu_states.push(vcpu_state);
         }
+
+        self.vm
+            .create_vcpus(self.device_mgr.clone(), vcpu_states, &self.guest_memory)?;
 
         Ok(())
     }
