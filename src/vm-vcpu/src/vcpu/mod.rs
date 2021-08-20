@@ -210,6 +210,13 @@ impl KvmVcpu {
     fn init(&mut self, vm_fd: &VmFd) -> Result<()> {
         let mut kvi: kvm_vcpu_init = kvm_vcpu_init::default();
         vm_fd.get_preferred_target(&mut kvi).map_err(Error::KvmIoctl)?;
+
+        kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_PSCI_0_2;
+        // Non-boot cpus are powered off initially.
+        if self.state.id > 0 {
+            kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_POWER_OFF;
+        }
+
         self.vcpu_fd.vcpu_init(&kvi).map_err(Error::KvmIoctl)?;
 
         Ok(())

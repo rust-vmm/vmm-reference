@@ -118,9 +118,7 @@ fn create_cpu_nodes(fdt: &mut FdtWriter, num_cpus: u32) -> Result<()> {
         let cpu_node = fdt.begin_node(&cpu_name)?;
         fdt.property_string("device_type", "cpu")?;
         fdt.property_string("compatible", "arm,arm-v8")?;
-        if num_cpus > 1 {
-            fdt.property_string("enable-method", "psci")?;
-        }
+        fdt.property_string("enable-method", "psci")?;
         fdt.property_u32("reg", cpu_id)?;
         fdt.end_node(cpu_node)?;
     }
