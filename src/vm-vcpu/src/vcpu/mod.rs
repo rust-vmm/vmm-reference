@@ -10,16 +10,16 @@ use std::os::raw::c_int;
 use std::result;
 use std::sync::{Arc, Barrier, Condvar, Mutex};
 
+#[cfg(target_arch = "aarch64")]
+use kvm_bindings::kvm_vcpu_init;
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::{kvm_fpu, kvm_regs, CpuId};
-#[cfg(target_arch = "aarch64")]
-use kvm_bindings::{kvm_vcpu_init};
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
 use vm_device::bus::{MmioAddress, PioAddress};
 use vm_device::device_manager::{IoManager, MmioManager, PioManager};
+#[cfg(target_arch = "aarch64")]
+use vm_memory::GuestMemoryRegion;
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
-#[cfg(target_arch = "x86_64")]
-use vm_vcpu_ref::x86_64::gdt::{self, write_idt_value, Gdt, BOOT_GDT_OFFSET, BOOT_IDT_OFFSET};
 #[cfg(target_arch = "x86_64")]
 use vm_vcpu_ref::x86_64::gdt::{self, write_idt_value, Gdt, BOOT_GDT_OFFSET, BOOT_IDT_OFFSET};
 use vmm_sys_util::errno::Error as Errno;
@@ -30,11 +30,20 @@ use utils::debug;
 
 #[cfg(target_arch = "x86_64")]
 mod interrupts;
+
+#[cfg(target_arch = "aarch64")]
+#[macro_use]
+mod regs;
+
+#[cfg(target_arch = "aarch64")]
+use regs::*;
+
 #[cfg(target_arch = "x86_64")]
 use interrupts::*;
 
 use crate::vm::VmRunState;
-use arch::{AARCH64_PHYS_MEM_START, AARCH64_FDT_MAX_SIZE};
+#[cfg(target_arch = "aarch64")]
+use arch::{AARCH64_FDT_MAX_SIZE, AARCH64_PHYS_MEM_START};
 
 pub mod mpspec;
 pub mod mptable;
@@ -42,21 +51,33 @@ pub mod msr_index;
 pub mod msrs;
 
 /// Initial stack for the boot CPU.
+#[cfg(target_arch = "x86_64")]
 const BOOT_STACK_POINTER: u64 = 0x8ff0;
 /// Address of the zeropage, where Linux kernel boot parameters are written.
+#[cfg(target_arch = "x86_64")]
 const ZEROPG_START: u64 = 0x7000;
 
 // Initial pagetables.
-const PML4_START: u64 = 0x9000;
-const PDPTE_START: u64 = 0xa000;
-const PDE_START: u64 = 0xb000;
+#[cfg(target_arch = "x86_64")]
+mod pagetable {
+    pub const PML4_START: u64 = 0x9000;
+    pub const PDPTE_START: u64 = 0xa000;
+    pub const PDE_START: u64 = 0xb000;
+}
+#[cfg(target_arch = "x86_64")]
+use pagetable::*;
 
-const X86_CR0_PE: u64 = 0x1;
-const X86_CR0_PG: u64 = 0x8000_0000;
-const X86_CR4_PAE: u64 = 0x20;
+#[cfg(target_arch = "x86_64")]
+mod regs {
+    pub const X86_CR0_PE: u64 = 0x1;
+    pub const X86_CR0_PG: u64 = 0x8000_0000;
+    pub const X86_CR4_PAE: u64 = 0x20;
+}
+#[cfg(target_arch = "x86_64")]
+use regs::*;
 
 #[cfg(target_arch = "aarch64")]
-use kvm_bindings::{PSR_A_BIT, PSR_F_BIT, PSR_D_BIT, PSR_MODE_EL1h, PSR_I_BIT};
+use kvm_bindings::{PSR_MODE_EL1h, PSR_A_BIT, PSR_D_BIT, PSR_F_BIT, PSR_I_BIT};
 
 /// Errors encountered during vCPU operation.
 #[derive(Debug)]
@@ -106,26 +127,6 @@ impl VcpuRunState {
     }
 }
 
-const KVM_REG_ARM64: u64 = 0x6000000000000000;
-const KVM_REG_SIZE_U64: u64 = 0x0030000000000000;
-const KVM_REG_ARM_COPROC_SHIFT: u64 = 16;
-const KVM_REG_ARM_CORE: u64 = 0x0010 << KVM_REG_ARM_COPROC_SHIFT;
-
-macro_rules! arm64_core_reg {
-    ($reg: tt) => {
-        KVM_REG_ARM64
-            | KVM_REG_SIZE_U64
-            | KVM_REG_ARM_CORE
-            | ((offset__of!(kvm_bindings::user_pt_regs, $reg) / 4) as u64)
-    };
-}
-
-macro_rules! offset__of {
-    ($str:ty, $($field:ident).+ $([$idx:expr])*) => {
-        unsafe { &(*(0 as *const $str))$(.$field)*  $([$idx])* as *const _ as usize }
-    }
-}
-
 /// Struct for interacting with vCPUs.
 ///
 /// This struct is a temporary (and quite terrible) placeholder until the
@@ -152,7 +153,12 @@ impl KvmVcpu {
         run_state: Arc<VcpuRunState>,
         memory: &M,
     ) -> Result<Self> {
-        let mut vcpu = KvmVcpu {
+        #[cfg(target_arch = "x86_64")]
+        let vcpu;
+        #[cfg(target_arch = "aarch64")]
+        let mut vcpu;
+
+        vcpu = KvmVcpu {
             vcpu_fd: vm_fd
                 .create_vcpu(state.id.into())
                 .map_err(Error::KvmIoctl)?,
@@ -163,18 +169,18 @@ impl KvmVcpu {
         };
 
         #[cfg(target_arch = "x86_64")]
-            {
-                vcpu.configure_cpuid(&vcpu.state.cpuid)?;
-                vcpu.configure_msrs()?;
-                vcpu.configure_sregs(memory)?;
-                vcpu.configure_lapic()?;
-                vcpu.configure_fpu()?;
-            }
+        {
+            vcpu.configure_cpuid(&vcpu.state.cpuid)?;
+            vcpu.configure_msrs()?;
+            vcpu.configure_sregs(memory)?;
+            vcpu.configure_lapic()?;
+            vcpu.configure_fpu()?;
+        }
 
-        # [cfg(target_arch = "aarch64")]
+        #[cfg(target_arch = "aarch64")]
         {
             vcpu.init(vm_fd)?;
-            vcpu.configure_regs(memory);
+            vcpu.configure_regs(memory)?;
         }
 
         Ok(vcpu)
@@ -182,7 +188,6 @@ impl KvmVcpu {
 
     #[cfg(target_arch = "aarch64")]
     fn configure_regs<M: GuestMemory>(&mut self, guest_mem: &M) -> Result<()> {
-
         // set up registers
         let mut data: u64;
         let mut reg_id: u64;
@@ -190,7 +195,9 @@ impl KvmVcpu {
         // All interrupts masked
         data = (PSR_D_BIT | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT | PSR_MODE_EL1h).into();
         reg_id = arm64_core_reg!(pstate);
-        self.vcpu_fd.set_one_reg(reg_id, data).map_err(Error::SetReg)?;
+        self.vcpu_fd
+            .set_one_reg(reg_id, data)
+            .map_err(Error::SetReg)?;
 
         // Other cpus are powered off initially
         if self.state.id == 0 {
@@ -200,7 +207,9 @@ impl KvmVcpu {
             data = (AARCH64_PHYS_MEM_START + fdt_offset) as u64;
             // hack -- can't get this to do offsetof(regs[0]) but luckily it's at offset 0
             reg_id = arm64_core_reg!(regs);
-            self.vcpu_fd.set_one_reg(reg_id, data).map_err(Error::SetReg)?;
+            self.vcpu_fd
+                .set_one_reg(reg_id, data)
+                .map_err(Error::SetReg)?;
         }
 
         Ok(())
@@ -209,7 +218,9 @@ impl KvmVcpu {
     #[cfg(target_arch = "aarch64")]
     fn init(&mut self, vm_fd: &VmFd) -> Result<()> {
         let mut kvi: kvm_vcpu_init = kvm_vcpu_init::default();
-        vm_fd.get_preferred_target(&mut kvi).map_err(Error::KvmIoctl)?;
+        vm_fd
+            .get_preferred_target(&mut kvi)
+            .map_err(Error::KvmIoctl)?;
 
         kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_PSCI_0_2;
         // Non-boot cpus are powered off initially.
@@ -410,7 +421,9 @@ impl KvmVcpu {
             let data = instruction_pointer.0;
             println!("data={}", data);
             let reg_id = arm64_core_reg!(pc);
-            self.vcpu_fd.set_one_reg(reg_id, data).map_err(Error::SetReg)?;
+            self.vcpu_fd
+                .set_one_reg(reg_id, data)
+                .map_err(Error::SetReg)?;
         }
         self.init_tls()?;
 

@@ -6,12 +6,19 @@ use std::io::{self, ErrorKind};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread::{self, JoinHandle};
 
-use kvm_bindings::{kvm_pit_config, kvm_userspace_memory_region, KVM_PIT_SPEAKER_DUMMY};
+use kvm_bindings::kvm_userspace_memory_region;
 #[cfg(target_arch = "aarch64")]
-use kvm_bindings::{kvm_device_attr, kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V3, kvm_create_device, kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V2, KVM_DEV_ARM_VGIC_CTRL_INIT, KVM_VGIC_V3_ADDR_TYPE_REDIST, KVM_DEV_ARM_VGIC_GRP_CTRL, KVM_DEV_ARM_VGIC_GRP_NR_IRQS, KVM_VGIC_V3_ADDR_TYPE_DIST, KVM_VGIC_V2_ADDR_TYPE_CPU, KVM_VGIC_V2_ADDR_TYPE_DIST, KVM_DEV_ARM_VGIC_GRP_ADDR};
+use kvm_bindings::{
+    kvm_create_device, kvm_device_attr, kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V2,
+    kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V3, KVM_DEV_ARM_VGIC_CTRL_INIT,
+    KVM_DEV_ARM_VGIC_GRP_ADDR, KVM_DEV_ARM_VGIC_GRP_CTRL, KVM_DEV_ARM_VGIC_GRP_NR_IRQS,
+    KVM_VGIC_V2_ADDR_TYPE_CPU, KVM_VGIC_V2_ADDR_TYPE_DIST, KVM_VGIC_V3_ADDR_TYPE_DIST,
+    KVM_VGIC_V3_ADDR_TYPE_REDIST,
+};
+#[cfg(target_arch = "x86_64")]
+use kvm_bindings::{kvm_pit_config, KVM_PIT_SPEAKER_DUMMY};
 
-use arch::{AARCH64_GIC_CPUI_BASE, AARCH64_GIC_DIST_BASE, AARCH64_GIC_REDIST_SIZE, AARCH64_GIC_NR_IRQS};
-use kvm_ioctls::{Kvm, VmFd, DeviceFd};
+use kvm_ioctls::{Kvm, VmFd};
 use vm_device::device_manager::IoManager;
 use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryRegion};
 use vmm_sys_util::errno::Error as Errno;
@@ -21,6 +28,11 @@ use vmm_sys_util::signal::{Killable, SIGRTMIN};
 #[cfg(target_arch = "x86_64")]
 use vm_vcpu_ref::x86_64::mptable::{self, MpTable};
 use crate::vcpu::{self, KvmVcpu, VcpuRunState, VcpuState};
+
+#[cfg(target_arch = "aarch64")]
+use arch::{
+    AARCH64_GIC_CPUI_BASE, AARCH64_GIC_DIST_BASE, AARCH64_GIC_NR_IRQS, AARCH64_GIC_REDIST_SIZE,
+};
 
 /// Defines the state from which a `KvmVm` is initialized.
 pub struct VmState {
@@ -42,7 +54,6 @@ pub struct KvmVm<EH: ExitHandler + Send> {
     exit_handler: EH,
     vcpu_barrier: Arc<Barrier>,
     vcpu_run_state: Arc<VcpuRunState>,
-    irq_initialized: bool,
 }
 
 #[derive(Debug)]
@@ -101,6 +112,7 @@ impl Default for VmRunState {
     }
 }
 
+#[cfg(target_arch = "aarch64")]
 enum DeviceKind {
     ArmVgicV3,
     ArmVgicV2,
@@ -126,8 +138,6 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
             vcpu_handles: Vec::new(),
             exit_handler,
             vcpu_run_state,
-            // hack to be removed; just so we can quickly start an aarch64 vm for POC;
-            irq_initialized: false,
         };
 
         vm.configure_memory_regions(guest_memory, kvm)?;
@@ -204,29 +214,12 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
             .map_err(Error::SetupInterruptController)
     }
 
-    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
-    fn create_gic_device(vm: &VmFd, flags: u32) -> DeviceFd {
-        let mut gic_device = kvm_bindings::kvm_create_device {
-            type_: kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V3,
-            fd: 0,
-            flags,
-        };
-        let device_fd = match vm.create_device(&mut gic_device) {
-            Ok(fd) => fd,
-            Err(_) => {
-                gic_device.type_ = kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V2;
-                vm.create_device(&mut gic_device)
-                    .expect("Cannot create KVM vGIC device")
-            }
-        };
-        device_fd
-    }
-
     #[cfg(target_arch = "aarch64")]
     pub fn setup_irq_controller(&self) -> Result<()> {
         let cpu_if_addr: u64 = AARCH64_GIC_CPUI_BASE;
         let dist_if_addr: u64 = AARCH64_GIC_DIST_BASE;
-        let redist_addr: u64 = dist_if_addr - (AARCH64_GIC_REDIST_SIZE * self.state.num_vcpus as u64);
+        let redist_addr: u64 =
+            dist_if_addr - (AARCH64_GIC_REDIST_SIZE * self.state.num_vcpus as u64);
         let raw_cpu_if_addr = &cpu_if_addr as *const u64;
         let raw_dist_if_addr = &dist_if_addr as *const u64;
         let raw_redist_addr = &redist_addr as *const u64;
@@ -260,10 +253,12 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
             ..Default::default()
         };
 
-        let (vgic, device_kind, cpu_redist_attr, dist_attr_attr) =
+        let (vgic, _, cpu_redist_attr, dist_attr_attr) =
             match self.vm_fd().create_device(&mut gic_v3_device) {
                 Err(_) => (
-                    self.vm_fd().create_device(&mut gic_v2_device).map_err(Error::SetupInterruptController)?,
+                    self.vm_fd()
+                        .create_device(&mut gic_v2_device)
+                        .map_err(Error::SetupInterruptController)?,
                     DeviceKind::ArmVgicV2,
                     cpu_if_attr,
                     KVM_VGIC_V2_ADDR_TYPE_DIST as u64,
@@ -278,9 +273,10 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
         dist_attr.attr = dist_attr_attr;
 
         // Safe because we allocated the struct that's being passed in
-        vgic.set_device_attr(&cpu_redist_attr).map_err(Error::SetupInterruptController)?;
-        vgic.set_device_attr(&dist_attr).map_err(Error::SetupInterruptController)?;
-
+        vgic.set_device_attr(&cpu_redist_attr)
+            .map_err(Error::SetupInterruptController)?;
+        vgic.set_device_attr(&dist_attr)
+            .map_err(Error::SetupInterruptController)?;
 
         // We need to tell the kernel how many irqs to support with this vgic
         let nr_irqs: u32 = AARCH64_GIC_NR_IRQS;
@@ -291,7 +287,8 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
             addr: nr_irqs_ptr as u64,
             flags: 0,
         };
-        vgic.set_device_attr(&nr_irqs_attr).map_err(Error::SetupInterruptController)?;
+        vgic.set_device_attr(&nr_irqs_attr)
+            .map_err(Error::SetupInterruptController)?;
 
         // Finalize the GIC
         let init_gic_attr = kvm_device_attr {
@@ -301,7 +298,8 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
             flags: 0,
         };
 
-        vgic.set_device_attr(&init_gic_attr).map_err(Error::SetupInterruptController)?;
+        vgic.set_device_attr(&init_gic_attr)
+            .map_err(Error::SetupInterruptController)?;
 
         Ok(())
     }
@@ -325,7 +323,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
                 self.vcpu_run_state.clone(),
                 memory,
             )
-                .map_err(Error::CreateVcpu)?;
+            .map_err(Error::CreateVcpu)?;
             self.vcpus.push(vcpu);
         }
         #[cfg(target_arch = "aarch64")]
@@ -526,7 +524,6 @@ mod tests {
             fd: Arc::new(kvm.create_vm().unwrap()),
             exit_handler: WrappedExitHandler::default(),
             vcpu_run_state: Arc::new(VcpuRunState::default()),
-            irq_initialized: false
         };
 
         // Setting up the irq_controller twice should return an error.
