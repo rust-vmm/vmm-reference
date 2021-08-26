@@ -1,8 +1,10 @@
 mod serial;
-pub use serial::SerialWrapper;
 pub use serial::Error as SerialError;
+pub use serial::SerialWrapper;
 
-pub mod rtc;
+#[cfg(target_arch = "aarch64")]
+mod rtc;
+#[cfg(target_arch = "aarch64")]
 pub use rtc::RTCWrapper;
 
 use std::io;

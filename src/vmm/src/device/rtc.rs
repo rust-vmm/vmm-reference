@@ -1,9 +1,7 @@
-use vm_device::MutDeviceMmio;
-use vm_device::bus::MmioAddress;
-use event_manager::{MutEventSubscriber, Events, EventOps};
-use std::io::Write;
 use std::convert::TryInto;
-use vm_superio::{RTC, rtc_pl031::NoEvents};
+use vm_device::bus::MmioAddress;
+use vm_device::MutDeviceMmio;
+use vm_superio::{rtc_pl031::NoEvents, RTC};
 
 pub struct RTCWrapper(pub RTC<NoEvents>);
 
