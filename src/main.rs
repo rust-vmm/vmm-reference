@@ -6,14 +6,14 @@ use std::convert::TryFrom;
 use std::env;
 
 #[cfg(target_arch = "x86_64")]
-use api::CLI;
+use api::Cli;
 #[cfg(target_arch = "x86_64")]
-use vmm::VMM;
+use vmm::Vmm;
 
 fn main() {
     #[cfg(target_arch = "x86_64")]
     {
-        match CLI::launch(
+        match Cli::launch(
             env::args()
                 .collect::<Vec<String>>()
                 .iter()
@@ -22,7 +22,7 @@ fn main() {
         ) {
             Ok(vmm_config) => {
                 let mut vmm =
-                    VMM::try_from(vmm_config).expect("Failed to create VMM from configurations");
+                    Vmm::try_from(vmm_config).expect("Failed to create VMM from configurations");
                 // For now we are just unwrapping here, in the future we might use a nicer way of
                 // handling errors such as pretty printing them.
                 vmm.run().unwrap();

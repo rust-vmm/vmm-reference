@@ -38,7 +38,7 @@ modifications, see
 
 The reference VMM is composed of 2 major crates packaged in a binary
 application: the `vmm` and a oneshot CLI that invokes it. The `vmm` crate
-exports an object (`struct VMM`) that encapsulates all the
+exports an object (`struct Vmm`) that encapsulates all the
 functionality-providing `rust-vmm` crates, as dependencies.
 
 Users of the reference VMM can replace the builtin command line parser with
@@ -52,7 +52,7 @@ to it only for guidelines.
 
 ## The `vmm` crate
 
-The `vmm` crate defines and exports a `struct VMM` that can be instantiated,
+The `vmm` crate defines and exports a `struct Vmm` that can be instantiated,
 configured with all the supported `rust-vmm` building blocks, and run. The
 crate consumes its `rust-vmm` dependencies either from
 [crates.io](http://crates.io/) or directly from their GitHub repositories, when
