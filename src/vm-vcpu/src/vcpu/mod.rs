@@ -331,7 +331,7 @@ impl KvmVcpu {
                             break;
                         }
                         VcpuExit::IoOut(addr, data) => {
-                            if 0x3f8 <= addr && addr < (0x3f8 + 8) {
+                            if (0x3f8..(0x3f8 + 8)).contains(&addr) {
                                 // Write at the serial port.
                                 if self
                                     .device_mgr
@@ -345,14 +345,14 @@ impl KvmVcpu {
                             } else if addr == 0x060 || addr == 0x061 || addr == 0x064 {
                                 // Write at the i8042 port.
                                 // See https://wiki.osdev.org/%228042%22_PS/2_Controller#PS.2F2_Controller_IO_Ports
-                            } else if 0x070 <= addr && addr <= 0x07f {
+                            } else if (0x070..=0x07f).contains(&addr) {
                                 // Write at the RTC port.
                             } else {
                                 // Write at some other port.
                             }
                         }
                         VcpuExit::IoIn(addr, data) => {
-                            if 0x3f8 <= addr && addr < (0x3f8 + 8) {
+                            if (0x3f8..(0x3f8 + 8)).contains(&addr) {
                                 // Read from the serial port.
                                 if self
                                     .device_mgr

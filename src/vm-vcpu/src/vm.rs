@@ -171,10 +171,12 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
         // The output from PIT channel 0 is connected to the PIC chip, so that it
         // generates an "IRQ 0" (system timer).
         // https://wiki.osdev.org/Programmable_Interval_Timer
-        let mut pit_config = kvm_pit_config::default();
-        // Set up the speaker PIT, because some kernels are musical and access the speaker port
-        // during boot. Without this, KVM would continuously exit to userspace.
-        pit_config.flags = KVM_PIT_SPEAKER_DUMMY;
+        let pit_config = kvm_pit_config {
+            // Set up the speaker PIT, because some kernels are musical and access the speaker port
+            // during boot. Without this, KVM would continuously exit to userspace.
+            flags: KVM_PIT_SPEAKER_DUMMY,
+            ..Default::default()
+        };
         self.fd
             .create_pit2(pit_config)
             .map_err(Error::SetupInterruptController)

@@ -1,5 +1,5 @@
 {
-  "coverage_score": 69.6,
+  "coverage_score": 70.4,
   "exclude_path": "msr_index.rs,mpspec.rs,tests/,src/devices/src/virtio/net/bindings.rs",
   "crate_features": ""
 }

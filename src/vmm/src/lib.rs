@@ -132,7 +132,7 @@ type Block = block::Block<Arc<GuestMemoryMmap>>;
 type Net = net::Net<Arc<GuestMemoryMmap>>;
 
 /// A live VMM.
-pub struct VMM {
+pub struct Vmm {
     kvm: Kvm,
     vm: KvmVm<WrappedExitHandler>,
     kernel_cfg: KernelConfig,
@@ -232,7 +232,7 @@ impl EventFdTrigger {
     }
 }
 
-impl TryFrom<VMMConfig> for VMM {
+impl TryFrom<VMMConfig> for Vmm {
     type Error = Error;
 
     fn try_from(config: VMMConfig) -> Result<Self> {
@@ -243,9 +243,9 @@ impl TryFrom<VMMConfig> for VMM {
         if kvm_api_ver != KVM_API_VERSION as i32 {
             return Err(Error::KvmApiVersion(kvm_api_ver));
         }
-        VMM::check_kvm_capabilities(&kvm)?;
+        Vmm::check_kvm_capabilities(&kvm)?;
 
-        let guest_memory = VMM::create_guest_memory(&config.memory_config)?;
+        let guest_memory = Vmm::create_guest_memory(&config.memory_config)?;
 
         // Create the KvmVm.
         let vm_state = VmState {
@@ -259,7 +259,7 @@ impl TryFrom<VMMConfig> for VMM {
             .map_err(Error::EventManager)?;
         event_manager.add_subscriber(wrapped_exit_handler.0.clone());
 
-        let mut vmm = VMM {
+        let mut vmm = Vmm {
             vm,
             kvm,
             guest_memory,
@@ -300,7 +300,7 @@ impl TryFrom<VMMConfig> for VMM {
     }
 }
 
-impl VMM {
+impl Vmm {
     /// Run the VMM.
     pub fn run(&mut self) -> Result<()> {
         let load_result = self.load_kernel()?;
@@ -579,7 +579,7 @@ impl VMM {
 mod tests {
     use std::io::ErrorKind;
     use std::mem;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use linux_loader::elf::Elf64_Ehdr;
     use linux_loader::loader::{self, bootparam::setup_header, elf::PvhBootCapability};
@@ -638,9 +638,9 @@ mod tests {
 
     // Returns a VMM which only has the memory configured. The purpose of the mock VMM
     // is to give a finer grained control to test individual private functions in the VMM.
-    fn mock_vmm(vmm_config: VMMConfig) -> VMM {
+    fn mock_vmm(vmm_config: VMMConfig) -> Vmm {
         let kvm = Kvm::new().unwrap();
-        let guest_memory = VMM::create_guest_memory(&vmm_config.memory_config).unwrap();
+        let guest_memory = Vmm::create_guest_memory(&vmm_config.memory_config).unwrap();
 
         // Create the KvmVm.
         let vm_state = VmState {
@@ -649,7 +649,7 @@ mod tests {
         let exit_handler = default_exit_handler();
         let vm = KvmVm::new(&kvm, vm_state, &guest_memory, exit_handler.clone()).unwrap();
 
-        VMM {
+        Vmm {
             vm,
             kvm,
             guest_memory,
@@ -663,7 +663,7 @@ mod tests {
     }
 
     // Return the address where an ELF file should be loaded, as specified in its header.
-    fn elf_load_addr(elf_path: &PathBuf) -> GuestAddress {
+    fn elf_load_addr(elf_path: &Path) -> GuestAddress {
         let mut elf_file = File::open(elf_path).unwrap();
         let mut ehdr = Elf64_Ehdr::default();
         ehdr.as_bytes()
@@ -788,7 +788,7 @@ mod tests {
         let mut mem_cfg = MemoryConfig {
             size_mib: (MMIO_GAP_START >> 20) as u32,
         };
-        let guest_mem = VMM::create_guest_memory(&mem_cfg).unwrap();
+        let guest_mem = Vmm::create_guest_memory(&mem_cfg).unwrap();
         assert_eq!(guest_mem.num_regions(), 1);
         assert_eq!(guest_mem.last_addr(), GuestAddress(MMIO_GAP_START - 1));
 
@@ -796,7 +796,7 @@ mod tests {
         // But it can end 1 MiB within the MMIO gap. Should succeed.
         // There will be 2 regions, the 2nd ending at `size_mib << 20 + MMIO_GAP_SIZE`.
         mem_cfg.size_mib = (MMIO_GAP_START >> 20) as u32 + 1;
-        let guest_mem = VMM::create_guest_memory(&mem_cfg).unwrap();
+        let guest_mem = Vmm::create_guest_memory(&mem_cfg).unwrap();
         assert_eq!(guest_mem.num_regions(), 2);
         assert_eq!(
             guest_mem.last_addr(),
@@ -806,7 +806,7 @@ mod tests {
         // Guest memory ends exactly at the MMIO gap end: should succeed. There will be 2 regions,
         // the 2nd ending at `size_mib << 20 + MMIO_GAP_SIZE`.
         mem_cfg.size_mib = ((MMIO_GAP_START + MMIO_GAP_SIZE) >> 20) as u32;
-        let guest_mem = VMM::create_guest_memory(&mem_cfg).unwrap();
+        let guest_mem = Vmm::create_guest_memory(&mem_cfg).unwrap();
         assert_eq!(guest_mem.num_regions(), 2);
         assert_eq!(
             guest_mem.last_addr(),
@@ -816,7 +816,7 @@ mod tests {
         // Guest memory ends 1 MiB past the MMIO gap end: should succeed. There will be 2 regions,
         // the 2nd ending at `size_mib << 20 + MMIO_GAP_SIZE`.
         mem_cfg.size_mib = ((MMIO_GAP_START + MMIO_GAP_SIZE) >> 20) as u32 + 1;
-        let guest_mem = VMM::create_guest_memory(&mem_cfg).unwrap();
+        let guest_mem = Vmm::create_guest_memory(&mem_cfg).unwrap();
         assert_eq!(guest_mem.num_regions(), 2);
         assert_eq!(
             guest_mem.last_addr(),
@@ -826,7 +826,7 @@ mod tests {
         // Guest memory size is 0: should fail, rejected by vm-memory with EINVAL.
         mem_cfg.size_mib = 0u32;
         assert!(matches!(
-            VMM::create_guest_memory(&mem_cfg),
+            Vmm::create_guest_memory(&mem_cfg),
             Err(Error::Memory(MemoryError::VmMemory(vm_memory::Error::MmapRegion(vm_memory::mmap::MmapRegionError::Mmap(e)))))
             if e.kind() == ErrorKind::InvalidInput
         ));

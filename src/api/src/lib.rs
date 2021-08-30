@@ -12,9 +12,9 @@ use clap::{App, Arg};
 use vmm::VMMConfig;
 
 /// Command line parser.
-pub struct CLI;
+pub struct Cli;
 
-impl CLI {
+impl Cli {
     /// Parses the command line options into VMM configurations.
     ///
     /// # Arguments
@@ -66,14 +66,14 @@ impl CLI {
             format!("Invalid command line arguments: {}", e)
         })?;
 
-        Ok(VMMConfig::builder()
+        VMMConfig::builder()
             .memory_config(matches.value_of("memory"))
             .kernel_config(matches.value_of("kernel"))
             .vcpu_config(matches.value_of("vcpu"))
             .net_config(matches.value_of("net"))
             .block_config(matches.value_of("block"))
             .build()
-            .map_err(|e| format!("{:?}", e))?)
+            .map_err(|e| format!("{:?}", e))
     }
 }
 
@@ -88,10 +88,10 @@ mod tests {
     #[test]
     fn test_launch() {
         // Missing command line arguments.
-        assert!(CLI::launch(vec!["foobar"]).is_err());
+        assert!(Cli::launch(vec!["foobar"]).is_err());
 
         // Invalid extra command line parameter.
-        assert!(CLI::launch(vec![
+        assert!(Cli::launch(vec![
             "foobar",
             "--memory",
             "size_mib=128",
@@ -104,7 +104,7 @@ mod tests {
         .is_err());
 
         // Invalid memory config: invalid value for `size_mib`.
-        assert!(CLI::launch(vec![
+        assert!(Cli::launch(vec![
             "foobar",
             "--memory",
             "size_mib=foobar",
@@ -116,7 +116,7 @@ mod tests {
         .is_err());
 
         // Memory config: missing value for `size_mib`, use the default
-        assert!(CLI::launch(vec![
+        assert!(Cli::launch(vec![
             "foobar",
             "--memory",
             "size_mib=",
@@ -128,7 +128,7 @@ mod tests {
         .is_ok());
 
         // Invalid memory config: unexpected parameter `foobar`.
-        assert!(CLI::launch(vec![
+        assert!(Cli::launch(vec![
             "foobar",
             "--memory",
             "foobar=1024",
@@ -141,7 +141,7 @@ mod tests {
 
         // Invalid kernel config: invalid value for `himem_start`.
         // TODO: harden cmdline check.
-        assert!(CLI::launch(vec![
+        assert!(Cli::launch(vec![
             "foobar",
             "--memory",
             "size_mib=128",
@@ -153,7 +153,7 @@ mod tests {
         .is_err());
 
         // Kernel config: missing value for `himem_start`, use default
-        assert!(CLI::launch(vec![
+        assert!(Cli::launch(vec![
             "foobar",
             "--memory",
             "size_mib=128",
@@ -165,7 +165,7 @@ mod tests {
         .is_ok());
 
         // Invalid kernel config: unexpected parameter `foobar`.
-        assert!(CLI::launch(vec![
+        assert!(Cli::launch(vec![
             "foobar",
             "--memory",
             "size_mib=128",
@@ -177,7 +177,7 @@ mod tests {
         .is_err());
 
         // Invalid vCPU config: invalid value for `num_vcpus`.
-        assert!(CLI::launch(vec![
+        assert!(Cli::launch(vec![
             "foobar",
             "--memory",
             "size_mib=128",
@@ -189,7 +189,7 @@ mod tests {
         .is_err());
 
         // vCPU config: missing value for `num_vcpus`, use default
-        assert!(CLI::launch(vec![
+        assert!(Cli::launch(vec![
             "foobar",
             "--memory",
             "size_mib=128",
@@ -201,7 +201,7 @@ mod tests {
         .is_ok());
 
         // Invalid vCPU config: unexpected parameter `foobar`.
-        assert!(CLI::launch(vec![
+        assert!(Cli::launch(vec![
             "foobar",
             "--memory",
             "size_mib=128",
@@ -214,7 +214,7 @@ mod tests {
 
         // OK.
         assert_eq!(
-            CLI::launch(vec![
+            Cli::launch(vec![
                 "foobar",
                 "--memory",
                 "size_mib=128",
@@ -239,7 +239,7 @@ mod tests {
 
         // Test default values.
         assert_eq!(
-            CLI::launch(vec!["foobar", "--kernel", "path=/foo/bar",]).unwrap(),
+            Cli::launch(vec!["foobar", "--kernel", "path=/foo/bar",]).unwrap(),
             VMMConfig {
                 kernel_config: KernelConfig {
                     path: PathBuf::from("/foo/bar"),
