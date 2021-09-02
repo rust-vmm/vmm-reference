@@ -12,8 +12,17 @@ macro_rules! arm64_core_reg {
     };
 }
 
+// This macro gets the offset of a structure (i.e `str`) member (i.e `field`) without having
+// an instance of that structure.
+#[macro_export]
 macro_rules! offset__of {
-    ($str:ty, $($field:ident).+ $([$idx:expr])*) => {
-        unsafe { &(*(0 as *const $str))$(.$field)*  $([$idx])* as *const _ as usize }
-    }
+    ($str:ty, $($field:ident)+) => ({
+        let tmp: std::mem::MaybeUninit<$str> = std::mem::MaybeUninit::uninit();
+        // Safe because we are not using the value of tmp.
+        let tmp = unsafe { tmp.assume_init() };
+        let base = &tmp as *const _ as usize;
+        let member =  &tmp.$($field)* as *const _ as usize;
+
+        member - base
+    });
 }
