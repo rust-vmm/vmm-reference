@@ -2,7 +2,7 @@
     "tests": [
         {
             "test_name": "run",
-            "command": "pytest tests/test_run_reference_vmm.py",
+            "command": "pytest --timeout=60 tests/test_run_reference_vmm.py",
             "platform": [
                 "x86_64"
             ]
