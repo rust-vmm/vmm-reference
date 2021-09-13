@@ -7,8 +7,14 @@
 # current glibc version (1.32.1 for glibc version > 2.31)
 # Also kernel version and config parameters are exported from here.
 
-KERNEL_VERSION="4.14.176"
-KERNEL_CFG="microvm-kernel-initramfs-hello-x86_64.config"
+arch=$(uname -i)
+KERNEL_VERSION="5.4.81"
+
+if [[ $arch = "x86_64" ]]; then
+	KERNEL_CFG="microvm-kernel-initramfs-hello-x86_64.config"
+elif [[ $arch = "aarch64" ]]; then
+	KERNEL_CFG="microvm-kernel-initramfs-hello-aarch64.config"
+fi
 
 
 cat > glibc_ver.c << EOF
