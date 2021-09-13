@@ -10,10 +10,12 @@ use std::os::raw::c_int;
 use std::result;
 use std::sync::{Arc, Barrier, Condvar, Mutex};
 
-#[cfg(target_arch = "aarch64")]
-use kvm_bindings::kvm_vcpu_init;
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::{kvm_fpu, kvm_regs, CpuId};
+#[cfg(target_arch = "aarch64")]
+use kvm_bindings::{
+    kvm_vcpu_init, KVM_SYSTEM_EVENT_CRASH, KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN,
+};
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
 use vm_device::bus::{MmioAddress, PioAddress};
 use vm_device::device_manager::{IoManager, MmioManager, PioManager};
@@ -501,6 +503,23 @@ impl KvmVcpu {
                                 debug!("Failed to write to mmio");
                             }
                         }
+                        #[cfg(target_arch = "aarch64")]
+                        VcpuExit::SystemEvent(type_, flags) => match type_ {
+                            KVM_SYSTEM_EVENT_SHUTDOWN
+                            | KVM_SYSTEM_EVENT_RESET
+                            | KVM_SYSTEM_EVENT_CRASH => {
+                                println!("Exit reason: {:#?}", VcpuExit::SystemEvent(type_, flags));
+                                if stdin().lock().set_canon_mode().is_err() {
+                                    eprintln!("Failed to set canon mode. Stdin will not echo.");
+                                }
+                                self.run_state.set_and_notify(VmRunState::Exiting);
+                                break;
+                            }
+                            _ => {
+                                // Unknown system event type
+                                debug!("Unknown system event type: {:#?}", type_)
+                            }
+                        },
                         _other => {
                             // Unhandled KVM exit.
                             debug!("Unhandled vcpu exit: {:#?}", _other);
