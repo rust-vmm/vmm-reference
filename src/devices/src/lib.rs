@@ -5,4 +5,5 @@
 // we are striving to turn as much of the local code as possible into reusable building blocks
 // going forward.
 
+pub mod legacy;
 pub mod virtio;
