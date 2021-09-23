@@ -41,6 +41,8 @@ use vm_device::device_manager::MmioManager;
 #[cfg(target_arch = "x86_64")]
 use vm_device::device_manager::PioManager;
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
+#[cfg(target_arch = "aarch64")]
+use vm_superio::Rtc;
 use vm_superio::{Serial, Trigger};
 use vmm_sys_util::{epoll::EventSet, eventfd::EventFd, terminal::Terminal};
 
@@ -56,6 +58,9 @@ use vm_vcpu::vm::{self, ExitHandler, KvmVm, VmState};
 
 #[cfg(target_arch = "aarch64")]
 use arch::AARCH64_MMIO_BASE;
+
+#[cfg(target_arch = "aarch64")]
+use devices::legacy::RTCWrapper;
 
 mod boot;
 mod config;
@@ -282,6 +287,8 @@ impl TryFrom<VMMConfig> for Vmm {
 
         vmm.create_vcpus(&config.vcpu_config)?;
         vmm.add_serial_console()?;
+        #[cfg(target_arch = "aarch64")]
+        vmm.add_rtc_device();
 
         // Adding the virtio devices. We'll come up with a cleaner abstraction for `Env`.
 
@@ -462,6 +469,17 @@ impl Vmm {
         self.event_mgr.add_subscriber(serial);
 
         Ok(())
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn add_rtc_device(&mut self) {
+        let rtc = Arc::new(Mutex::new(RTCWrapper(Rtc::new())));
+        let range = MmioRange::new(MmioAddress(AARCH64_MMIO_BASE + 0x1000), 0x1000).unwrap();
+        self.device_mgr
+            .lock()
+            .unwrap()
+            .register_mmio(range, rtc)
+            .unwrap();
     }
 
     // All methods that add a virtio device use hardcoded addresses and interrupts for now, and
