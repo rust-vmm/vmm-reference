@@ -1,12 +1,13 @@
-// Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
-
-#![cfg(target_arch = "x86_64")]
 
 use std::convert::TryInto;
 use std::io::{self, stdin, Read, Write};
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
+#[cfg(target_arch = "aarch64")]
+use vm_device::{bus::MmioAddress, MutDeviceMmio};
+#[cfg(target_arch = "x86_64")]
 use vm_device::{
     bus::{PioAddress, PioAddressValue},
     MutDevicePio,
@@ -18,7 +19,7 @@ use vmm_sys_util::epoll::EventSet;
 use utils::debug;
 
 /// Newtype for implementing `event-manager` functionalities.
-pub(crate) struct SerialWrapper<T: Trigger, EV: SerialEvents, W: Write>(pub Serial<T, EV, W>);
+pub struct SerialWrapper<T: Trigger, EV: SerialEvents, W: Write>(pub Serial<T, EV, W>);
 
 impl<T: Trigger, W: Write> MutEventSubscriber for SerialWrapper<T, NoEvents, W> {
     fn process(&mut self, events: Events, ops: &mut EventOps) {
@@ -54,19 +55,38 @@ impl<T: Trigger, W: Write> MutEventSubscriber for SerialWrapper<T, NoEvents, W> 
     }
 }
 
-impl<T: Trigger<E = io::Error>, W: Write> MutDevicePio for SerialWrapper<T, NoEvents, W> {
-    fn pio_read(&mut self, _base: PioAddress, offset: PioAddressValue, data: &mut [u8]) {
-        // TODO: this function can't return an Err, so we'll mark error conditions
-        // (data being more than 1 byte, offset overflowing an u8) with logs & metrics.
+impl<T: Trigger<E = io::Error>, W: Write> SerialWrapper<T, NoEvents, W> {
+    fn bus_read(&mut self, offset: u8, data: &mut [u8]) {
+        if data.len() != 1 {
+            debug!("Serial console invalid data length on read: {}", data.len());
+        }
+
+        data[0] = self.0.read(offset);
+    }
+
+    fn bus_write(&mut self, offset: u8, data: &[u8]) {
         if data.len() != 1 {
             debug!(
-                "Serial console invalid data length on PIO read: {}",
+                "Serial console invalid data length on write: {}",
                 data.len()
             );
         }
 
+        let res = self.0.write(offset, data[0]);
+        if res.is_err() {
+            debug!("Error writing to serial console: {:#?}", res.unwrap_err());
+        }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+impl<T: Trigger<E = io::Error>, W: Write> MutDevicePio for SerialWrapper<T, NoEvents, W> {
+    fn pio_read(&mut self, _base: PioAddress, offset: PioAddressValue, data: &mut [u8]) {
+        // TODO: this function can't return an Err, so we'll mark error conditions
+        // (data being more than 1 byte, offset overflowing an u8) with logs & metrics.
+
         match offset.try_into() {
-            Ok(offset) => data[0] = self.0.read(offset),
+            Ok(offset) => self.bus_read(offset, data),
             Err(_) => debug!("Invalid serial console read offset."),
         }
     }
@@ -74,25 +94,36 @@ impl<T: Trigger<E = io::Error>, W: Write> MutDevicePio for SerialWrapper<T, NoEv
     fn pio_write(&mut self, _base: PioAddress, offset: PioAddressValue, data: &[u8]) {
         // TODO: this function can't return an Err, so we'll mark error conditions
         // (data being more than 1 byte, offset overflowing an u8) with logs & metrics.
-        if data.len() != 1 {
-            debug!(
-                "Serial console invalid data length on PIO write: {}",
-                data.len()
-            );
-        }
 
         match offset.try_into() {
-            Ok(offset) => {
-                let res = self.0.write(offset, data[0]);
-                if res.is_err() {
-                    debug!("Error writing to serial console: {:#?}", res.unwrap_err())
-                }
-            }
-            Err(_) => debug!("Invalid serial console read offset."),
+            Ok(offset) => self.bus_write(offset, data),
+            Err(_) => debug!("Invalid serial console write offset."),
         }
     }
 }
 
+#[cfg(target_arch = "aarch64")]
+impl<T: Trigger<E = io::Error>, W: Write> MutDeviceMmio for SerialWrapper<T, NoEvents, W> {
+    fn mmio_read(&mut self, _base: MmioAddress, offset: u64, data: &mut [u8]) {
+        // TODO: this function can't return an Err, so we'll mark error conditions
+        // (data being more than 1 byte, offset overflowing an u8) with logs & metrics.
+
+        match offset.try_into() {
+            Ok(offset) => self.bus_read(offset, data),
+            Err(_) => debug!("Invalid serial console read offset."),
+        }
+    }
+
+    fn mmio_write(&mut self, _base: MmioAddress, offset: u64, data: &[u8]) {
+        // TODO: this function can't return an Err, so we'll mark error conditions
+        // (data being more than 1 byte, offset overflowing an u8) with logs & metrics.
+
+        match offset.try_into() {
+            Ok(offset) => self.bus_write(offset, data),
+            Err(_) => debug!("Invalid serial console write offset."),
+        }
+    }
+}
 /// Errors encountered during device operation.
 #[derive(Debug)]
 pub enum Error {
@@ -102,14 +133,10 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
-    use crate::EventFdTrigger;
-
-    use super::SerialWrapper;
+    use super::*;
+    use crate::legacy::EventFdTrigger;
 
     use std::io::sink;
-
-    use vm_device::{bus::PioAddress, MutDevicePio};
-    use vm_superio::Serial;
 
     #[test]
     fn test_invalid_data_len() {
@@ -120,16 +147,24 @@ mod tests {
         // to the serial console just the first byte.
         let mut invalid_data = [0, 0];
         let valid_iir_offset = 2;
+        #[cfg(target_arch = "x86_64")]
         serial_console.pio_read(PioAddress(0), valid_iir_offset, invalid_data.as_mut());
+        #[cfg(target_arch = "aarch64")]
+        serial_console.mmio_read(MmioAddress(0), valid_iir_offset, invalid_data.as_mut());
         // Check that the emulation added a value to `invalid_data`.
         assert_ne!(invalid_data[0], 0);
 
         // The same scenario happens for writes.
+        #[cfg(target_arch = "x86_64")]
         serial_console.pio_write(PioAddress(0), valid_iir_offset, &invalid_data);
+        #[cfg(target_arch = "aarch64")]
+        serial_console.mmio_write(MmioAddress(0), valid_iir_offset, &invalid_data);
 
         // Check that passing an invalid offset does not result in a crash.
         let data = [0];
-        let invalid_offset = u16::MAX;
-        serial_console.pio_write(PioAddress(0), invalid_offset, &data);
+        #[cfg(target_arch = "x86_64")]
+        serial_console.pio_write(PioAddress(0), u16::MAX, &data);
+        #[cfg(target_arch = "aarch64")]
+        serial_console.mmio_write(MmioAddress(0), u64::MAX, &data);
     }
 }

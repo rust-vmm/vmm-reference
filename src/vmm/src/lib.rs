@@ -33,8 +33,13 @@ use linux_loader::loader::{
     load_cmdline, KernelLoader, KernelLoaderResult,
 };
 use vm_device::bus::{MmioAddress, MmioRange};
+#[cfg(target_arch = "x86_64")]
+use vm_device::bus::{PioAddress, PioRange};
 use vm_device::device_manager::IoManager;
-use vm_device::resources::Resource;
+#[cfg(target_arch = "aarch64")]
+use vm_device::device_manager::MmioManager;
+#[cfg(target_arch = "x86_64")]
+use vm_device::device_manager::PioManager;
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 use vm_superio::{Serial, Trigger};
 use vmm_sys_util::{epoll::EventSet, eventfd::EventFd, terminal::Terminal};
@@ -45,14 +50,15 @@ use devices::virtio::block::{self, BlockArgs};
 use devices::virtio::net::{self, NetArgs};
 use devices::virtio::{Env, MmioConfig};
 
-use serial::SerialWrapper;
+use devices::legacy::SerialWrapper;
 use vm_vcpu::vcpu::{cpuid::filter_cpuid, VcpuState};
 use vm_vcpu::vm::{self, ExitHandler, KvmVm, VmState};
 
+#[cfg(target_arch = "aarch64")]
+use arch::AARCH64_MMIO_BASE;
+
 mod boot;
 mod config;
-
-mod serial;
 
 /// First address past 32 bits is where the MMIO gap ends.
 pub(crate) const MMIO_GAP_END: u64 = 1 << 32;
@@ -94,8 +100,8 @@ pub enum Error {
     BootParam(boot::Error),
     /// Error configuring the kernel command line.
     Cmdline(cmdline::Error),
-    /// Error setting up devices.
-    Device(serial::Error),
+    /// Error setting up the serial device.
+    SerialDevice(devices::legacy::SerialError),
     /// Event management error.
     EventManager(event_manager::Error),
     /// I/O error.
@@ -424,20 +430,33 @@ impl Vmm {
         self.vm.register_irqfd(&interrupt_evt, 4)?;
 
         self.kernel_cfg.cmdline.push_str(" console=ttyS0");
+        #[cfg(target_arch = "aarch64")]
+        self.kernel_cfg
+            .cmdline
+            .push_str(&format!(" earlycon=uart,mmio,0x{:08x}", AARCH64_MMIO_BASE));
+
         // Put it on the bus.
-        // Safe to use expect() because the device manager is instantiated in new(), there's no
+        // Safe to use unwrap() because the device manager is instantiated in new(), there's no
         // default implementation, and the field is private inside the VMM struct.
-        self.device_mgr
-            .lock()
-            .unwrap()
-            .register_pio_resources(
-                serial.clone(),
-                &[Resource::PioAddressRange {
-                    base: 0x3f8,
-                    size: 0x8,
-                }],
-            )
-            .unwrap();
+        #[cfg(target_arch = "x86_64")]
+        {
+            let range = PioRange::new(PioAddress(0x3f8), 0x8).unwrap();
+            self.device_mgr
+                .lock()
+                .unwrap()
+                .register_pio(range, serial.clone())
+                .unwrap();
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            let range = MmioRange::new(MmioAddress(AARCH64_MMIO_BASE), 0x1000).unwrap();
+            self.device_mgr
+                .lock()
+                .unwrap()
+                .register_mmio(range, serial.clone())
+                .unwrap();
+        }
 
         // Hook it to event management.
         self.event_mgr.add_subscriber(serial);
@@ -781,7 +800,14 @@ mod tests {
         assert_eq!(vmm.kernel_cfg.cmdline.as_str(), DEFAULT_KERNEL_CMDLINE);
 
         vmm.add_serial_console().unwrap();
-        assert!(vmm.kernel_cfg.cmdline.as_str().contains("console=ttyS0"))
+        #[cfg(target_arch = "x86_64")]
+        assert!(vmm.kernel_cfg.cmdline.as_str().contains("console=ttyS0"));
+        #[cfg(target_arch = "aarch64")]
+        assert!(vmm
+            .kernel_cfg
+            .cmdline
+            .as_str()
+            .contains("earlycon=uart,mmio"));
     }
 
     #[test]
