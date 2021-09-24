@@ -90,7 +90,7 @@ def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=102
     # Kernel config
     cmdline = "console=ttyS0 i8042.nokbd reboot=t panic=1 pci=off"
 
-    himem_start = 1048576
+    kernel_load_addr = 1048576
 
     build_cmd = "cargo build --release"
     subprocess.run(build_cmd, shell=True, check=True)
@@ -98,8 +98,8 @@ def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=102
     vmm_cmd = [
         "target/release/vmm-reference",
         "--memory", "size_mib={}".format(mem_size_mib),
-        "--kernel", "cmdline={},path={},himem_start={}".format(
-            cmdline, kernel_path, himem_start
+        "--kernel", "cmdline={},path={},kernel_load_addr={}".format(
+            cmdline, kernel_path, kernel_load_addr
         ),
         "--vcpu", "num={}".format(num_vcpus)
     ]

@@ -18,12 +18,18 @@ KERNEL_DIR=${KERNEL_DIR:="/tmp/vmlinux_busybox"}
 DEB_DIR=${DEB_DIR:="/tmp/ubuntu-focal"}
 DISK_DIR=${DISK_DIR:="/tmp/ubuntu-focal-disk"}
 
-./kernel/make_kernel_busybox_image.sh -f elf -k vmlinux-hello-busybox -w $KERNEL_DIR -j 2
-./kernel/make_kernel_busybox_image.sh -f elf -k vmlinux-hello-busybox -w $KERNEL_DIR -j 2 -h
-./kernel/make_kernel_busybox_image.sh -f bzimage -k bzimage-hello-busybox -w $KERNEL_DIR -j 2
-./kernel/make_kernel_busybox_image.sh -f bzimage -k bzimage-hello-busybox -w $KERNEL_DIR -j 2 -h
-./kernel/make_kernel_image_deb.sh -f elf -k vmlinux-focal -w $DEB_DIR -j 2
-./kernel/make_kernel_image_deb.sh -f elf -k vmlinux-focal -w $DEB_DIR -j 2 -h
-./kernel/make_kernel_image_deb.sh -f bzimage -k bzimage-focal -w $DEB_DIR -j 2
-./kernel/make_kernel_image_deb.sh -f bzimage -k bzimage-focal -w $DEB_DIR -j 2 -h
-./disk/make_rootfs.sh -d /tmp/ubuntu-focal/linux-5.4.81/deb/ -w $DISK_DIR -o rootfs.ext4
+arch=$(uname -i)
+if [[ $arch = "x86_64" ]]; then
+    ./kernel/make_kernel_busybox_image.sh -f elf -k vmlinux-hello-busybox -w $KERNEL_DIR -j 2
+    ./kernel/make_kernel_busybox_image.sh -f elf -k vmlinux-hello-busybox -w $KERNEL_DIR -j 2 -h
+    ./kernel/make_kernel_busybox_image.sh -f bzimage -k bzimage-hello-busybox -w $KERNEL_DIR -j 2
+    ./kernel/make_kernel_busybox_image.sh -f bzimage -k bzimage-hello-busybox -w $KERNEL_DIR -j 2 -h
+    ./kernel/make_kernel_image_deb.sh -f elf -k vmlinux-focal -w $DEB_DIR -j 2
+    ./kernel/make_kernel_image_deb.sh -f elf -k vmlinux-focal -w $DEB_DIR -j 2 -h
+    ./kernel/make_kernel_image_deb.sh -f bzimage -k bzimage-focal -w $DEB_DIR -j 2
+    ./kernel/make_kernel_image_deb.sh -f bzimage -k bzimage-focal -w $DEB_DIR -j 2 -h
+    ./disk/make_rootfs.sh -d /tmp/ubuntu-focal/linux-5.4.81/deb/ -w $DISK_DIR -o rootfs.ext4
+elif [[ $arch = "aarch64" ]]; then
+    ./kernel/make_kernel_busybox_image.sh -f pe -k pe-hello-busybox -w $KERNEL_DIR -j 2
+    ./kernel/make_kernel_busybox_image.sh -f pe -k pe-hello-busybox -w $KERNEL_DIR -j 2 -h
+fi

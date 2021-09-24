@@ -68,6 +68,9 @@ const CMDLINE_START: u64 = 0x0002_0000;
 /// Default high memory start (1 MiB).
 pub const DEFAULT_HIGH_RAM_START: u64 = 0x0010_0000;
 
+/// Default address for loading the kernel.
+pub const DEFAULT_KERNEL_LOAD_ADDR: u64 = DEFAULT_HIGH_RAM_START;
+
 /// Default kernel command line.
 pub const DEFAULT_KERNEL_CMDLINE: &str = "i8042.nokbd reboot=t panic=1 pci=off";
 
@@ -355,14 +358,14 @@ impl Vmm {
             &self.guest_memory,
             None,
             &mut kernel_image,
-            Some(GuestAddress(self.kernel_cfg.himem_start)),
+            Some(GuestAddress(self.kernel_cfg.load_addr)),
         ) {
             Ok(result) => result,
             Err(loader::Error::Elf(elf::Error::InvalidElfMagicNumber)) => BzImage::load(
                 &self.guest_memory,
                 None,
                 &mut kernel_image,
-                Some(GuestAddress(self.kernel_cfg.himem_start)),
+                Some(GuestAddress(self.kernel_cfg.load_addr)),
             )
             .map_err(Error::KernelLoad)?,
             Err(e) => {
@@ -374,7 +377,7 @@ impl Vmm {
         let mut bootparams = build_bootparams(
             &self.guest_memory,
             &kernel_load,
-            GuestAddress(self.kernel_cfg.himem_start),
+            GuestAddress(self.kernel_cfg.load_addr),
             GuestAddress(MMIO_GAP_START),
             GuestAddress(MMIO_GAP_END),
         )
@@ -617,7 +620,7 @@ mod tests {
         VMMConfig {
             kernel_config: KernelConfig {
                 path: default_elf_path(),
-                himem_start: DEFAULT_HIGH_RAM_START,
+                load_addr: DEFAULT_HIGH_RAM_START,
                 cmdline: DEFAULT_KERNEL_CMDLINE.to_string(),
             },
             memory_config: MemoryConfig {

@@ -64,7 +64,7 @@ configurations. Advanced users can, of course, plug in their own front-end.
   * `path` - `String`, path to the guest kernel image
   * `cmdline` - `String`, kernel command line
     * default: "console=ttyS0 i8042.nokbd reboot=t panic=1 pci=off"
-  * `himem_start` - `u64`, start address for high memory (decimal)
+  * `kernel_load_addr` - `u64`, start address for high memory (decimal)
     * default: 0x100000
 * `vcpus` - vCPU configurations
   * `num` - `u8`, number of vCPUs (decimal)

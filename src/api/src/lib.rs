@@ -39,7 +39,7 @@ impl Cli {
                     .long("kernel")
                     .required(true)
                     .takes_value(true)
-                    .help("Kernel configuration.\n\tFormat: \"path=<string>[,cmdline=<string>,himem_start=<u64>]\""),
+                    .help("Kernel configuration.\n\tFormat: \"path=<string>[,cmdline=<string>,kernel_load_addr=<u64>]\""),
             )
             .arg(
                 Arg::with_name("net")
@@ -98,7 +98,7 @@ mod tests {
             "--vcpu",
             "num=1",
             "--kernel",
-            "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
+            "path=/foo/bar,cmdline=\"foo=bar\",kernel_load_addr=42",
             "foobar",
         ])
         .is_err());
@@ -111,7 +111,7 @@ mod tests {
             "--vcpu",
             "num=1",
             "--kernel",
-            "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
+            "path=/foo/bar,cmdline=\"foo=bar\",kernel_load_addr=42",
         ])
         .is_err());
 
@@ -123,7 +123,7 @@ mod tests {
             "--vcpu",
             "num=1",
             "--kernel",
-            "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
+            "path=/foo/bar,cmdline=\"foo=bar\",kernel_load_addr=42",
         ])
         .is_ok());
 
@@ -135,11 +135,11 @@ mod tests {
             "--vcpu",
             "num=1",
             "--kernel",
-            "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
+            "path=/foo/bar,cmdline=\"foo=bar\",kernel_load_addr=42",
         ])
         .is_err());
 
-        // Invalid kernel config: invalid value for `himem_start`.
+        // Invalid kernel config: invalid value for `kernel_load_addr`.
         // TODO: harden cmdline check.
         assert!(Cli::launch(vec![
             "foobar",
@@ -148,11 +148,11 @@ mod tests {
             "--vcpu",
             "num=1",
             "--kernel",
-            "path=/foo/bar,cmdline=\"foo=bar\",himem_start=foobar",
+            "path=/foo/bar,cmdline=\"foo=bar\",kernel_load_addr=foobar",
         ])
         .is_err());
 
-        // Kernel config: missing value for `himem_start`, use default
+        // Kernel config: missing value for `kernel_load_addr`, use default
         assert!(Cli::launch(vec![
             "foobar",
             "--memory",
@@ -160,7 +160,7 @@ mod tests {
             "--vcpu",
             "num=1",
             "--kernel",
-            "path=/foo/bar,cmdline=\"foo=bar\",himem_start=",
+            "path=/foo/bar,cmdline=\"foo=bar\",kernel_load_addr=",
         ])
         .is_ok());
 
@@ -172,7 +172,7 @@ mod tests {
             "--vcpu",
             "num=1",
             "--kernel",
-            "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42,foobar=42",
+            "path=/foo/bar,cmdline=\"foo=bar\",kernel_load_addr=42,foobar=42",
         ])
         .is_err());
 
@@ -184,7 +184,7 @@ mod tests {
             "--vcpu",
             "num=foobar",
             "--kernel",
-            "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
+            "path=/foo/bar,cmdline=\"foo=bar\",kernel_load_addr=42",
         ])
         .is_err());
 
@@ -196,7 +196,7 @@ mod tests {
             "--vcpu",
             "num=",
             "--kernel",
-            "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
+            "path=/foo/bar,cmdline=\"foo=bar\",kernel_load_addr=42",
         ])
         .is_ok());
 
@@ -208,7 +208,7 @@ mod tests {
             "--vcpu",
             "foobar=1",
             "--kernel",
-            "path=/foo/bar,cmdline=\"foo=bar\",himem_start=42",
+            "path=/foo/bar,cmdline=\"foo=bar\",kernel_load_addr=42",
         ])
         .is_err());
 
@@ -221,14 +221,14 @@ mod tests {
                 "--vcpu",
                 "num=1",
                 "--kernel",
-                "path=/foo/bar,cmdline=\"foo=bar bar=foo\",himem_start=42",
+                "path=/foo/bar,cmdline=\"foo=bar bar=foo\",kernel_load_addr=42",
             ])
             .unwrap(),
             VMMConfig {
                 kernel_config: KernelConfig {
                     path: PathBuf::from("/foo/bar"),
                     cmdline: "\"foo=bar bar=foo\"".to_string(),
-                    himem_start: 42,
+                    load_addr: 42,
                 },
                 memory_config: MemoryConfig { size_mib: 128 },
                 vcpu_config: VcpuConfig { num: 1 },
@@ -244,7 +244,7 @@ mod tests {
                 kernel_config: KernelConfig {
                     path: PathBuf::from("/foo/bar"),
                     cmdline: DEFAULT_KERNEL_CMDLINE.to_string(),
-                    himem_start: 1048576,
+                    load_addr: 1048576,
                 },
                 memory_config: MemoryConfig { size_mib: 256 },
                 vcpu_config: VcpuConfig { num: 1 },
