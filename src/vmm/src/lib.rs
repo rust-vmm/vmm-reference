@@ -663,7 +663,6 @@ impl Vmm {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(target_arch = "x86_64")]
     use std::io::ErrorKind;
     #[cfg(target_arch = "x86_64")]
     use std::path::Path;
@@ -678,7 +677,6 @@ mod tests {
         bytes::{ByteValued, Bytes},
         Address, GuestAddress, GuestMemory,
     };
-    #[cfg(target_arch = "x86_64")]
     use vmm_sys_util::{tempdir::TempDir, tempfile::TempFile};
 
     use super::*;
@@ -708,10 +706,24 @@ mod tests {
         s3_download("kernel", Some(tags)).unwrap()
     }
 
+    #[cfg(target_arch = "aarch64")]
+    fn default_pe_path() -> PathBuf {
+        let tags = r#"
+        {
+            "halt_after_boot": true,
+            "image_format": "pe"
+        }
+        "#;
+        s3_download("kernel", Some(tags)).unwrap()
+    }
+
     fn default_vmm_config() -> VMMConfig {
         VMMConfig {
             kernel_config: KernelConfig {
+                #[cfg(target_arch = "x86_64")]
                 path: default_elf_path(),
+                #[cfg(target_arch = "aarch64")]
+                path: default_pe_path(),
                 load_addr: DEFAULT_KERNEL_LOAD_ADDR,
                 cmdline: KernelConfig::default_cmdline(),
             },
@@ -817,8 +829,6 @@ mod tests {
 
     #[test]
     #[cfg(target_arch = "x86_64")]
-    // FIXME: We need a similar test for aarch64. Right now we do not have an image that just
-    // FIXME-continued: boots and exits, so we cannot build an equivalent test.
     fn test_load_kernel() {
         // Test Case: load a valid elf.
         let mut vmm_config = default_vmm_config();
@@ -840,7 +850,10 @@ mod tests {
             GuestAddress(DEFAULT_HIGH_RAM_START)
         );
         assert!(kernel_load_result.setup_header.is_some());
+    }
 
+    #[test]
+    fn test_load_kernel_errors() {
         // Test case: kernel file does not exist.
         let mut vmm_config = default_vmm_config();
         vmm_config.kernel_config.path = PathBuf::from(TempFile::new().unwrap().as_path());
@@ -854,10 +867,20 @@ mod tests {
         let temp_file = TempFile::new().unwrap();
         vmm_config.kernel_config.path = PathBuf::from(temp_file.as_path());
         let mut vmm = mock_vmm(vmm_config);
+
+        let err = vmm.load_kernel().unwrap_err();
+        #[cfg(target_arch = "x86_64")]
         assert!(matches!(
-            vmm.load_kernel().unwrap_err(),
+            err,
             Error::KernelLoad(loader::Error::Bzimage(
                 loader::bzimage::Error::InvalidBzImage
+            ))
+        ));
+        #[cfg(target_arch = "aarch64")]
+        assert!(matches!(
+            err,
+            Error::KernelLoad(loader::Error::Pe(
+                loader::pe::Error::InvalidImageMagicNumber
             ))
         ));
 
@@ -866,10 +889,27 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         vmm_config.kernel_config.path = PathBuf::from(temp_dir.as_path());
         let mut vmm = mock_vmm(vmm_config);
+        let err = vmm.load_kernel().unwrap_err();
+
+        #[cfg(target_arch = "x86_64")]
         assert!(matches!(
-            vmm.load_kernel().unwrap_err(),
+            err,
             Error::KernelLoad(loader::Error::Elf(loader::elf::Error::ReadElfHeader))
         ));
+        #[cfg(target_arch = "aarch64")]
+        assert!(matches!(
+            err,
+            Error::KernelLoad(loader::Error::Pe(loader::pe::Error::ReadImageHeader))
+        ));
+    }
+
+    #[test]
+    #[cfg(target_arch = "aarch64")]
+    fn test_load_kernel() {
+        // Test case: Loading the default & valid image is ok.
+        let vmm_config = default_vmm_config();
+        let mut vmm = mock_vmm(vmm_config);
+        assert!(vmm.load_kernel().is_ok());
     }
 
     #[test]
@@ -947,10 +987,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_arch = "x86_64")]
-    // FIXME: We cannot run this on aarch64 because we do not have an image that just runs and
-    // FIXME-continued: halts afterwards. Once we have this, we need to update `default_vmm_config`
-    // FIXME-continued: and have a default PE image on aarch64.
     fn test_create_vcpus() {
         // The scopes force the created vCPUs to unmap their kernel memory at the end.
         {
