@@ -95,10 +95,15 @@ const ZEROPG_START: u64 = 0x7000;
 const CMDLINE_START: u64 = 0x0002_0000;
 
 /// Default high memory start (1 MiB).
+#[cfg(target_arch = "x86_64")]
 pub const DEFAULT_HIGH_RAM_START: u64 = 0x0010_0000;
 
 /// Default address for loading the kernel.
+#[cfg(target_arch = "x86_64")]
 pub const DEFAULT_KERNEL_LOAD_ADDR: u64 = DEFAULT_HIGH_RAM_START;
+#[cfg(target_arch = "aarch64")]
+/// Default address for loading the kernel.
+pub const DEFAULT_KERNEL_LOAD_ADDR: u64 = AARCH64_PHYS_MEM_START;
 
 /// Default kernel command line.
 #[cfg(target_arch = "x86_64")]
@@ -430,7 +435,7 @@ impl Vmm {
         let mut kernel_image = File::open(&self.kernel_cfg.path).map_err(Error::IO)?;
         Ok(linux_loader::loader::pe::PE::load(
             &self.guest_memory,
-            Some(GuestAddress(0x8000_0000)),
+            Some(GuestAddress(self.kernel_cfg.load_addr)),
             &mut kernel_image,
             None,
         )
@@ -674,7 +679,7 @@ mod tests {
         Address, GuestAddress, GuestMemory,
     };
     #[cfg(target_arch = "x86_64")]
-    use vmm_sys_util::{tempfile::TempFile, tempdir::TempDir};
+    use vmm_sys_util::{tempdir::TempDir, tempfile::TempFile};
 
     use super::*;
     use utils::resource_download::s3_download;
@@ -707,7 +712,7 @@ mod tests {
         VMMConfig {
             kernel_config: KernelConfig {
                 path: default_elf_path(),
-                load_addr: DEFAULT_HIGH_RAM_START,
+                load_addr: DEFAULT_KERNEL_LOAD_ADDR,
                 cmdline: KernelConfig::default_cmdline(),
             },
             memory_config: MemoryConfig {
@@ -882,7 +887,11 @@ mod tests {
         #[cfg(target_arch = "x86_64")]
         assert!(vmm.kernel_cfg.cmdline.as_str().contains("console=ttyS0"));
         #[cfg(target_arch = "aarch64")]
-        assert!(vmm.kernel_cfg.cmdline.as_str().contains("earlycon=uart,mmio"));
+        assert!(vmm
+            .kernel_cfg
+            .cmdline
+            .as_str()
+            .contains("earlycon=uart,mmio"));
     }
 
     #[test]
