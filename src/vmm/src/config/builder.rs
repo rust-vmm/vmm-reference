@@ -256,7 +256,7 @@ mod tests {
             vmm_config.unwrap().kernel_config,
             KernelConfig {
                 cmdline: DEFAULT_KERNEL_CMDLINE.to_string(),
-                himem_start: DEFAULT_HIGH_RAM_START,
+                load_addr: DEFAULT_HIGH_RAM_START,
                 path: PathBuf::from("bzImage")
             }
         );
@@ -338,7 +338,7 @@ mod tests {
                 vcpu_config: VcpuConfig { num: 2 },
                 kernel_config: KernelConfig {
                     cmdline: DEFAULT_KERNEL_CMDLINE.to_string(),
-                    himem_start: DEFAULT_HIGH_RAM_START,
+                    load_addr: DEFAULT_HIGH_RAM_START,
                     path: PathBuf::from("bzImage")
                 },
                 net_config: Some(NetConfig {

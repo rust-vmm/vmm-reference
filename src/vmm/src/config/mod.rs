@@ -8,13 +8,11 @@ use std::path::PathBuf;
 use std::result;
 
 use arg_parser::CfgArgParser;
-
-use super::{DEFAULT_HIGH_RAM_START, DEFAULT_KERNEL_CMDLINE};
-
 use builder::Builder;
 
-mod arg_parser;
+use super::{DEFAULT_KERNEL_CMDLINE, DEFAULT_KERNEL_LOAD_ADDR};
 
+mod arg_parser;
 mod builder;
 
 /// Errors encountered converting the `*Config` objects.
@@ -138,8 +136,8 @@ pub struct KernelConfig {
     pub cmdline: String,
     /// Path to the kernel image.
     pub path: PathBuf,
-    /// Start address for high memory.
-    pub himem_start: u64,
+    /// Address where the kernel is loaded.
+    pub load_addr: u64,
 }
 
 impl Default for KernelConfig {
@@ -147,7 +145,7 @@ impl Default for KernelConfig {
         KernelConfig {
             cmdline: String::from(DEFAULT_KERNEL_CMDLINE),
             path: PathBuf::from(""), // FIXME: make it a const.
-            himem_start: DEFAULT_HIGH_RAM_START,
+            load_addr: DEFAULT_KERNEL_LOAD_ADDR,
         }
     }
 }
@@ -157,7 +155,7 @@ impl TryFrom<&str> for KernelConfig {
 
     fn try_from(kernel_cfg_str: &str) -> result::Result<Self, Self::Error> {
         // Supported options:
-        // `cmdline=<"string">,path=/path/to/kernel,himem_start=<u64>`
+        // `cmdline=<"string">,path=/path/to/kernel,kernel_load_addr=<u64>`
         // Required: path
         let mut arg_parser = CfgArgParser::new(kernel_cfg_str);
         let cmdline = arg_parser
@@ -170,10 +168,10 @@ impl TryFrom<&str> for KernelConfig {
             .map_err(ConversionError::new_kernel)?
             .ok_or_else(|| ConversionError::new_kernel("Missing required argument: path"))?;
 
-        let himem_start = arg_parser
-            .value_of("himem_start")
+        let load_addr = arg_parser
+            .value_of("kernel_load_addr")
             .map_err(ConversionError::new_kernel)?
-            .unwrap_or(DEFAULT_HIGH_RAM_START);
+            .unwrap_or(DEFAULT_KERNEL_LOAD_ADDR);
 
         arg_parser
             .all_consumed()
@@ -181,7 +179,7 @@ impl TryFrom<&str> for KernelConfig {
         Ok(KernelConfig {
             cmdline,
             path,
-            himem_start,
+            load_addr,
         })
     }
 }
@@ -259,10 +257,10 @@ mod tests {
     #[test]
     fn test_kernel_config() {
         // Check that additional commas in the kernel string do not cause a panic.
-        let kernel_str = r#"path=/foo/bar,cmdline="foo=bar",himem_start=42,"#;
+        let kernel_str = r#"path=/foo/bar,cmdline="foo=bar",kernel_load_addr=42,"#;
         let expected_kernel_config = KernelConfig {
             cmdline: r#""foo=bar""#.to_string(),
-            himem_start: 42,
+            load_addr: 42,
             path: PathBuf::from("/foo/bar"),
         };
         assert_eq!(
@@ -271,13 +269,13 @@ mod tests {
         );
 
         // Check that an empty path returns a conversion error.
-        let kernel_str = r#"path=,cmdline="foo=bar",himem_start=42,"#;
+        let kernel_str = r#"path=,cmdline="foo=bar",kernel_load_addr=42,"#;
         assert_eq!(
             KernelConfig::try_from(kernel_str).unwrap_err(),
             ConversionError::ParseKernel("Missing required argument: path".to_string())
         );
         assert!(KernelConfig::try_from("path=/something,not=valid").is_err());
-        assert!(KernelConfig::try_from("path=/something,himem_start=invalid").is_err());
+        assert!(KernelConfig::try_from("path=/something,kernel_load_addr=invalid").is_err());
     }
 
     #[test]

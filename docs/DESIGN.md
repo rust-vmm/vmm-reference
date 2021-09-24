@@ -151,7 +151,7 @@ effort.
 vmm-reference                                                           \
     --memory size_mib=1024                                          \
     --vcpu num=1                                                 \
-    --kernel path=/path/to/vmlinux,himem_start=1024,cmdline="pci=off"   \
+    --kernel path=/path/to/vmlinux,kernel_load_addr=1024,cmdline="pci=off"   \
     [--block <blkdev_config> - TBD]
     [--net <netdev_config> - TBD]
 ```
