@@ -1,13 +1,13 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
-
-#![cfg(target_arch = "x86_64")]
-
 use std::convert::TryFrom;
 use std::path::PathBuf;
 
 use utils::resource_download::s3_download;
-use vmm::{KernelConfig, MemoryConfig, VMMConfig, VcpuConfig, Vmm};
+use vmm::{
+    KernelConfig, MemoryConfig, VMMConfig, VcpuConfig, Vmm, DEFAULT_KERNEL_CMDLINE,
+    DEFAULT_KERNEL_LOAD_ADDR,
+};
 
 fn default_memory_config() -> MemoryConfig {
     MemoryConfig { size_mib: 1024 }
@@ -16,7 +16,7 @@ fn default_memory_config() -> MemoryConfig {
 fn default_kernel_config(path: PathBuf) -> KernelConfig {
     KernelConfig {
         path,
-        load_addr: 0x0010_0000, // 1 MB
+        load_addr: DEFAULT_KERNEL_LOAD_ADDR, // 1 MB
         cmdline: KernelConfig::default_cmdline(),
     }
 }
@@ -39,6 +39,7 @@ fn run_vmm(kernel_path: PathBuf) {
 }
 
 #[test]
+#[cfg(target_arch = "x86_64")]
 fn test_dummy_vmm_elf() {
     let tags = r#"
     {
@@ -52,6 +53,7 @@ fn test_dummy_vmm_elf() {
 }
 
 #[test]
+#[cfg(target_arch = "x86_64")]
 fn test_dummy_vmm_bzimage() {
     let tags = r#"
     {
@@ -61,4 +63,17 @@ fn test_dummy_vmm_bzimage() {
     "#;
     let bzimage_halt = s3_download("kernel", Some(tags)).unwrap();
     run_vmm(bzimage_halt);
+}
+
+#[test]
+#[cfg(target_arch = "aarch64")]
+fn test_dummy_vmm_pe() {
+    let tags = r#"
+    {
+        "halt_after_boot": true,
+        "image_format": "pe"
+    }
+    "#;
+    let pe_halt = s3_download("kernel", Some(tags)).unwrap();
+    run_vmm(pe_halt);
 }
