@@ -59,8 +59,10 @@ impl<T: Trigger<E = io::Error>, W: Write> SerialWrapper<T, NoEvents, W> {
     fn bus_read(&mut self, offset: u8, data: &mut [u8]) {
         if data.len() != 1 {
             debug!("Serial console invalid data length on read: {}", data.len());
+            return;
         }
 
+        // This is safe because we checked that `data` has length 1.
         data[0] = self.0.read(offset);
     }
 
@@ -70,8 +72,10 @@ impl<T: Trigger<E = io::Error>, W: Write> SerialWrapper<T, NoEvents, W> {
                 "Serial console invalid data length on write: {}",
                 data.len()
             );
+            return;
         }
 
+        // This is safe because we checked that `data` has length 1.
         let res = self.0.write(offset, data[0]);
         if res.is_err() {
             debug!("Error writing to serial console: {:#?}", res.unwrap_err());
@@ -138,33 +142,73 @@ mod tests {
 
     use std::io::sink;
 
-    #[test]
-    fn test_invalid_data_len() {
+    fn check_invalid_data(invalid_data: &mut [u8]) {
         let interrupt_evt = EventFdTrigger::new(libc::EFD_NONBLOCK).unwrap();
         let mut serial_console = SerialWrapper(Serial::new(interrupt_evt, sink()));
-
-        // In case the data length is more than 1, the read succeeds as we send
-        // to the serial console just the first byte.
-        let mut invalid_data = [0, 0];
         let valid_iir_offset = 2;
+
+        // Check that passing invalid data does not result in a crash.
         #[cfg(target_arch = "x86_64")]
-        serial_console.pio_read(PioAddress(0), valid_iir_offset, invalid_data.as_mut());
+        serial_console.pio_read(PioAddress(0), valid_iir_offset, invalid_data);
         #[cfg(target_arch = "aarch64")]
-        serial_console.mmio_read(MmioAddress(0), valid_iir_offset, invalid_data.as_mut());
-        // Check that the emulation added a value to `invalid_data`.
-        assert_ne!(invalid_data[0], 0);
+        serial_console.mmio_read(MmioAddress(0), valid_iir_offset, invalid_data);
 
         // The same scenario happens for writes.
         #[cfg(target_arch = "x86_64")]
-        serial_console.pio_write(PioAddress(0), valid_iir_offset, &invalid_data);
+        serial_console.pio_write(PioAddress(0), valid_iir_offset, invalid_data);
         #[cfg(target_arch = "aarch64")]
-        serial_console.mmio_write(MmioAddress(0), valid_iir_offset, &invalid_data);
+        serial_console.mmio_write(MmioAddress(0), valid_iir_offset, invalid_data);
+    }
+
+    #[test]
+    fn test_empty_data() {
+        check_invalid_data(&mut []);
+    }
+
+    #[test]
+    fn test_longer_data() {
+        check_invalid_data(&mut [0; 2]);
+    }
+
+    #[test]
+    fn test_invalid_offset() {
+        let interrupt_evt = EventFdTrigger::new(libc::EFD_NONBLOCK).unwrap();
+        let mut serial_console = SerialWrapper(Serial::new(interrupt_evt, sink()));
+        let data = [0];
 
         // Check that passing an invalid offset does not result in a crash.
-        let data = [0];
         #[cfg(target_arch = "x86_64")]
-        serial_console.pio_write(PioAddress(0), u16::MAX, &data);
+        {
+            let invalid_offset = PioAddressValue::MAX;
+            serial_console.pio_write(PioAddress(0), invalid_offset, &data);
+        }
         #[cfg(target_arch = "aarch64")]
-        serial_console.mmio_write(MmioAddress(0), u64::MAX, &data);
+        {
+            let invalid_offset = u64::MAX;
+            serial_console.mmio_write(MmioAddress(0), invalid_offset, &data);
+        }
+    }
+
+    #[test]
+    fn test_valid_write_and_read() {
+        let interrupt_evt = EventFdTrigger::new(libc::EFD_NONBLOCK).unwrap();
+        let mut serial_console = SerialWrapper(Serial::new(interrupt_evt, sink()));
+        let write_data = [5];
+        let mut read_data = [0];
+        let offset = 7;
+
+        // Write on and read from the serial console.
+        #[cfg(target_arch = "x86_64")]
+        {
+            serial_console.pio_write(PioAddress(0), offset, &write_data);
+            serial_console.pio_read(PioAddress(0), offset, read_data.as_mut());
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            serial_console.mmio_write(MmioAddress(0), offset, &write_data);
+            serial_console.mmio_read(MmioAddress(0), offset, read_data.as_mut());
+        }
+
+        assert_eq!(&write_data, &read_data);
     }
 }
