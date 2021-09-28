@@ -169,6 +169,9 @@ checksum = "9337591893a19b88d8d87f2cec1e73fad5cdfd10e5a6f349f498ad6ea2ffb1e3"
 [[package]]
 name = "utils"
 version = "0.1.0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "vec_map"

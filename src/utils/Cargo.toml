@@ -5,3 +5,4 @@ authors = ["rust-vmm AWS maintainers <rust-vmm-maintainers@amazon.com>"]
 edition = "2018"
 
 [dependencies]
+libc = "0.2.91"
