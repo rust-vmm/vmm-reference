@@ -290,25 +290,12 @@ impl TryFrom<VMMConfig> for Vmm {
         vmm.add_rtc_device();
 
         // Adding the virtio devices. We'll come up with a cleaner abstraction for `Env`.
-
-        // We transiently define a mut `Cmdline` object here to pass for device creation
-        // (devices expect a `&mut Cmdline` to leverage the newly added virtio_mmio
-        // functionality), until we figure out how this fits with the rest of the vmm, which
-        // apparently does not explicitly use `Cmdline` structs. Will discuss and fix this
-        // somehow ASAP.
-        let mut cmdline = Cmdline::new(4096);
-
         if let Some(cfg) = config.block_config.as_ref() {
-            vmm.add_block_device(cfg, &mut cmdline)?;
+            vmm.add_block_device(cfg)?;
         }
 
         if let Some(cfg) = config.net_config.as_ref() {
-            vmm.add_net_device(cfg, &mut cmdline)?;
-        }
-
-        if !cmdline.as_str().is_empty() {
-            vmm.kernel_cfg.cmdline.push(' ');
-            vmm.kernel_cfg.cmdline.push_str(cmdline.as_str());
+            vmm.add_net_device(cfg)?;
         }
 
         Ok(vmm)
@@ -397,7 +384,7 @@ impl Vmm {
 
         // Add the kernel command line to the boot parameters.
         bootparams.hdr.cmd_line_ptr = CMDLINE_START as u32;
-        bootparams.hdr.cmdline_size = self.kernel_cfg.cmdline.len() as u32 + 1;
+        bootparams.hdr.cmdline_size = self.kernel_cfg.cmdline.as_str().len() as u32 + 1;
 
         // Load the kernel command line into guest memory.
         let mut cmdline = Cmdline::new(4096);
@@ -436,11 +423,16 @@ impl Vmm {
         // See more IRQ assignments & info: https://tldp.org/HOWTO/Serial-HOWTO-8.html
         self.vm.register_irqfd(&interrupt_evt, 4)?;
 
-        self.kernel_cfg.cmdline.push_str(" console=ttyS0");
+        self.kernel_cfg
+            .cmdline
+            .insert_str("console=ttyS0")
+            .map_err(Error::Cmdline)?;
+
         #[cfg(target_arch = "aarch64")]
         self.kernel_cfg
             .cmdline
-            .push_str(&format!(" earlycon=uart,mmio,0x{:08x}", AARCH64_MMIO_BASE));
+            .insert_str(&format!("earlycon=uart,mmio,0x{:08x}", AARCH64_MMIO_BASE))
+            .map_err(Error::Cmdline)?;
 
         // Put it on the bus.
         // Safe to use unwrap() because the device manager is instantiated in new(), there's no
@@ -486,7 +478,7 @@ impl Vmm {
     // only support a single device. We need to expand this, but it looks like a good match if we
     // can do it after figuring out how to better separate concerns and make the VMM agnostic of
     // the actual device types.
-    fn add_block_device(&mut self, cfg: &BlockConfig, cmdline: &mut Cmdline) -> Result<()> {
+    fn add_block_device(&mut self, cfg: &BlockConfig) -> Result<()> {
         let mem = Arc::new(self.guest_memory.clone());
 
         let range = MmioRange::new(MmioAddress(MMIO_GAP_START), 0x1000).unwrap();
@@ -500,7 +492,7 @@ impl Vmm {
             event_mgr: &mut self.event_mgr,
             mmio_mgr: guard.deref_mut(),
             mmio_cfg,
-            kernel_cmdline: cmdline,
+            kernel_cmdline: &mut self.kernel_cfg.cmdline,
         };
 
         let args = BlockArgs {
@@ -517,7 +509,7 @@ impl Vmm {
         Ok(())
     }
 
-    fn add_net_device(&mut self, cfg: &NetConfig, cmdline: &mut Cmdline) -> Result<()> {
+    fn add_net_device(&mut self, cfg: &NetConfig) -> Result<()> {
         let mem = Arc::new(self.guest_memory.clone());
 
         let range = MmioRange::new(MmioAddress(MMIO_GAP_START + 0x1000), 0x1000).unwrap();
@@ -531,7 +523,7 @@ impl Vmm {
             event_mgr: &mut self.event_mgr,
             mmio_mgr: guard.deref_mut(),
             mmio_cfg,
-            kernel_cmdline: cmdline,
+            kernel_cmdline: &mut self.kernel_cfg.cmdline,
         };
 
         let args = NetArgs {
@@ -654,7 +646,7 @@ mod tests {
             kernel_config: KernelConfig {
                 path: default_elf_path(),
                 load_addr: DEFAULT_HIGH_RAM_START,
-                cmdline: DEFAULT_KERNEL_CMDLINE.to_string(),
+                cmdline: KernelConfig::default_cmdline(),
             },
             memory_config: MemoryConfig {
                 size_mib: MEM_SIZE_MIB,
@@ -909,30 +901,27 @@ mod tests {
         let block_config = BlockConfig {
             path: tempfile.as_path().to_path_buf(),
         };
-        let mut cmdline = Cmdline::new(4096);
-        assert!(vmm.add_block_device(&block_config, &mut cmdline).is_ok());
+
+        assert!(vmm.add_block_device(&block_config).is_ok());
         assert_eq!(vmm.block_devices.len(), 1);
-        assert!(cmdline.as_str().contains("virtio"));
+        assert!(vmm.kernel_cfg.cmdline.as_str().contains("virtio"));
 
         let invalid_block_config = BlockConfig {
             // Let's create the tempfile directly here so that it gets out of scope immediately
             // and delete the underlying file.
             path: TempFile::new().unwrap().as_path().to_path_buf(),
         };
-        let mut cmdline = Cmdline::new(4096);
-        let err = vmm
-            .add_block_device(&invalid_block_config, &mut cmdline)
-            .unwrap_err();
+
+        let err = vmm.add_block_device(&invalid_block_config).unwrap_err();
         assert!(
             matches!(err, Error::Block(block::Error::OpenFile(io_err)) if io_err.kind() == ErrorKind::NotFound)
         );
 
         // The current implementation of the VMM does not allow more than one block device
         // as we are hard coding the `MmioConfig`.
-        let mut cmdline = Cmdline::new(4096);
         // This currently fails because a device is already registered with the provided
         // MMIO range.
-        assert!(vmm.add_block_device(&block_config, &mut cmdline).is_err());
+        assert!(vmm.add_block_device(&block_config).is_err());
     }
 
     #[test]
@@ -947,19 +936,17 @@ mod tests {
         };
 
         {
-            let mut cmdline = Cmdline::new(4096);
-            assert!(vmm.add_net_device(&cfg, &mut cmdline).is_ok());
+            assert!(vmm.add_net_device(&cfg).is_ok());
             assert_eq!(vmm.net_devices.len(), 1);
-            assert!(cmdline.as_str().contains("virtio"));
+            assert!(vmm.kernel_cfg.cmdline.as_str().contains("virtio"));
         }
 
         {
             // The current implementation of the VMM does not allow more than one net device
             // as we are hard coding the `MmioConfig`.
-            let mut cmdline = Cmdline::new(4096);
             // This currently fails because a device is already registered with the provided
             // MMIO range.
-            assert!(vmm.add_net_device(&cfg, &mut cmdline).is_err());
+            assert!(vmm.add_net_device(&cfg).is_err());
         }
     }
 }

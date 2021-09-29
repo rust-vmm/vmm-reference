@@ -7,6 +7,8 @@ use std::num;
 use std::path::PathBuf;
 use std::result;
 
+use linux_loader::cmdline::Cmdline;
+
 use arg_parser::CfgArgParser;
 use builder::Builder;
 
@@ -14,6 +16,8 @@ use super::{DEFAULT_KERNEL_CMDLINE, DEFAULT_KERNEL_LOAD_ADDR};
 
 mod arg_parser;
 mod builder;
+
+const KERNEL_CMDLINE_CAPACITY: usize = 4096;
 
 /// Errors encountered converting the `*Config` objects.
 #[derive(Clone, Debug, PartialEq)]
@@ -133,17 +137,30 @@ impl TryFrom<&str> for VcpuConfig {
 #[derive(Clone, Debug, PartialEq)]
 pub struct KernelConfig {
     /// Kernel command line.
-    pub cmdline: String,
+    pub cmdline: Cmdline,
     /// Path to the kernel image.
     pub path: PathBuf,
     /// Address where the kernel is loaded.
     pub load_addr: u64,
 }
 
+impl KernelConfig {
+    /// Return the default kernel command line used by the Vmm.
+    pub fn default_cmdline() -> Cmdline {
+        let mut cmdline = Cmdline::new(KERNEL_CMDLINE_CAPACITY);
+
+        // It's ok to use `unwrap` because the initial capacity of `cmdline` should be
+        // sufficient to accommodate the default kernel cmdline.
+        cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).unwrap();
+
+        cmdline
+    }
+}
+
 impl Default for KernelConfig {
     fn default() -> Self {
         KernelConfig {
-            cmdline: String::from(DEFAULT_KERNEL_CMDLINE),
+            cmdline: KernelConfig::default_cmdline(),
             path: PathBuf::from(""), // FIXME: make it a const.
             load_addr: DEFAULT_KERNEL_LOAD_ADDR,
         }
@@ -158,10 +175,16 @@ impl TryFrom<&str> for KernelConfig {
         // `cmdline=<"string">,path=/path/to/kernel,kernel_load_addr=<u64>`
         // Required: path
         let mut arg_parser = CfgArgParser::new(kernel_cfg_str);
-        let cmdline = arg_parser
+
+        let cmdline_str = arg_parser
             .value_of("cmdline")
             .map_err(ConversionError::new_kernel)?
             .unwrap_or_else(|| DEFAULT_KERNEL_CMDLINE.to_string());
+
+        let mut cmdline = Cmdline::new(KERNEL_CMDLINE_CAPACITY);
+        cmdline
+            .insert_str(cmdline_str)
+            .map_err(|_| ConversionError::new_kernel("Kernel cmdline capacity error"))?;
 
         let path = arg_parser
             .value_of("path")
@@ -258,8 +281,12 @@ mod tests {
     fn test_kernel_config() {
         // Check that additional commas in the kernel string do not cause a panic.
         let kernel_str = r#"path=/foo/bar,cmdline="foo=bar",kernel_load_addr=42,"#;
+
+        let mut foo_cmdline = Cmdline::new(128);
+        foo_cmdline.insert_str("\"foo=bar\"").unwrap();
+
         let expected_kernel_config = KernelConfig {
-            cmdline: r#""foo=bar""#.to_string(),
+            cmdline: foo_cmdline,
             load_addr: 42,
             path: PathBuf::from("/foo/bar"),
         };

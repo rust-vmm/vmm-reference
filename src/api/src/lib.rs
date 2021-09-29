@@ -82,7 +82,9 @@ mod tests {
     use super::*;
 
     use std::path::PathBuf;
-    use vmm::DEFAULT_KERNEL_CMDLINE;
+
+    use linux_loader::cmdline::Cmdline;
+
     use vmm::{KernelConfig, MemoryConfig, VcpuConfig};
 
     #[test]
@@ -212,6 +214,9 @@ mod tests {
         ])
         .is_err());
 
+        let mut foo_cmdline = Cmdline::new(4096);
+        foo_cmdline.insert_str("\"foo=bar bar=foo\"").unwrap();
+
         // OK.
         assert_eq!(
             Cli::launch(vec![
@@ -227,7 +232,7 @@ mod tests {
             VMMConfig {
                 kernel_config: KernelConfig {
                     path: PathBuf::from("/foo/bar"),
-                    cmdline: "\"foo=bar bar=foo\"".to_string(),
+                    cmdline: foo_cmdline,
                     load_addr: 42,
                 },
                 memory_config: MemoryConfig { size_mib: 128 },
@@ -243,7 +248,7 @@ mod tests {
             VMMConfig {
                 kernel_config: KernelConfig {
                     path: PathBuf::from("/foo/bar"),
-                    cmdline: DEFAULT_KERNEL_CMDLINE.to_string(),
+                    cmdline: KernelConfig::default_cmdline(),
                     load_addr: 1048576,
                 },
                 memory_config: MemoryConfig { size_mib: 256 },
