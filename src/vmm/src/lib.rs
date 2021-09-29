@@ -14,11 +14,13 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use event_manager::{EventManager, EventOps, Events, MutEventSubscriber, SubscriberOps};
+use event_manager::{
+    EventManager, EventOps, Events, MutEventSubscriber, RemoteEndpoint, SubscriberOps,
+};
 use kvm_bindings::{KVM_API_VERSION, KVM_MAX_CPUID_ENTRIES};
 use kvm_ioctls::{
     Cap::{self, Ioeventfd, Irqchip, Irqfd, UserMemory},
-    Kvm,
+    Kvm, VmFd,
 };
 use linux_loader::bootparam::boot_params;
 use linux_loader::cmdline::{self, Cmdline};
@@ -31,6 +33,7 @@ use linux_loader::loader::{
     elf::{self, Elf},
     load_cmdline, KernelLoader, KernelLoaderResult,
 };
+
 use vm_device::bus::{MmioAddress, MmioRange};
 #[cfg(target_arch = "x86_64")]
 use vm_device::bus::{PioAddress, PioRange};
@@ -38,7 +41,8 @@ use vm_device::device_manager::IoManager;
 #[cfg(target_arch = "aarch64")]
 use vm_device::device_manager::MmioManager;
 #[cfg(target_arch = "x86_64")]
-use vm_device::device_manager::PioManager;
+use vm_device::device_manager::{MmioManager, PioManager};
+use vm_device::DeviceMmio;
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
@@ -49,7 +53,7 @@ use boot::build_bootparams;
 pub use config::*;
 use devices::virtio::block::{self, BlockArgs};
 use devices::virtio::net::{self, NetArgs};
-use devices::virtio::{Env, MmioConfig};
+use devices::virtio::{Env, Environment, MmioConfig, MmioEnvironment, Subscriber};
 
 use devices::legacy::SerialWrapper;
 use vm_vcpu::vcpu::{cpuid::filter_cpuid, VcpuState};
@@ -158,6 +162,8 @@ pub struct Vmm {
     // and isn't Copy-able; so once one of them gets ownership, the other one can't anymore.
     event_mgr: EventManager<Arc<Mutex<dyn MutEventSubscriber + Send>>>,
     exit_handler: WrappedExitHandler,
+    next_gsi: u32,
+    next_mmio_addr: u64,
     block_devices: Vec<Arc<Mutex<Block>>>,
     net_devices: Vec<Arc<Mutex<Net>>>,
 }
@@ -280,6 +286,8 @@ impl TryFrom<VMMConfig> for Vmm {
             event_mgr: event_manager,
             kernel_cfg: config.kernel_config,
             exit_handler: wrapped_exit_handler,
+            next_gsi: 5,
+            next_mmio_addr: MMIO_GAP_START,
             block_devices: Vec::new(),
             net_devices: Vec::new(),
         };
@@ -603,6 +611,90 @@ impl Vmm {
     }
 }
 
+impl Environment for Vmm {
+    // We need to use Arc<GuestMemoryMmap> here for now, as `GuestMemory` does not currently
+    // implement `GuestAddressSpace`, which in turn is required by some abstractions until
+    // future developments in `vm-virtio`.
+    type M = Arc<GuestMemoryMmap>;
+
+    fn mem(&self) -> Self::M {
+        Arc::new(self.guest_memory.clone())
+    }
+
+    fn vm_fd(&self) -> Arc<VmFd> {
+        self.vm.vm_fd()
+    }
+
+    fn req_gsi(&mut self, specific: Option<u32>) -> devices::virtio::Result<u32> {
+        // Asking for specific gsi numbers (i.e. like when restoring device state) is not
+        // currently implemented.
+        if specific.is_some() {
+            return Err(devices::virtio::Error::InvalidGsi);
+        }
+
+        let gsi = self.next_gsi;
+
+        // Adding a limit to be on the safe side while we're still using legacy IRQs.
+        if gsi > 12 {
+            return Err(devices::virtio::Error::InvalidGsi);
+        }
+
+        self.next_gsi += 1;
+
+        Ok(gsi)
+    }
+
+    fn remote_endpoint(&self) -> RemoteEndpoint<Subscriber> {
+        self.event_mgr.remote_endpoint()
+    }
+
+    fn kernel_cmdline(&mut self) -> &mut Cmdline {
+        &mut self.kernel_cfg.cmdline
+    }
+}
+
+impl MmioEnvironment for Vmm {
+    fn req_mmio_range(
+        &mut self,
+        base: Option<MmioAddress>,
+        size: u64,
+    ) -> devices::virtio::Result<MmioRange> {
+        // Asking for a specific base address is not currently implemented.
+        if base.is_some() {
+            return Err(devices::virtio::Error::InvalidMmioRange);
+        }
+
+        if self.next_mmio_addr >= MMIO_GAP_START + MMIO_GAP_SIZE {
+            return Err(devices::virtio::Error::InvalidMmioRange);
+        }
+
+        let range = MmioRange::new(MmioAddress(self.next_mmio_addr), size)
+            .map_err(|_| devices::virtio::Error::InvalidMmioRange)?;
+
+        // For the current simple allocation method, we just add `size` to `next_mmio_addr`.
+        self.next_mmio_addr = self
+            .next_mmio_addr
+            .checked_add(size)
+            .ok_or(devices::virtio::Error::InvalidMmioRange)?;
+
+        Ok(range)
+    }
+
+    fn register_mmio_device(
+        &mut self,
+        range: MmioRange,
+        device: Arc<dyn DeviceMmio + Sync + Send>,
+    ) -> devices::virtio::Result<()> {
+        // The `unwrap` will only panic if the lock has been poisoned.
+        self.device_mgr
+            .lock()
+            // This only fails if the mutex has been poisoned by another thread panicking before.
+            .unwrap()
+            .register_mmio(range, device)
+            .map_err(devices::virtio::Error::Bus)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::ErrorKind;
@@ -685,6 +777,8 @@ mod tests {
             event_mgr: EventManager::new().unwrap(),
             kernel_cfg: vmm_config.kernel_config,
             exit_handler,
+            next_gsi: 5,
+            next_mmio_addr: MMIO_GAP_START,
             block_devices: Vec::new(),
             net_devices: Vec::new(),
         }

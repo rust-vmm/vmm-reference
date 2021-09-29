@@ -4,6 +4,7 @@
 // We're only providing virtio over MMIO devices for now, but we aim to add PCI support as well.
 
 pub mod block;
+mod env;
 pub mod net;
 
 use std::convert::TryFrom;
@@ -13,8 +14,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use event_manager::{
-    Error as EvmgrError, EventManager, MutEventSubscriber, RemoteEndpoint, Result as EvmgrResult,
-    SubscriberId,
+    self, EventManager, MutEventSubscriber, RemoteEndpoint, Result as EvmgrResult, SubscriberId,
 };
 use kvm_ioctls::{IoEventAddress, VmFd};
 use linux_loader::cmdline::Cmdline;
@@ -25,6 +25,8 @@ use vm_device::DeviceMmio;
 use vm_memory::{GuestAddress, GuestAddressSpace};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::{EventFd, EFD_NONBLOCK};
+
+pub use env::{Environment, MmioEnvironment};
 
 // TODO: Move virtio-related defines from the local modules to the `vm-virtio` crate upstream.
 
@@ -57,15 +59,17 @@ pub enum Error {
     BadFeatures(u64),
     Bus(bus::Error),
     Cmdline(linux_loader::cmdline::Error),
-    Endpoint(EvmgrError),
+    Endpoint(event_manager::Error),
     EventFd(io::Error),
+    InvalidGsi,
+    InvalidMmioRange,
     Overflow,
     QueuesNotValid,
     RegisterIoevent(errno::Error),
     RegisterIrqfd(errno::Error),
 }
 
-type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, Error>;
 pub type Subscriber = Arc<Mutex<dyn MutEventSubscriber + Send>>;
 
 #[derive(Copy, Clone)]
