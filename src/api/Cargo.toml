@@ -8,3 +8,6 @@ edition = "2018"
 clap = "2.33.3"
 
 vmm = { path = "../vmm" }
+
+[dev-dependencies]
+linux-loader = "0.4.0"

@@ -192,7 +192,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::{DEFAULT_HIGH_RAM_START, DEFAULT_KERNEL_CMDLINE};
+    use crate::DEFAULT_HIGH_RAM_START;
 
     #[test]
     fn test_builder_default_err() {
@@ -255,7 +255,7 @@ mod tests {
         assert_eq!(
             vmm_config.unwrap().kernel_config,
             KernelConfig {
-                cmdline: DEFAULT_KERNEL_CMDLINE.to_string(),
+                cmdline: KernelConfig::default_cmdline(),
                 load_addr: DEFAULT_HIGH_RAM_START,
                 path: PathBuf::from("bzImage")
             }
@@ -337,7 +337,7 @@ mod tests {
                 memory_config: MemoryConfig { size_mib: 1024 },
                 vcpu_config: VcpuConfig { num: 2 },
                 kernel_config: KernelConfig {
-                    cmdline: DEFAULT_KERNEL_CMDLINE.to_string(),
+                    cmdline: KernelConfig::default_cmdline(),
                     load_addr: DEFAULT_HIGH_RAM_START,
                     path: PathBuf::from("bzImage")
                 },
