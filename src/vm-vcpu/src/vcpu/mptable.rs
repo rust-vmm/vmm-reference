@@ -284,7 +284,9 @@ pub fn setup_mptable<M: GuestMemory>(mem: &M, num_cpus: u8) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vm_memory::{Bytes, GuestMemoryMmap};
+
+    use vm_memory::{self, Bytes};
+    type GuestMemoryMmap = vm_memory::GuestMemoryMmap<()>;
 
     fn table_entry_size(type_: u8) -> usize {
         match u32::from(type_) {
