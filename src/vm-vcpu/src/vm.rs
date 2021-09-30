@@ -131,26 +131,24 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
         }
 
         // Register guest memory regions with KVM.
-        guest_memory
-            .with_regions(|index, region| {
-                let memory_region = kvm_userspace_memory_region {
-                    slot: index as u32,
-                    guest_phys_addr: region.start_addr().raw_value(),
-                    memory_size: region.len() as u64,
-                    // It's safe to unwrap because the guest address is valid.
-                    userspace_addr: guest_memory.get_host_address(region.start_addr()).unwrap()
-                        as u64,
-                    flags: 0,
-                };
+        for (index, region) in guest_memory.iter().enumerate() {
+            let memory_region = kvm_userspace_memory_region {
+                slot: index as u32,
+                guest_phys_addr: region.start_addr().raw_value(),
+                memory_size: region.len() as u64,
+                // It's safe to unwrap because the guest address is valid.
+                userspace_addr: guest_memory.get_host_address(region.start_addr()).unwrap() as u64,
+                flags: 0,
+            };
 
-                // Safe because:
-                // * userspace_addr is a valid address for a memory region, obtained by calling
-                //   get_host_address() on a valid region's start address;
-                // * the memory regions do not overlap - there's either a single region spanning
-                //   the whole guest memory, or 2 regions with the MMIO gap in between.
-                unsafe { self.fd.set_user_memory_region(memory_region) }
-            })
-            .map_err(Error::SetupMemoryRegion)?;
+            // Safe because:
+            // * userspace_addr is a valid address for a memory region, obtained by calling
+            //   get_host_address() on a valid region's start address;
+            // * the memory regions do not overlap - there's either a single region spanning
+            //   the whole guest memory, or 2 regions with the MMIO gap in between.
+            unsafe { self.fd.set_user_memory_region(memory_region) }
+                .map_err(Error::SetupMemoryRegion)?;
+        }
 
         Ok(())
     }
@@ -266,7 +264,9 @@ mod tests {
     use std::time::Duration;
 
     use kvm_ioctls::Kvm;
-    use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+    use vm_memory::{Bytes, GuestAddress};
+
+    type GuestMemoryMmap = vm_memory::GuestMemoryMmap<()>;
 
     #[derive(Clone, Default)]
     struct WrappedExitHandler(Arc<DummyExitHandler>);
