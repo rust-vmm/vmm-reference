@@ -11,7 +11,10 @@ use std::result;
 use std::sync::{Arc, Barrier, Condvar, Mutex};
 
 #[cfg(target_arch = "x86_64")]
-use kvm_bindings::{kvm_fpu, kvm_regs, CpuId};
+use kvm_bindings::{
+    kvm_debugregs, kvm_fpu, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events,
+    kvm_xcrs, kvm_xsave, CpuId, Msrs,
+};
 #[cfg(target_arch = "aarch64")]
 use kvm_bindings::{
     kvm_vcpu_init, KVM_SYSTEM_EVENT_CRASH, KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN,
@@ -95,23 +98,100 @@ pub enum Error {
     Gdt(gdt::Error),
     /// Failed to initialize MSRS.
     #[cfg(target_arch = "x86_64")]
-    CreateMsr(msrs::Error),
+    CreateMsrs(msrs::Error),
     /// Failed to configure MSRs.
+    #[cfg(target_arch = "x86_64")]
     SetModelSpecificRegistersCount,
     /// TLS already initialized.
     TlsInitialized,
     /// Unable to register signal handler.
     RegisterSignalHandler(Errno),
     SetReg(kvm_ioctls::Error),
+
+    // These are all Save/Restore errors. Maybe it makes sense to move them
+    // to a separate enum.
+    FamError(vmm_sys_util::fam::Error),
+    /// Failed to get KVM vcpu debug regs.
+    VcpuGetDebugRegs(kvm_ioctls::Error),
+    /// Failed to get KVM vcpu lapic.
+    VcpuGetLapic(kvm_ioctls::Error),
+    /// Failed to get KVM vcpu mp state.
+    VcpuGetMpState(kvm_ioctls::Error),
+    /// The number of MSRS returned by the kernel is unexpected.
+    VcpuGetMSRSIncomplete,
+    /// Failed to get KVM vcpu msrs.
+    VcpuGetMsrs(kvm_ioctls::Error),
+    /// Failed to get KVM vcpu regs.
+    VcpuGetRegs(kvm_ioctls::Error),
+    /// Failed to get KVM vcpu sregs.
+    VcpuGetSregs(kvm_ioctls::Error),
+    /// Failed to get KVM vcpu event.
+    VcpuGetVcpuEvents(kvm_ioctls::Error),
+    /// Failed to get KVM vcpu xcrs.
+    VcpuGetXcrs(kvm_ioctls::Error),
+    /// Failed to get KVM vcpu xsave.
+    VcpuGetXsave(kvm_ioctls::Error),
+    /// Failed to get KVM vcpu cpuid.
+    VcpuGetCpuid(kvm_ioctls::Error),
+    /// Failed to get KVM TSC freq.
+    VcpuGetTSC(kvm_ioctls::Error),
+    /// Failed to set KVM vcpu cpuid.
+    VcpuSetCpuid(kvm_ioctls::Error),
+    /// Failed to set KVM vcpu debug regs.
+    VcpuSetDebugRegs(kvm_ioctls::Error),
+    /// Failed to set KVM vcpu lapic.
+    VcpuSetLapic(kvm_ioctls::Error),
+    /// Failed to set KVM vcpu mp state.
+    VcpuSetMpState(kvm_ioctls::Error),
+    /// Failed to set KVM vcpu msrs.
+    VcpuSetMsrs(kvm_ioctls::Error),
+    /// Failed to set KVM vcpu regs.
+    VcpuSetRegs(kvm_ioctls::Error),
+    /// Failed to set KVM vcpu sregs.
+    VcpuSetSregs(kvm_ioctls::Error),
+    /// Failed to set KVM vcpu event.
+    VcpuSetVcpuEvents(kvm_ioctls::Error),
+    /// Failed to set KVM vcpu xcrs.
+    VcpuSetXcrs(kvm_ioctls::Error),
+    /// Failed to set KVM vcpu xsave.
+    VcpuSetXsave(kvm_ioctls::Error),
 }
 
 /// Dedicated Result type.
 pub type Result<T> = result::Result<T, Error>;
 
-pub struct VcpuState {
+#[derive(Clone)]
+pub struct VcpuConfig {
     pub id: u8,
     #[cfg(target_arch = "x86_64")]
     pub cpuid: CpuId,
+    #[cfg(target_arch = "x86_64")]
+    // This is just a workaround so that we can get a list of MSRS.
+    // Just getting all the MSRS on a vcpu is not possible with KVM.
+    pub msrs: Msrs,
+}
+
+/// Structure holding the kvm state for an x86_64 VCPU.
+#[cfg(target_arch = "x86_64")]
+#[derive(Clone)]
+pub struct VcpuState {
+    pub cpuid: CpuId,
+    pub msrs: Msrs,
+    pub debug_regs: kvm_debugregs,
+    pub lapic: kvm_lapic_state,
+    pub mp_state: kvm_mp_state,
+    pub regs: kvm_regs,
+    pub sregs: kvm_sregs,
+    pub vcpu_events: kvm_vcpu_events,
+    pub xcrs: kvm_xcrs,
+    pub xsave: kvm_xsave,
+    pub config: VcpuConfig,
+}
+
+#[cfg(target_arch = "aarch64")]
+#[derive(Clone)]
+pub struct VcpuState {
+    pub config: VcpuConfig,
 }
 
 /// Represents the current run state of the VCPUs.
@@ -137,7 +217,7 @@ pub struct KvmVcpu {
     vcpu_fd: VcpuFd,
     /// Device manager for bus accesses.
     device_mgr: Arc<Mutex<IoManager>>,
-    state: VcpuState,
+    config: VcpuConfig,
     run_barrier: Arc<Barrier>,
     pub(crate) run_state: Arc<VcpuRunState>,
 }
@@ -149,7 +229,7 @@ impl KvmVcpu {
     pub fn new<M: GuestMemory>(
         vm_fd: &VmFd,
         device_mgr: Arc<Mutex<IoManager>>,
-        state: VcpuState,
+        config: VcpuConfig,
         run_barrier: Arc<Barrier>,
         run_state: Arc<VcpuRunState>,
         memory: &M,
@@ -161,17 +241,17 @@ impl KvmVcpu {
 
         vcpu = KvmVcpu {
             vcpu_fd: vm_fd
-                .create_vcpu(state.id.into())
+                .create_vcpu(config.id.into())
                 .map_err(Error::KvmIoctl)?,
             device_mgr,
-            state,
+            config,
             run_barrier,
             run_state,
         };
 
         #[cfg(target_arch = "x86_64")]
         {
-            vcpu.configure_cpuid(&vcpu.state.cpuid)?;
+            vcpu.configure_cpuid(&vcpu.config.cpuid)?;
             vcpu.configure_msrs()?;
             vcpu.configure_sregs(memory)?;
             vcpu.configure_lapic()?;
@@ -184,6 +264,70 @@ impl KvmVcpu {
             vcpu.configure_regs(memory)?;
         }
 
+        Ok(vcpu)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    // Set the state of this `KvmVcpu`. Errors returned from this function
+    // MUST not be ignored because they can lead to undefined behavior when
+    // the state of the vCPU is only partially set.
+    fn set_state(&mut self, state: VcpuState) -> Result<()> {
+        self.vcpu_fd
+            .set_cpuid2(&state.cpuid)
+            .map_err(Error::VcpuSetCpuid)?;
+        self.vcpu_fd
+            .set_mp_state(state.mp_state)
+            .map_err(Error::VcpuSetMpState)?;
+        self.vcpu_fd
+            .set_regs(&state.regs)
+            .map_err(Error::VcpuSetRegs)?;
+        self.vcpu_fd
+            .set_sregs(&state.sregs)
+            .map_err(Error::VcpuSetSregs)?;
+        self.vcpu_fd
+            .set_xsave(&state.xsave)
+            .map_err(Error::VcpuSetXsave)?;
+        self.vcpu_fd
+            .set_xcrs(&state.xcrs)
+            .map_err(Error::VcpuSetXcrs)?;
+        self.vcpu_fd
+            .set_debug_regs(&state.debug_regs)
+            .map_err(Error::VcpuSetDebugRegs)?;
+        self.vcpu_fd
+            .set_lapic(&state.lapic)
+            .map_err(Error::VcpuSetLapic)?;
+        self.vcpu_fd
+            .set_msrs(&state.msrs)
+            .map_err(Error::VcpuSetMsrs)?;
+        self.vcpu_fd
+            .set_vcpu_events(&state.vcpu_events)
+            .map_err(Error::VcpuSetVcpuEvents)?;
+        Ok(())
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn set_state(&mut self, _state: VcpuState) -> Result<()> {
+        todo!();
+    }
+
+    /// Create a vCPU from a previously saved state.
+    pub fn from_state<M: GuestMemory>(
+        vm_fd: &VmFd,
+        device_mgr: Arc<Mutex<IoManager>>,
+        state: VcpuState,
+        run_barrier: Arc<Barrier>,
+        run_state: Arc<VcpuRunState>,
+    ) -> Result<Self> {
+        let mut vcpu = KvmVcpu {
+            vcpu_fd: vm_fd
+                .create_vcpu(state.config.id.into())
+                .map_err(Error::KvmIoctl)?,
+            device_mgr,
+            config: state.config.clone(),
+            run_barrier,
+            run_state,
+        };
+        vcpu.set_state(state)?;
         Ok(vcpu)
     }
 
@@ -201,7 +345,7 @@ impl KvmVcpu {
             .map_err(Error::SetReg)?;
 
         // Other cpus are powered off initially
-        if self.state.id == 0 {
+        if self.config.id == 0 {
             /* X0 -- fdt address */
             let mut fdt_offset: u64 = guest_mem.iter().map(|region| region.len()).sum();
             fdt_offset = fdt_offset - AARCH64_FDT_MAX_SIZE - 0x10000;
@@ -225,7 +369,7 @@ impl KvmVcpu {
 
         kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_PSCI_0_2;
         // Non-boot cpus are powered off initially.
-        if self.state.id > 0 {
+        if self.config.id > 0 {
             kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_POWER_OFF;
         }
 
@@ -243,7 +387,7 @@ impl KvmVcpu {
     /// Configure MSRs.
     #[cfg(target_arch = "x86_64")]
     fn configure_msrs(&self) -> Result<()> {
-        let msrs = msrs::create_boot_msr_entries().map_err(Error::CreateMsr)?;
+        let msrs = msrs::create_boot_msr_entries().map_err(Error::CreateMsrs)?;
         self.vcpu_fd
             .set_msrs(&msrs)
             .map_err(Error::KvmIoctl)
@@ -406,18 +550,24 @@ impl KvmVcpu {
     }
 
     /// vCPU emulation loop.
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction_pointer`: Represents the start address of the vcpu. This can be None
+    /// when the IP is specified using the platform dependent registers.
     #[allow(clippy::if_same_then_else)]
-    pub fn run(&mut self, instruction_pointer: GuestAddress) -> Result<()> {
-        #[cfg(target_arch = "x86_64")]
-        self.configure_regs(instruction_pointer)?;
-        #[cfg(target_arch = "aarch64")]
-        if self.state.id == 0 {
-            let data = instruction_pointer.0;
-            println!("data={}", data);
-            let reg_id = arm64_core_reg!(pc);
-            self.vcpu_fd
-                .set_one_reg(reg_id, data)
-                .map_err(Error::SetReg)?;
+    pub fn run(&mut self, instruction_pointer: Option<GuestAddress>) -> Result<()> {
+        if let Some(ip) = instruction_pointer {
+            #[cfg(target_arch = "x86_64")]
+            self.configure_regs(ip)?;
+            #[cfg(target_arch = "aarch64")]
+            if self.config.id == 0 {
+                let data = ip.0;
+                let reg_id = arm64_core_reg!(pc);
+                self.vcpu_fd
+                    .set_one_reg(reg_id, data)
+                    .map_err(Error::SetReg)?;
+            }
         }
         self.init_tls()?;
 
@@ -562,6 +712,58 @@ impl KvmVcpu {
         }
 
         Ok(())
+    }
+
+    /// Pause the vcpu. If the vcpu is already paused, this is a no-op.
+    pub fn pause(&mut self) -> Result<()> {
+        todo!()
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    pub fn save_state(&mut self) -> Result<VcpuState> {
+        let mp_state = self.vcpu_fd.get_mp_state().map_err(Error::VcpuGetMpState)?;
+        let regs = self.vcpu_fd.get_regs().map_err(Error::VcpuGetRegs)?;
+        let sregs = self.vcpu_fd.get_sregs().map_err(Error::VcpuGetSregs)?;
+        let xsave = self.vcpu_fd.get_xsave().map_err(Error::VcpuGetXsave)?;
+        let xcrs = self.vcpu_fd.get_xcrs().map_err(Error::VcpuGetXcrs)?;
+        let debug_regs = self
+            .vcpu_fd
+            .get_debug_regs()
+            .map_err(Error::VcpuGetDebugRegs)?;
+        let lapic = self.vcpu_fd.get_lapic().map_err(Error::VcpuGetLapic)?;
+
+        let mut msrs = self.config.msrs.clone();
+        let num_msrs = self.config.msrs.as_fam_struct_ref().nmsrs as usize;
+        let nmsrs = self
+            .vcpu_fd
+            .get_msrs(&mut msrs)
+            .map_err(Error::VcpuGetMsrs)?;
+        if nmsrs != num_msrs {
+            return Err(Error::VcpuGetMSRSIncomplete);
+        }
+        let vcpu_events = self
+            .vcpu_fd
+            .get_vcpu_events()
+            .map_err(Error::VcpuGetVcpuEvents)?;
+
+        let cpuid = self
+            .vcpu_fd
+            .get_cpuid2(kvm_bindings::KVM_MAX_CPUID_ENTRIES)
+            .map_err(Error::VcpuGetCpuid)?;
+
+        Ok(VcpuState {
+            cpuid,
+            msrs,
+            debug_regs,
+            lapic,
+            mp_state,
+            regs,
+            sregs,
+            vcpu_events,
+            xcrs,
+            xsave,
+            config: self.config.clone(),
+        })
     }
 }
 

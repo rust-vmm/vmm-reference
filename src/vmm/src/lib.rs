@@ -60,8 +60,7 @@ use devices::virtio::net::{self, NetArgs};
 use devices::virtio::{Env, MmioConfig};
 
 use devices::legacy::{EventFdTrigger, SerialWrapper};
-use vm_vcpu::vcpu::VcpuState;
-use vm_vcpu::vm::{self, ExitHandler, KvmVm, VmState};
+use vm_vcpu::vm::{self, ExitHandler, KvmVm, VmConfig};
 #[cfg(target_arch = "x86_64")]
 use vm_vcpu_ref::x86_64::cpuid::filter_cpuid;
 
@@ -153,6 +152,9 @@ pub enum Error {
     Vm(vm::Error),
     /// Exit event errors.
     ExitEvent(io::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Cannot retrieve the supported MSRs.
+    GetSupportedMsrs(vm_vcpu_ref::x86_64::msrs::Error),
     #[cfg(target_arch = "aarch64")]
     /// Cannot setup the FDT for booting.
     SetupFdt(arch::Error),
@@ -262,7 +264,7 @@ impl TryFrom<VMMConfig> for Vmm {
         let guest_memory = Vmm::create_guest_memory(&config.memory_config)?;
 
         // Create the KvmVm.
-        let vm_state = VmState {
+        let vm_state = VmConfig {
             num_vcpus: config.vcpu_config.num,
         };
 
@@ -320,7 +322,7 @@ impl Vmm {
             eprintln!("Failed to set raw mode on terminal. Stdin will echo.");
         }
 
-        self.vm.run(kernel_load_addr).map_err(Error::Vm)?;
+        self.vm.run(Some(kernel_load_addr)).map_err(Error::Vm)?;
         loop {
             match self.event_mgr.run() {
                 Ok(_) => (),
@@ -605,7 +607,11 @@ impl Vmm {
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
             .map_err(Error::KvmIoctl)?;
 
-        let mut vcpu_states = Vec::new();
+        #[cfg(target_arch = "x86_64")]
+        let supported_msrs = vm_vcpu_ref::x86_64::msrs::supported_guest_msrs(&self.kvm)
+            .map_err(Error::GetSupportedMsrs)?;
+
+        let mut vcpus_config = Vec::new();
         for index in 0..vcpu_cfg.num {
             // Set CPUID.
             #[cfg(target_arch = "x86_64")]
@@ -614,14 +620,18 @@ impl Vmm {
             filter_cpuid(&self.kvm, index, vcpu_cfg.num, &mut cpuid);
 
             #[cfg(target_arch = "x86_64")]
-            let vcpu_state = VcpuState { cpuid, id: index };
+            let vcpu_config = vm_vcpu::vcpu::VcpuConfig {
+                cpuid,
+                id: index,
+                msrs: supported_msrs.clone(),
+            };
             #[cfg(target_arch = "aarch64")]
-            let vcpu_state = VcpuState { id: index };
-            vcpu_states.push(vcpu_state);
+            let vcpu_config = vm_vcpu::vcpu::VcpuConfig { id: index };
+            vcpus_config.push(vcpu_config);
         }
 
         self.vm
-            .create_vcpus(self.device_mgr.clone(), vcpu_states, &self.guest_memory)?;
+            .create_vcpus(self.device_mgr.clone(), vcpus_config, &self.guest_memory)?;
 
         Ok(())
     }
@@ -747,7 +757,7 @@ mod tests {
         let guest_memory = Vmm::create_guest_memory(&vmm_config.memory_config).unwrap();
 
         // Create the KvmVm.
-        let vm_state = VmState {
+        let vm_state = VmConfig {
             num_vcpus: vmm_config.vcpu_config.num,
         };
         let exit_handler = default_exit_handler();
