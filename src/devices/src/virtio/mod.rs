@@ -4,6 +4,7 @@
 // We're only providing virtio over MMIO devices for now, but we aim to add PCI support as well.
 
 pub mod block;
+mod device;
 mod env;
 pub mod net;
 
@@ -26,6 +27,7 @@ use vm_memory::{GuestAddress, GuestAddressSpace};
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::{EventFd, EFD_NONBLOCK};
 
+pub use device::{RefVirtioDevice, RefVirtioDeviceT};
 pub use env::{Environment, MmioEnvironment};
 
 // TODO: Move virtio-related defines from the local modules to the `vm-virtio` crate upstream.
