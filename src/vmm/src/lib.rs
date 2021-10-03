@@ -53,7 +53,7 @@ use boot::build_bootparams;
 pub use config::*;
 use devices::virtio::block::{self, BlockArgs};
 use devices::virtio::net::{self, NetArgs};
-use devices::virtio::{Env, Environment, MmioConfig, MmioEnvironment, Subscriber};
+use devices::virtio::{Env, Environment, MmioConfig, MmioEnvironment, RefVirtioDevice, Subscriber};
 
 use devices::legacy::SerialWrapper;
 use vm_vcpu::vcpu::{cpuid::filter_cpuid, VcpuState};
@@ -100,7 +100,7 @@ pub enum MemoryError {
 /// VMM errors.
 #[derive(Debug)]
 pub enum Error {
-    /// Failed to create block device.
+    /// Failed to create block device,
     Block(block::Error),
     /// Failed to write boot parameters to guest memory.
     BootConfigure(configurator::Error),
@@ -145,7 +145,7 @@ impl std::convert::From<vm::Error> for Error {
 /// Dedicated [`Result`](https://doc.rust-lang.org/std/result/) type.
 pub type Result<T> = std::result::Result<T, Error>;
 
-type Block = block::Block<Arc<GuestMemoryMmap>>;
+type Block = RefVirtioDevice<Arc<GuestMemoryMmap>, block::Block>;
 type Net = net::Net<Arc<GuestMemoryMmap>>;
 
 /// A live VMM.
@@ -487,22 +487,6 @@ impl Vmm {
     // can do it after figuring out how to better separate concerns and make the VMM agnostic of
     // the actual device types.
     fn add_block_device(&mut self, cfg: &BlockConfig) -> Result<()> {
-        let mem = Arc::new(self.guest_memory.clone());
-
-        let range = MmioRange::new(MmioAddress(MMIO_GAP_START), 0x1000).unwrap();
-        let mmio_cfg = MmioConfig { range, gsi: 5 };
-
-        let mut guard = self.device_mgr.lock().unwrap();
-
-        let mut env = Env {
-            mem,
-            vm_fd: self.vm.vm_fd(),
-            event_mgr: &mut self.event_mgr,
-            mmio_mgr: guard.deref_mut(),
-            mmio_cfg,
-            kernel_cmdline: &mut self.kernel_cfg.cmdline,
-        };
-
         let args = BlockArgs {
             file_path: PathBuf::from(&cfg.path),
             read_only: false,
@@ -511,8 +495,10 @@ impl Vmm {
         };
 
         // We can also hold this somewhere if we need to keep the handle for later.
-        let block = Block::new(&mut env, &args).map_err(Error::Block)?;
-        self.block_devices.push(block);
+        let block = block::Block::new(args);
+        let dev = RefVirtioDevice::new_arc(self, block).map_err(Error::Block)?;
+
+        self.block_devices.push(dev);
 
         Ok(())
     }
@@ -1010,12 +996,6 @@ mod tests {
         assert!(
             matches!(err, Error::Block(block::Error::OpenFile(io_err)) if io_err.kind() == ErrorKind::NotFound)
         );
-
-        // The current implementation of the VMM does not allow more than one block device
-        // as we are hard coding the `MmioConfig`.
-        // This currently fails because a device is already registered with the provided
-        // MMIO range.
-        assert!(vmm.add_block_device(&block_config).is_err());
     }
 
     #[test]

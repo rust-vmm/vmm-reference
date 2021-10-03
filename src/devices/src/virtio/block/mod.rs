@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use virtio_blk::stdio_executor;
 
+use crate::virtio;
 use crate::virtio::features::{VIRTIO_F_IN_ORDER, VIRTIO_F_RING_EVENT_IDX, VIRTIO_F_VERSION_1};
 
 pub use device::Block;
@@ -31,9 +32,15 @@ const SECTOR_SHIFT: u8 = 9;
 #[derive(Debug)]
 pub enum Error {
     Backend(stdio_executor::Error),
-    Virtio(crate::virtio::Error),
     OpenFile(io::Error),
     Seek(io::Error),
+    Virtio(virtio::Error),
+}
+
+impl From<virtio::Error> for Error {
+    fn from(e: virtio::Error) -> Self {
+        Error::Virtio(e)
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
