@@ -19,7 +19,7 @@ use kvm_bindings::{
 use kvm_bindings::{
     kvm_vcpu_init, KVM_SYSTEM_EVENT_CRASH, KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN,
 };
-use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
+use kvm_ioctls::{Kvm, VcpuExit, VcpuFd, VmFd};
 use vm_device::bus::{MmioAddress, PioAddress};
 use vm_device::device_manager::{IoManager, MmioManager, PioManager};
 #[cfg(target_arch = "aarch64")]
@@ -84,6 +84,11 @@ use kvm_bindings::{PSR_MODE_EL1h, PSR_A_BIT, PSR_D_BIT, PSR_F_BIT, PSR_I_BIT};
 /// Errors encountered during vCPU operation.
 #[derive(Debug)]
 pub enum Error {
+    /// Invalid number of vcpus specified in configuration.
+    VcpuNumber(u8),
+    /// Cannot get the supported MSRs.
+    #[cfg(target_arch = "x86_64")]
+    GetSupportedMsrs(msrs::Error),
     /// Failed to operate on guest memory.
     GuestMemory(GuestMemoryError),
     /// I/O Error.
@@ -171,6 +176,50 @@ pub struct VcpuConfig {
     pub msrs: Msrs,
 }
 
+#[derive(Clone)]
+pub struct VcpuConfigList {
+    pub configs: Vec<VcpuConfig>,
+}
+
+impl VcpuConfigList {
+    /// Creates a default configuration list for vCPUs.
+    pub fn new(_kvm: &Kvm, num_vcpus: u8) -> Result<Self> {
+        if num_vcpus == 0 {
+            return Err(Error::VcpuNumber(num_vcpus));
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        let base_cpuid = _kvm
+            .get_supported_cpuid(kvm_bindings::KVM_MAX_CPUID_ENTRIES)
+            .map_err(Error::KvmIoctl)?;
+
+        #[cfg(target_arch = "x86_64")]
+        let supported_msrs = msrs::supported_guest_msrs(_kvm).map_err(Error::GetSupportedMsrs)?;
+
+        let mut configs = Vec::new();
+        for index in 0..num_vcpus {
+            // Set CPUID.
+            #[cfg(target_arch = "x86_64")]
+            let mut cpuid = base_cpuid.clone();
+            #[cfg(target_arch = "x86_64")]
+            vm_vcpu_ref::x86_64::cpuid::filter_cpuid(_kvm, index, num_vcpus, &mut cpuid);
+
+            #[cfg(target_arch = "x86_64")]
+            let vcpu_config = VcpuConfig {
+                cpuid,
+                id: index,
+                msrs: supported_msrs.clone(),
+            };
+            #[cfg(target_arch = "aarch64")]
+            let vcpu_config = VcpuConfig { id: index };
+
+            configs.push(vcpu_config);
+        }
+
+        Ok(VcpuConfigList { configs })
+    }
+}
+
 /// Structure holding the kvm state for an x86_64 VCPU.
 #[cfg(target_arch = "x86_64")]
 #[derive(Clone)]
@@ -214,7 +263,7 @@ impl VcpuRunState {
 /// [`vmm-vcpu`](https://github.com/rust-vmm/vmm-vcpu) crate is stabilized.
 pub struct KvmVcpu {
     /// KVM file descriptor for a vCPU.
-    vcpu_fd: VcpuFd,
+    pub(crate) vcpu_fd: VcpuFd,
     /// Device manager for bus accesses.
     device_mgr: Arc<Mutex<IoManager>>,
     config: VcpuConfig,
