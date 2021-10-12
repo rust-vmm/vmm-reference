@@ -15,8 +15,6 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::{EventManager, EventOps, Events, MutEventSubscriber, SubscriberOps};
 use kvm_bindings::KVM_API_VERSION;
-#[cfg(target_arch = "x86_64")]
-use kvm_bindings::KVM_MAX_CPUID_ENTRIES;
 use kvm_ioctls::{
     Cap::{self, Ioeventfd, Irqchip, Irqfd, UserMemory},
     Kvm,
@@ -61,8 +59,6 @@ use devices::virtio::{Env, MmioConfig};
 
 use devices::legacy::{EventFdTrigger, SerialWrapper};
 use vm_vcpu::vm::{self, ExitHandler, KvmVm, VmConfig};
-#[cfg(target_arch = "x86_64")]
-use vm_vcpu_ref::x86_64::cpuid::filter_cpuid;
 
 #[cfg(target_arch = "aarch64")]
 use devices::legacy::RtcWrapper;
@@ -146,8 +142,6 @@ pub enum Error {
     KvmIoctl(kvm_ioctls::Error),
     /// Memory error.
     Memory(MemoryError),
-    /// Invalid number of vCPUs specified.
-    VcpuNumber(u8),
     /// VM errors.
     Vm(vm::Error),
     /// Exit event errors.
@@ -174,8 +168,6 @@ type Net = net::Net<Arc<GuestMemoryMmap>>;
 
 /// A live VMM.
 pub struct Vmm {
-    #[cfg_attr(target_arch = "aarch64", allow(dead_code))]
-    kvm: Kvm,
     vm: KvmVm<WrappedExitHandler>,
     kernel_cfg: KernelConfig,
     guest_memory: GuestMemoryMmap,
@@ -262,14 +254,19 @@ impl TryFrom<VMMConfig> for Vmm {
         Vmm::check_kvm_capabilities(&kvm)?;
 
         let guest_memory = Vmm::create_guest_memory(&config.memory_config)?;
+        let device_mgr = Arc::new(Mutex::new(IoManager::new()));
 
         // Create the KvmVm.
-        let vm_state = VmConfig {
-            num_vcpus: config.vcpu_config.num,
-        };
+        let vm_config = VmConfig::new(&kvm, config.vcpu_config.num)?;
 
         let wrapped_exit_handler = WrappedExitHandler::new()?;
-        let vm = KvmVm::new(&kvm, vm_state, &guest_memory, wrapped_exit_handler.clone())?;
+        let vm = KvmVm::new(
+            &kvm,
+            vm_config,
+            &guest_memory,
+            wrapped_exit_handler.clone(),
+            device_mgr.clone(),
+        )?;
 
         let mut event_manager = EventManager::<Arc<Mutex<dyn MutEventSubscriber + Send>>>::new()
             .map_err(Error::EventManager)?;
@@ -277,9 +274,8 @@ impl TryFrom<VMMConfig> for Vmm {
 
         let mut vmm = Vmm {
             vm,
-            kvm,
             guest_memory,
-            device_mgr: Arc::new(Mutex::new(IoManager::new())),
+            device_mgr,
             event_mgr: event_manager,
             kernel_cfg: config.kernel_config,
             exit_handler: wrapped_exit_handler,
@@ -289,7 +285,6 @@ impl TryFrom<VMMConfig> for Vmm {
             num_vcpus: config.vcpu_config.num as u64,
         };
 
-        vmm.create_vcpus(&config.vcpu_config)?;
         vmm.add_serial_console()?;
         #[cfg(target_arch = "aarch64")]
         vmm.add_rtc_device();
@@ -595,47 +590,6 @@ impl Vmm {
         Ok(kernel_load_addr)
     }
 
-    // Create guest vCPUs based on the passed vCPU configurations.
-    fn create_vcpus(&mut self, vcpu_cfg: &VcpuConfig) -> Result<()> {
-        if vcpu_cfg.num == 0 {
-            return Err(Error::VcpuNumber(vcpu_cfg.num));
-        }
-
-        #[cfg(target_arch = "x86_64")]
-        let base_cpuid = self
-            .kvm
-            .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
-            .map_err(Error::KvmIoctl)?;
-
-        #[cfg(target_arch = "x86_64")]
-        let supported_msrs = vm_vcpu_ref::x86_64::msrs::supported_guest_msrs(&self.kvm)
-            .map_err(Error::GetSupportedMsrs)?;
-
-        let mut vcpus_config = Vec::new();
-        for index in 0..vcpu_cfg.num {
-            // Set CPUID.
-            #[cfg(target_arch = "x86_64")]
-            let mut cpuid = base_cpuid.clone();
-            #[cfg(target_arch = "x86_64")]
-            filter_cpuid(&self.kvm, index, vcpu_cfg.num, &mut cpuid);
-
-            #[cfg(target_arch = "x86_64")]
-            let vcpu_config = vm_vcpu::vcpu::VcpuConfig {
-                cpuid,
-                id: index,
-                msrs: supported_msrs.clone(),
-            };
-            #[cfg(target_arch = "aarch64")]
-            let vcpu_config = vm_vcpu::vcpu::VcpuConfig { id: index };
-            vcpus_config.push(vcpu_config);
-        }
-
-        self.vm
-            .create_vcpus(self.device_mgr.clone(), vcpus_config, &self.guest_memory)?;
-
-        Ok(())
-    }
-
     fn check_kvm_capabilities(kvm: &Kvm) -> Result<()> {
         let capabilities = vec![Irqchip, Ioeventfd, Irqfd, UserMemory];
 
@@ -757,17 +711,23 @@ mod tests {
         let guest_memory = Vmm::create_guest_memory(&vmm_config.memory_config).unwrap();
 
         // Create the KvmVm.
-        let vm_state = VmConfig {
-            num_vcpus: vmm_config.vcpu_config.num,
-        };
+        let vm_config = VmConfig::new(&kvm, vmm_config.vcpu_config.num).unwrap();
+
+        let device_mgr = Arc::new(Mutex::new(IoManager::new()));
         let exit_handler = default_exit_handler();
-        let vm = KvmVm::new(&kvm, vm_state, &guest_memory, exit_handler.clone()).unwrap();
+        let vm = KvmVm::new(
+            &kvm,
+            vm_config,
+            &guest_memory,
+            exit_handler.clone(),
+            device_mgr.clone(),
+        )
+        .unwrap();
 
         Vmm {
             vm,
-            kvm,
             guest_memory,
-            device_mgr: Arc::new(Mutex::new(IoManager::new())),
+            device_mgr,
             event_mgr: EventManager::new().unwrap(),
             kernel_cfg: vmm_config.kernel_config,
             exit_handler,
@@ -926,10 +886,6 @@ mod tests {
         let mut vmm = mock_vmm(vmm_config);
         assert_eq!(vmm.kernel_cfg.cmdline.as_str(), DEFAULT_KERNEL_CMDLINE);
 
-        #[cfg(target_arch = "aarch64")]
-        // on aarch64 we need to create the vcpus before we are able to register irqs.
-        vmm.create_vcpus(&VcpuConfig { num: 1 }).unwrap();
-
         vmm.add_serial_console().unwrap();
         #[cfg(target_arch = "x86_64")]
         assert!(vmm.kernel_cfg.cmdline.as_str().contains("console=ttyS0"));
@@ -996,26 +952,28 @@ mod tests {
     #[test]
     fn test_create_vcpus() {
         // The scopes force the created vCPUs to unmap their kernel memory at the end.
-        {
-            let vmm_config = default_vmm_config();
-            let mut vmm = mock_vmm(vmm_config);
+        let mut vmm_config = default_vmm_config();
+        vmm_config.vcpu_config = VcpuConfig { num: 0 };
 
-            // Creating 0 vCPUs throws an error.
+        // Creating 0 vCPUs throws an error.
+        {
             assert!(matches!(
-                vmm.create_vcpus(&VcpuConfig { num: 0 }),
-                Err(Error::VcpuNumber(0))
+                Vmm::try_from(vmm_config.clone()),
+                Err(Error::Vm(vm::Error::CreateVmConfig(
+                    vm_vcpu::vcpu::Error::VcpuNumber(0)
+                )))
             ));
-
-            // Creating one works.
-            assert!(vmm.create_vcpus(&VcpuConfig { num: 1 }).is_ok());
         }
 
+        // Creating one works.
+        vmm_config.vcpu_config = VcpuConfig { num: 1 };
         {
-            let vmm_config = default_vmm_config();
-            let mut vmm = mock_vmm(vmm_config);
-            // Creating 255 also works.
-            assert!(vmm.create_vcpus(&VcpuConfig { num: u8::MAX }).is_ok());
+            assert!(Vmm::try_from(vmm_config.clone()).is_ok());
         }
+
+        // Creating 254 also works (that's the maximum number on x86 when using MP Table).
+        vmm_config.vcpu_config = VcpuConfig { num: 254 };
+        Vmm::try_from(vmm_config).unwrap();
     }
 
     #[test]
