@@ -3,9 +3,9 @@
 # Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
-# This scripts determines the busybox version to be used based on the
-# current glibc version (1.32.1 for glibc version > 2.31)
-# Also kernel version and config parameters are exported from here.
+# The busybox version, kernel version and config parameters are exported
+# from this script. The current busybox version is compatible with glibc
+# version > 2.31.
 
 arch=$(uname -i)
 KERNEL_VERSION="5.4.81"
