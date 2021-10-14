@@ -24,7 +24,6 @@ impl Default for Builder {
 
 impl Builder {
     /// Creates a Builder Object
-    ///
     pub fn new() -> Self {
         Builder::default()
     }
@@ -40,7 +39,7 @@ impl Builder {
     /// ```
     ///  # use vmm::VMMConfig;
     ///
-    ///  let vmmconfig = VMMConfig::builder()
+    /// let vmmconfig = VMMConfig::builder()
     ///     .memory_config(Some("size_mib=1024"))
     ///     .vcpu_config(Some("num=1"))
     ///     .kernel_config(Some("path=/path/to/bzImage"))
@@ -49,9 +48,7 @@ impl Builder {
     ///     .build();
     ///
     /// assert!(vmmconfig.is_ok());
-    ///
     /// ```
-    ///
     pub fn build(&self) -> Result<VMMConfig, ConversionError> {
         // Check if there are any errors
         match &self.inner {
@@ -75,7 +72,6 @@ impl Builder {
     ///
     /// You can see example of how to use this function in [`Example` section from
     /// `build`](#method.build)
-    ///
     pub fn memory_config<T>(self, memory: Option<T>) -> Self
     where
         MemoryConfig: TryFrom<T>,
@@ -96,7 +92,6 @@ impl Builder {
     ///
     /// You can see example of how to use this function in [`Example` section from
     /// `build`](#method.build)
-    ///
     pub fn vcpu_config<T>(self, vcpu: Option<T>) -> Self
     where
         VcpuConfig: TryFrom<T>,
@@ -119,7 +114,6 @@ impl Builder {
     ///
     /// You can see example of how to use this function in [`Example` section from
     /// `build`](#method.build)
-    ///
     pub fn kernel_config<T>(self, kernel: Option<T>) -> Self
     where
         KernelConfig: TryFrom<T>,
@@ -140,7 +134,6 @@ impl Builder {
     ///
     /// You can see example of how to use this function in [`Example` section from
     /// `build`](#method.build)
-    ///
     pub fn net_config<T>(self, net: Option<T>) -> Self
     where
         NetConfig: TryFrom<T>,
@@ -161,7 +154,6 @@ impl Builder {
     ///
     /// You can see example of how to use this function in [`Example` section from
     /// `build`](#method.build)
-    ///
     pub fn block_config<T>(self, block: Option<T>) -> Self
     where
         BlockConfig: TryFrom<T>,
