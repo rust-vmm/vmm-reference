@@ -68,7 +68,6 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Trait that allows the VM to signal that the VCPUs have exited.
-///
 // This trait needs Clone because each VCPU needs to be able to call the `kick` function.
 pub trait ExitHandler: Clone {
     fn kick(&self) -> io::Result<()>;
