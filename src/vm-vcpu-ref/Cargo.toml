@@ -1,0 +1,12 @@
+[package]
+name = "vm-vcpu-ref"
+version = "0.1.0"
+authors = ["rust-vmm AWS maintainers <rust-vmm-maintainers@amazon.com>"]
+edition = "2018"
+description = "Wrappers for setting up a VM for booting"
+repository = "https://github.com/rust-vmm/vmm-reference"
+readme = "README.md"
+license = "Apache-2.0 OR BSD-3-Clause"
+keywords = ["virt", "kvm", "vm"]
+
+[dependencies]
