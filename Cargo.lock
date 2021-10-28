@@ -235,6 +235,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "vm-vcpu-ref"
+version = "0.1.0"
+
+[[package]]
 name = "vmm"
 version = "0.1.0"
 dependencies = [
