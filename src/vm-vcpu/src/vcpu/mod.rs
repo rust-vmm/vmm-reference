@@ -16,10 +16,7 @@ use vm_device::bus::{MmioAddress, PioAddress};
 use vm_device::device_manager::{IoManager, MmioManager, PioManager};
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
 #[cfg(target_arch = "x86_64")]
-use vm_vcpu_ref::x86_64::gdt::{
-    gdt_entry, kvm_segment_from_gdt, write_gdt_table, write_idt_value, BOOT_GDT_MAX,
-    BOOT_GDT_OFFSET, BOOT_IDT_OFFSET,
-};
+use vm_vcpu_ref::x86_64::gdt::{self, write_idt_value, Gdt, BOOT_GDT_OFFSET, BOOT_IDT_OFFSET};
 use vmm_sys_util::errno::Error as Errno;
 use vmm_sys_util::signal::{register_signal_handler, SIGRTMIN};
 use vmm_sys_util::terminal::Terminal;
@@ -61,6 +58,8 @@ pub enum Error {
     KvmIoctl(kvm_ioctls::Error),
     /// Failed to configure mptables.
     Mptable(mptable::Error),
+    /// Failed to setup the GDT.
+    Gdt(gdt::Error),
     /// Failed to initialize MSRS.
     CreateMsrs,
     /// Failed to configure MSRs.
@@ -183,23 +182,19 @@ impl KvmVcpu {
         let mut sregs = self.vcpu_fd.get_sregs().map_err(Error::KvmIoctl)?;
 
         // Global descriptor tables.
-        let gdt_table: [u64; BOOT_GDT_MAX as usize] = [
-            gdt_entry(0, 0, 0),            // NULL
-            gdt_entry(0xa09b, 0, 0xfffff), // CODE
-            gdt_entry(0xc093, 0, 0xfffff), // DATA
-            gdt_entry(0x808b, 0, 0xfffff), // TSS
-        ];
+        let gdt_table = Gdt::default();
 
-        let code_seg = kvm_segment_from_gdt(gdt_table[1], 1);
-        let data_seg = kvm_segment_from_gdt(gdt_table[2], 2);
-        let tss_seg = kvm_segment_from_gdt(gdt_table[3], 3);
+        // The following unwraps are safe because we know that the default GDT has 4 segments.
+        let code_seg = gdt_table.create_kvm_segment_for(1).unwrap();
+        let data_seg = gdt_table.create_kvm_segment_for(2).unwrap();
+        let tss_seg = gdt_table.create_kvm_segment_for(3).unwrap();
 
         // Write segments to guest memory.
-        write_gdt_table(&gdt_table[..], guest_memory).map_err(Error::GuestMemory)?;
+        gdt_table.write_to_mem(guest_memory).map_err(Error::Gdt)?;
         sregs.gdt.base = BOOT_GDT_OFFSET as u64;
         sregs.gdt.limit = std::mem::size_of_val(&gdt_table) as u16 - 1;
 
-        write_idt_value(0, guest_memory).map_err(Error::GuestMemory)?;
+        write_idt_value(0, guest_memory).map_err(Error::Gdt)?;
         sregs.idt.base = BOOT_IDT_OFFSET as u64;
         sregs.idt.limit = std::mem::size_of::<u64>() as u16 - 1;
 
