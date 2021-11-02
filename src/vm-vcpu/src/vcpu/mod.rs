@@ -15,14 +15,17 @@ use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
 use vm_device::bus::{MmioAddress, PioAddress};
 use vm_device::device_manager::{IoManager, MmioManager, PioManager};
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
+#[cfg(target_arch = "x86_64")]
+use vm_vcpu_ref::x86_64::gdt::{
+    gdt_entry, kvm_segment_from_gdt, write_gdt_table, write_idt_value, BOOT_GDT_MAX,
+    BOOT_GDT_OFFSET, BOOT_IDT_OFFSET,
+};
 use vmm_sys_util::errno::Error as Errno;
 use vmm_sys_util::signal::{register_signal_handler, SIGRTMIN};
 use vmm_sys_util::terminal::Terminal;
 
 use utils::debug;
 
-mod gdt;
-use gdt::*;
 mod interrupts;
 use crate::vm::VmRunState;
 use interrupts::*;

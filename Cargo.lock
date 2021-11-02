@@ -231,12 +231,17 @@ dependencies = [
  "utils",
  "vm-device",
  "vm-memory",
+ "vm-vcpu-ref",
  "vmm-sys-util",
 ]
 
 [[package]]
 name = "vm-vcpu-ref"
 version = "0.1.0"
+dependencies = [
+ "kvm-bindings",
+ "vm-memory",
+]
 
 [[package]]
 name = "vmm"
