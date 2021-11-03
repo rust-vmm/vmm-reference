@@ -59,7 +59,7 @@ impl SegmentDescriptor {
     /// based on base, flags, and limit.
     ///
     /// The segment descriptor can then be used to create the Global Descriptor
-    /// Table (GDT). For more details, check out the [`write_gdt_table`] function.
+    /// Table (GDT). For more details, check out the [Gdt constructor](Gdt::new).
     ///
     /// # Arguments
     /// * `base`: A 32-bit value containing the linear address where the
