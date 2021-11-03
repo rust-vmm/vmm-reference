@@ -5,7 +5,6 @@ authors = ["rust-vmm AWS maintainers <rust-vmm-maintainers@amazon.com>"]
 edition = "2018"
 
 [dependencies]
-
 event-manager = "0.2.1"
 kvm-bindings = { version = "0.4.0", features = ["fam-wrappers"] }
 kvm-ioctls = "0.8.0"
@@ -22,4 +21,5 @@ vm-device = { git = "https://github.com/rust-vmm/vm-device", rev = "5847f12" }
 
 devices = { path = "../devices" }
 vm-vcpu = { path = "../vm-vcpu" }
+vm-vcpu-ref = { path = "../vm-vcpu-ref" }
 utils = { path = "../utils" }

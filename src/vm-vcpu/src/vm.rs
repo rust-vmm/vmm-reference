@@ -254,9 +254,9 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
 mod tests {
     use super::*;
 
-    use crate::vcpu::cpuid::filter_cpuid;
     use crate::vcpu::mptable::MAX_SUPPORTED_CPUS;
     use crate::vm::{Error, KvmVm, VmState};
+    use vm_vcpu_ref::x86_64::cpuid::filter_cpuid;
 
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread::sleep;
