@@ -52,8 +52,9 @@ use devices::virtio::net::{self, NetArgs};
 use devices::virtio::{Env, MmioConfig};
 
 use devices::legacy::SerialWrapper;
-use vm_vcpu::vcpu::{cpuid::filter_cpuid, VcpuState};
+use vm_vcpu::vcpu::VcpuState;
 use vm_vcpu::vm::{self, ExitHandler, KvmVm, VmState};
+use vm_vcpu_ref::x86_64::cpuid::filter_cpuid;
 
 #[cfg(target_arch = "aarch64")]
 use arch::AARCH64_MMIO_BASE;

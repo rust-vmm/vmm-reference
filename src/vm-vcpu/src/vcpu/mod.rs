@@ -27,7 +27,6 @@ mod interrupts;
 use crate::vm::VmRunState;
 use interrupts::*;
 
-pub mod cpuid;
 pub mod mpspec;
 pub mod mptable;
 pub mod msr_index;

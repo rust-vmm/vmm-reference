@@ -240,6 +240,7 @@ name = "vm-vcpu-ref"
 version = "0.1.0"
 dependencies = [
  "kvm-bindings",
+ "kvm-ioctls",
  "vm-memory",
 ]
 
@@ -258,6 +259,7 @@ dependencies = [
  "vm-memory",
  "vm-superio",
  "vm-vcpu",
+ "vm-vcpu-ref",
  "vmm-sys-util",
 ]
 
