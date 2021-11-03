@@ -242,6 +242,7 @@ dependencies = [
  "kvm-bindings",
  "kvm-ioctls",
  "vm-memory",
+ "vmm-sys-util",
 ]
 
 [[package]]
