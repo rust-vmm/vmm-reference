@@ -579,7 +579,7 @@ impl Vmm {
         for index in 0..vcpu_cfg.num {
             // Set CPUID.
             let mut cpuid = base_cpuid.clone();
-            filter_cpuid(&self.kvm, index as usize, vcpu_cfg.num as usize, &mut cpuid);
+            filter_cpuid(&self.kvm, index, vcpu_cfg.num, &mut cpuid);
 
             let vcpu_state = VcpuState { cpuid, id: index };
             self.vm

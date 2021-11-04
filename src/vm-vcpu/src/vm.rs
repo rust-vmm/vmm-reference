@@ -313,7 +313,7 @@ mod tests {
             .unwrap();
         for i in 0..vm.state.num_vcpus {
             let mut cpuid = base_cpuid.clone();
-            filter_cpuid(&kvm, i as usize, vm.state.num_vcpus as usize, &mut cpuid);
+            filter_cpuid(&kvm, i, vm.state.num_vcpus, &mut cpuid);
             vm.create_vcpu(io_manager.clone(), VcpuState { cpuid, id: i }, guest_memory)
                 .unwrap();
         }
