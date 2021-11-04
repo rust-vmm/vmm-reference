@@ -28,7 +28,7 @@ const EDX_HTT_SHIFT: u32 = 28; // Hyper Threading Enabled.
 /// use kvm_ioctls::{Error, Kvm};
 /// use vm_vcpu_ref::x86_64::cpuid::filter_cpuid;
 ///
-/// fn default_cpuid(cpu_index: usize, num_vcpus: usize) -> Result<CpuId, Error> {
+/// fn default_cpuid(cpu_index: u8, num_vcpus: u8) -> Result<CpuId, Error> {
 ///     let kvm = Kvm::new()?;
 ///     let mut cpuid = kvm.get_supported_cpuid(kvm_bindings::KVM_MAX_CPUID_ENTRIES)?;
 ///     filter_cpuid(&kvm, cpu_index, num_vcpus, &mut cpuid);
@@ -37,7 +37,7 @@ const EDX_HTT_SHIFT: u32 = 28; // Hyper Threading Enabled.
 ///
 /// # default_cpuid(0, 1).unwrap();
 /// ```
-pub fn filter_cpuid(kvm: &Kvm, vcpu_id: usize, cpu_count: usize, cpuid: &mut CpuId) {
+pub fn filter_cpuid(kvm: &Kvm, vcpu_id: u8, cpu_count: u8, cpuid: &mut CpuId) {
     for entry in cpuid.as_mut_slice().iter_mut() {
         match entry.function {
             0x01 => {
@@ -48,7 +48,7 @@ pub fn filter_cpuid(kvm: &Kvm, vcpu_id: usize, cpu_count: usize, cpuid: &mut Cpu
                 if kvm.check_extension(TscDeadlineTimer) {
                     entry.ecx |= 1 << ECX_TSC_DEADLINE_TIMER_SHIFT;
                 }
-                entry.ebx = (vcpu_id << EBX_CPUID_SHIFT) as u32
+                entry.ebx = ((vcpu_id as u32) << EBX_CPUID_SHIFT) as u32
                     | (EBX_CLFLUSH_CACHELINE << EBX_CLFLUSH_SIZE_SHIFT);
                 if cpu_count > 1 {
                     entry.ebx |= (cpu_count as u32) << EBX_CPU_COUNT_SHIFT;
