@@ -10,7 +10,7 @@ use std::mem;
 use std::result;
 use std::slice;
 
-use crate::vcpu::mpspec;
+use crate::x86_64::mpspec;
 use libc::c_char;
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory};
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
