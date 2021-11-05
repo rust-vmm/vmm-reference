@@ -6,7 +6,7 @@ use std::io::{self, ErrorKind};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread::{self, JoinHandle};
 
-use kvm_bindings::{kvm_pit_config, kvm_userspace_memory_region, KVM_PIT_SPEAKER_DUMMY};
+use kvm_bindings::{kvm_pit_config, KVM_PIT_SPEAKER_DUMMY, kvm_userspace_memory_region};
 use kvm_ioctls::{Kvm, VmFd};
 use vm_device::device_manager::IoManager;
 use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryRegion};
@@ -14,7 +14,9 @@ use vmm_sys_util::errno::Error as Errno;
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::signal::{Killable, SIGRTMIN};
 
-use crate::vcpu::{self, mptable, KvmVcpu, VcpuRunState, VcpuState};
+use vm_vcpu_ref::x86_64::mptable;
+
+use crate::vcpu::{self, KvmVcpu, VcpuRunState, VcpuState};
 
 /// Defines the state from which a `KvmVm` is initialized.
 pub struct VmState {
@@ -252,18 +254,19 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    use crate::vcpu::mptable::MAX_SUPPORTED_CPUS;
-    use crate::vm::{Error, KvmVm, VmState};
-    use vm_vcpu_ref::x86_64::cpuid::filter_cpuid;
-
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread::sleep;
     use std::time::Duration;
 
     use kvm_ioctls::Kvm;
     use vm_memory::{Bytes, GuestAddress};
+
+    use vm_vcpu_ref::x86_64::cpuid::filter_cpuid;
+    use vm_vcpu_ref::x86_64::mptable::MAX_SUPPORTED_CPUS;
+
+    use crate::vm::{Error, KvmVm, VmState};
+
+    use super::*;
 
     type GuestMemoryMmap = vm_memory::GuestMemoryMmap<()>;
 

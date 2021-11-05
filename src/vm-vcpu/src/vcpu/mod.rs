@@ -10,25 +10,24 @@ use std::os::raw::c_int;
 use std::result;
 use std::sync::{Arc, Barrier, Condvar, Mutex};
 
-use kvm_bindings::{kvm_fpu, kvm_regs, CpuId};
+use kvm_bindings::{CpuId, kvm_fpu, kvm_regs};
 use kvm_ioctls::{VcpuExit, VcpuFd, VmFd};
 use vm_device::bus::{MmioAddress, PioAddress};
 use vm_device::device_manager::{IoManager, MmioManager, PioManager};
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
-#[cfg(target_arch = "x86_64")]
-use vm_vcpu_ref::x86_64::gdt::{self, write_idt_value, Gdt, BOOT_GDT_OFFSET, BOOT_IDT_OFFSET};
 use vmm_sys_util::errno::Error as Errno;
 use vmm_sys_util::signal::{register_signal_handler, SIGRTMIN};
 use vmm_sys_util::terminal::Terminal;
 
+use interrupts::*;
 use utils::debug;
+#[cfg(target_arch = "x86_64")]
+use vm_vcpu_ref::x86_64::gdt::{self, BOOT_GDT_OFFSET, BOOT_IDT_OFFSET, Gdt, write_idt_value};
+use vm_vcpu_ref::x86_64::mptable;
+
+use crate::vm::VmRunState;
 
 mod interrupts;
-use crate::vm::VmRunState;
-use interrupts::*;
-
-pub mod mpspec;
-pub mod mptable;
 pub mod msr_index;
 pub mod msrs;
 

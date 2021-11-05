@@ -5,3 +5,5 @@
 pub mod cpuid;
 /// Abstractions for building a Global Descriptor Table (GDT).
 pub mod gdt;
+pub mod mpspec;
+pub mod mptable;
