@@ -6,7 +6,7 @@ use std::io::{self, ErrorKind};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread::{self, JoinHandle};
 
-use kvm_bindings::{kvm_pit_config, KVM_PIT_SPEAKER_DUMMY, kvm_userspace_memory_region};
+use kvm_bindings::{kvm_pit_config, kvm_userspace_memory_region, KVM_PIT_SPEAKER_DUMMY};
 use kvm_ioctls::{Kvm, VmFd};
 use vm_device::device_manager::IoManager;
 use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryRegion};
@@ -15,6 +15,7 @@ use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::signal::{Killable, SIGRTMIN};
 
 use vm_vcpu_ref::x86_64::mptable;
+use vm_vcpu_ref::x86_64::mptable::MpTable;
 
 use crate::vcpu::{self, KvmVcpu, VcpuRunState, VcpuState};
 
@@ -66,6 +67,11 @@ pub enum Error {
 
 // TODO: Implement std::error::Error for Error.
 
+impl From<mptable::Error> for Error {
+    fn from(err: mptable::Error) -> Self {
+        Error::Mptable(err)
+    }
+}
 /// Dedicated [`Result`](https://doc.rust-lang.org/std/result/) type.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -113,7 +119,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
 
         vm.configure_memory_regions(guest_memory, kvm)?;
 
-        mptable::setup_mptable(guest_memory, vm.state.num_vcpus).map_err(Error::Mptable)?;
+        MpTable::new(vm.state.num_vcpus)?.write(guest_memory)?;
 
         vm.setup_irq_controller()?;
 
