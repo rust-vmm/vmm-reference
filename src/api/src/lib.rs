@@ -82,7 +82,7 @@ mod tests {
 
     use linux_loader::cmdline::Cmdline;
 
-    use vmm::{KernelConfig, MemoryConfig, VcpuConfig};
+    use vmm::{KernelConfig, MemoryConfig, VcpuConfig, DEFAULT_KERNEL_LOAD_ADDR};
 
     #[test]
     fn test_launch() {
@@ -246,7 +246,7 @@ mod tests {
                 kernel_config: KernelConfig {
                     path: PathBuf::from("/foo/bar"),
                     cmdline: KernelConfig::default_cmdline(),
-                    load_addr: 1048576,
+                    load_addr: DEFAULT_KERNEL_LOAD_ADDR,
                 },
                 memory_config: MemoryConfig { size_mib: 256 },
                 vcpu_config: VcpuConfig { num: 1 },

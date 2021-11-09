@@ -21,13 +21,13 @@ use kvm_ioctls::{
     Cap::{self, Ioeventfd, Irqchip, Irqfd, UserMemory},
     Kvm,
 };
-#[cfg(target_arch = "x86_64")]
-use linux_loader::bootparam::boot_params;
-use linux_loader::cmdline::{self, Cmdline};
+use linux_loader::cmdline;
 #[cfg(target_arch = "x86_64")]
 use linux_loader::configurator::{
     self, linux::LinuxBootConfigurator, BootConfigurator, BootParams,
 };
+#[cfg(target_arch = "x86_64")]
+use linux_loader::{bootparam::boot_params, cmdline::Cmdline};
 
 use linux_loader::loader::{self, KernelLoader, KernelLoaderResult};
 #[cfg(target_arch = "x86_64")]
@@ -36,7 +36,7 @@ use linux_loader::loader::{
     elf::{self, Elf},
     load_cmdline,
 };
-use vm_device::bus::{MmioAddress, MmioRange, BusManager};
+use vm_device::bus::{MmioAddress, MmioRange};
 #[cfg(target_arch = "x86_64")]
 use vm_device::bus::{PioAddress, PioRange};
 use vm_device::device_manager::IoManager;
@@ -44,12 +44,12 @@ use vm_device::device_manager::IoManager;
 use vm_device::device_manager::MmioManager;
 #[cfg(target_arch = "x86_64")]
 use vm_device::device_manager::PioManager;
-#[cfg(target_arch = "x86_64")]
-use vm_device::resources::Resource;
-use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+#[cfg(target_arch = "aarch64")]
+use vm_memory::GuestMemoryRegion;
+use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
-use vm_superio::{Serial, Trigger};
+use vm_superio::Serial;
 use vmm_sys_util::{epoll::EventSet, eventfd::EventFd, terminal::Terminal};
 
 #[cfg(target_arch = "x86_64")]
@@ -59,24 +59,17 @@ use devices::virtio::block::{self, BlockArgs};
 use devices::virtio::net::{self, NetArgs};
 use devices::virtio::{Env, MmioConfig};
 
-use devices::legacy::SerialWrapper;
+use devices::legacy::{EventFdTrigger, SerialWrapper};
 use vm_vcpu::vcpu::VcpuState;
 use vm_vcpu::vm::{self, ExitHandler, KvmVm, VmState};
 #[cfg(target_arch = "x86_64")]
 use vm_vcpu_ref::x86_64::cpuid::filter_cpuid;
 
 #[cfg(target_arch = "aarch64")]
-use arch::AARCH64_MMIO_BASE;
-
-#[cfg(target_arch = "aarch64")]
-use devices::legacy::RTCWrapper;
+use devices::legacy::RtcWrapper;
 
 #[cfg(target_arch = "aarch64")]
 use arch::{create_fdt, AARCH64_FDT_MAX_SIZE, AARCH64_MMIO_BASE, AARCH64_PHYS_MEM_START};
-
-#[cfg(target_arch = "aarch64")]
-use crate::device::RTCWrapper;
-use crate::device::{EventFdTrigger, SerialError};
 
 mod boot;
 mod config;
@@ -433,13 +426,13 @@ impl Vmm {
     #[cfg(target_arch = "aarch64")]
     fn load_kernel(&mut self) -> Result<KernelLoaderResult> {
         let mut kernel_image = File::open(&self.kernel_cfg.path).map_err(Error::IO)?;
-        Ok(linux_loader::loader::pe::PE::load(
+        linux_loader::loader::pe::PE::load(
             &self.guest_memory,
             Some(GuestAddress(self.kernel_cfg.load_addr)),
             &mut kernel_image,
             None,
         )
-        .map_err(Error::KernelLoad)?)
+        .map_err(Error::KernelLoad)
     }
 
     // Create and add a serial console to the VMM.
@@ -497,7 +490,7 @@ impl Vmm {
 
     #[cfg(target_arch = "aarch64")]
     fn add_rtc_device(&mut self) {
-        let rtc = Arc::new(Mutex::new(RTCWrapper(Rtc::new())));
+        let rtc = Arc::new(Mutex::new(RtcWrapper(Rtc::new())));
         let range = MmioRange::new(MmioAddress(AARCH64_MMIO_BASE + 0x1000), 0x1000).unwrap();
         self.device_mgr
             .lock()

@@ -21,9 +21,13 @@ use vm_device::bus::{MmioAddress, PioAddress};
 use vm_device::device_manager::{IoManager, MmioManager, PioManager};
 #[cfg(target_arch = "aarch64")]
 use vm_memory::GuestMemoryRegion;
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
+#[cfg(target_arch = "x86_64")]
+use vm_memory::{Address, Bytes};
+use vm_memory::{GuestAddress, GuestMemory, GuestMemoryError};
 #[cfg(target_arch = "x86_64")]
 use vm_vcpu_ref::x86_64::gdt::{self, write_idt_value, Gdt, BOOT_GDT_OFFSET, BOOT_IDT_OFFSET};
+#[cfg(target_arch = "x86_64")]
+use vm_vcpu_ref::x86_64::mptable;
 use vmm_sys_util::errno::Error as Errno;
 use vmm_sys_util::signal::{register_signal_handler, SIGRTMIN};
 use vmm_sys_util::terminal::Terminal;
@@ -47,8 +51,6 @@ use crate::vm::VmRunState;
 #[cfg(target_arch = "aarch64")]
 use arch::{AARCH64_FDT_MAX_SIZE, AARCH64_PHYS_MEM_START};
 
-pub mod mpspec;
-pub mod mptable;
 pub mod msr_index;
 pub mod msrs;
 
@@ -94,6 +96,7 @@ pub enum Error {
     #[cfg(target_arch = "x86_64")]
     Mptable(mptable::Error),
     /// Failed to setup the GDT.
+    #[cfg(target_arch = "x86_64")]
     Gdt(gdt::Error),
     /// Failed to initialize MSRS.
     CreateMsrs,

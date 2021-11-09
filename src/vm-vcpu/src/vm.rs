@@ -25,9 +25,9 @@ use vmm_sys_util::errno::Error as Errno;
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::signal::{Killable, SIGRTMIN};
 
+use crate::vcpu::{self, KvmVcpu, VcpuRunState, VcpuState};
 #[cfg(target_arch = "x86_64")]
 use vm_vcpu_ref::x86_64::mptable::{self, MpTable};
-use crate::vcpu::{self, KvmVcpu, VcpuRunState, VcpuState};
 
 #[cfg(target_arch = "aarch64")]
 use arch::{
@@ -416,10 +416,10 @@ mod tests {
     use kvm_ioctls::Kvm;
     use vm_memory::{Bytes, GuestAddress};
 
+    use super::*;
+    use crate::vm::{Error, KvmVm, VmState};
     #[cfg(target_arch = "x86_64")]
     use vm_vcpu_ref::x86_64::{cpuid::filter_cpuid, mptable::MAX_SUPPORTED_CPUS};
-    use crate::vm::{Error, KvmVm, VmState};
-    use super::*;
 
     type GuestMemoryMmap = vm_memory::GuestMemoryMmap<()>;
 
