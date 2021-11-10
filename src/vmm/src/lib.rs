@@ -153,6 +153,9 @@ pub enum Error {
     Vm(vm::Error),
     /// Exit event errors.
     ExitEvent(io::Error),
+    #[cfg(target_arch = "aarch64")]
+    /// Cannot setup the FDT for booting.
+    SetupFdt(arch::Error),
 }
 
 impl std::convert::From<vm::Error> for Error {
@@ -312,7 +315,7 @@ impl Vmm {
         let kernel_load_addr = load_result.kernel_load;
 
         #[cfg(target_arch = "aarch64")]
-        self.setup_fdt();
+        self.setup_fdt()?;
         if stdin().lock().set_raw_mode().is_err() {
             eprintln!("Failed to set raw mode on terminal. Stdin will echo.");
         }
@@ -640,7 +643,7 @@ impl Vmm {
     #[cfg(target_arch = "aarch64")]
     // TODO: move this where it makes sense from a config point of view as we add all
     // needed stuff in FDT.
-    fn setup_fdt(&mut self) {
+    fn setup_fdt(&mut self) -> Result<()> {
         let mut fdt_offset: u64 = self.guest_memory.iter().map(|region| region.len()).sum();
         fdt_offset = fdt_offset - AARCH64_FDT_MAX_SIZE - 0x10000;
         create_fdt(
@@ -648,9 +651,10 @@ impl Vmm {
             self.num_vcpus.try_into().unwrap(),
             &self.guest_memory,
             fdt_offset,
-            AARCH64_FDT_MAX_SIZE.try_into().unwrap(),
         )
-        .unwrap();
+        .map_err(Error::SetupFdt)?;
+
+        Ok(())
     }
 }
 
