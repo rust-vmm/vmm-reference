@@ -1,5 +1,5 @@
 {
-  "coverage_score": 66.2,
+  "coverage_score": 61.1,
   "exclude_path": "src/vm-vcpu-ref/,tests/,bindings.rs",
   "crate_features": ""
 }
