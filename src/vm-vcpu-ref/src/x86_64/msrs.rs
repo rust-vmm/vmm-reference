@@ -6,16 +6,23 @@ use std::default::Default;
 
 use kvm_bindings::{kvm_msr_entry, Msrs};
 
-use crate::vcpu::msr_index::{
+use crate::x86_64::msr_index::{
     MSR_CSTAR, MSR_IA32_MISC_ENABLE, MSR_IA32_MISC_ENABLE_FAST_STRING, MSR_IA32_SYSENTER_CS,
     MSR_IA32_SYSENTER_EIP, MSR_IA32_SYSENTER_ESP, MSR_IA32_TSC, MSR_KERNEL_GS_BASE, MSR_LSTAR,
     MSR_STAR, MSR_SYSCALL_MASK,
 };
-use crate::vcpu::{Error, Result};
 
-// Creates and populates required MSR entries for booting Linux on X86_64.
-// This should be offloaded to linux-loader.
-pub(crate) fn create_boot_msr_entries() -> Result<Msrs> {
+/// Errors associated with operations on MSRs.
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    /// Failed to initialize MSRS.
+    CreateMsrs,
+}
+/// Specialized result type for operations on MSRs.
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// Creates and populates required MSR entries for booting Linux on X86_64.
+pub fn create_boot_msr_entries() -> Result<Msrs> {
     let msr_entry_default = |msr| kvm_msr_entry {
         index: msr,
         data: 0x0,

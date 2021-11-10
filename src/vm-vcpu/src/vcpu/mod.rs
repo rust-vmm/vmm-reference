@@ -25,9 +25,10 @@ use vm_memory::GuestMemoryRegion;
 use vm_memory::{Address, Bytes};
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryError};
 #[cfg(target_arch = "x86_64")]
-use vm_vcpu_ref::x86_64::gdt::{self, write_idt_value, Gdt, BOOT_GDT_OFFSET, BOOT_IDT_OFFSET};
-#[cfg(target_arch = "x86_64")]
-use vm_vcpu_ref::x86_64::mptable;
+use vm_vcpu_ref::x86_64::{
+    gdt::{self, write_idt_value, Gdt, BOOT_GDT_OFFSET, BOOT_IDT_OFFSET},
+    mptable, msr_index, msrs,
+};
 use vmm_sys_util::errno::Error as Errno;
 use vmm_sys_util::signal::{register_signal_handler, SIGRTMIN};
 use vmm_sys_util::terminal::Terminal;
@@ -50,9 +51,6 @@ use interrupts::*;
 use crate::vm::VmRunState;
 #[cfg(target_arch = "aarch64")]
 use arch::{AARCH64_FDT_MAX_SIZE, AARCH64_PHYS_MEM_START};
-
-pub mod msr_index;
-pub mod msrs;
 
 /// Initial stack for the boot CPU.
 #[cfg(target_arch = "x86_64")]
@@ -99,7 +97,8 @@ pub enum Error {
     #[cfg(target_arch = "x86_64")]
     Gdt(gdt::Error),
     /// Failed to initialize MSRS.
-    CreateMsrs,
+    #[cfg(target_arch = "x86_64")]
+    CreateMsr(msrs::Error),
     /// Failed to configure MSRs.
     SetModelSpecificRegistersCount,
     /// TLS already initialized.
@@ -247,7 +246,7 @@ impl KvmVcpu {
     /// Configure MSRs.
     #[cfg(target_arch = "x86_64")]
     fn configure_msrs(&self) -> Result<()> {
-        let msrs = msrs::create_boot_msr_entries()?;
+        let msrs = msrs::create_boot_msr_entries().map_err(Error::CreateMsr)?;
         self.vcpu_fd
             .set_msrs(&msrs)
             .map_err(Error::KvmIoctl)
