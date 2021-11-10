@@ -2,8 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-pub use vm_fdt::{Error, FdtWriter, Result};
-use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryRegion};
+pub use vm_fdt::{Error as FdtError, FdtWriter};
+use vm_memory::{
+    guest_memory::Error as GuestMemoryError, Bytes, GuestAddress, GuestMemory, GuestMemoryRegion,
+};
 // This is an arbitrary number to specify the node for the GIC.
 // If we had a more complex interrupt architecture, then we'd need an enum for
 // these.
@@ -45,14 +47,33 @@ const IRQ_TYPE_LEVEL_LOW: u32 = 0x00000008;
 // PMU PPI interrupt, same as qemu
 const AARCH64_PMU_IRQ: u32 = 7;
 
+#[derive(Debug)]
+pub enum Error {
+    Fdt(FdtError),
+    Memory(GuestMemoryError),
+}
+
+impl From<FdtError> for Error {
+    fn from(inner: FdtError) -> Self {
+        Error::Fdt(inner)
+    }
+}
+
+impl From<GuestMemoryError> for Error {
+    fn from(inner: GuestMemoryError) -> Self {
+        Error::Memory(inner)
+    }
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
 pub fn create_fdt<T: GuestMemory>(
     cmdline: &str,
     num_vcpus: u32,
     guest_mem: &T,
     fdt_load_offset: u64,
-    fdt_max_size: usize,
 ) -> Result<()> {
-    let mut fdt = FdtWriter::new(&[]);
+    let mut fdt = FdtWriter::new()?;
 
     // The whole thing is put into one giant node with s
     // ome top level properties
@@ -75,12 +96,10 @@ pub fn create_fdt<T: GuestMemory>(
     create_pmu_node(&mut fdt, num_vcpus)?;
 
     fdt.end_node(root_node)?;
-    let fdt_final = fdt.finish(fdt_max_size)?;
+    let fdt_final = fdt.finish()?;
 
     let fdt_address = GuestAddress(AARCH64_PHYS_MEM_START + fdt_load_offset);
-    guest_mem
-        .write_slice(fdt_final.as_slice(), fdt_address)
-        .map_err(|_| Error::FdtGuestMemoryWriteError)?;
+    guest_mem.write_slice(fdt_final.as_slice(), fdt_address)?;
 
     Ok(())
 }
@@ -137,7 +156,7 @@ fn create_gic_node(fdt: &mut FdtWriter, is_gicv3: bool, num_cpus: u64) -> Result
     fdt.property_u32("#interrupt-cells", GIC_FDT_IRQ_NUM_CELLS)?;
     fdt.property_null("interrupt-controller")?;
     fdt.property_array_u64("reg", &gic_reg_prop)?;
-    fdt.property_u32("phandle", PHANDLE_GIC)?;
+    fdt.property_phandle(PHANDLE_GIC)?;
     fdt.property_u32("#address-cells", 2)?;
     fdt.property_u32("#size-cells", 2)?;
     fdt.end_node(intc_node)?;
@@ -226,7 +245,7 @@ fn create_rtc_node(fdt: &mut FdtWriter) -> Result<()> {
     fdt.property_string("compatible", "fixed-clock")?;
     fdt.property_u32("clock-frequency", 24_000_000)?;
     fdt.property_string("clock-output-names", "clk24mhz")?;
-    fdt.property_u32("phandle", CLK_PHANDLE)?;
+    fdt.property_phandle(CLK_PHANDLE)?;
     fdt.end_node(clock_node)?;
 
     let rtc_addr = 0x40001000;
