@@ -27,6 +27,10 @@ use vm_memory::{GuestAddress, GuestMemory, GuestMemoryError};
 #[cfg(target_arch = "x86_64")]
 use vm_vcpu_ref::x86_64::{
     gdt::{self, write_idt_value, Gdt, BOOT_GDT_OFFSET, BOOT_IDT_OFFSET},
+    interrupts::{
+        get_klapic_reg, set_apic_delivery_mode, set_klapic_reg, APIC_LVT0, APIC_LVT1,
+        APIC_MODE_EXTINT, APIC_MODE_NMI,
+    },
     mptable, msr_index, msrs,
 };
 use vmm_sys_util::errno::Error as Errno;
@@ -35,18 +39,12 @@ use vmm_sys_util::terminal::Terminal;
 
 use utils::debug;
 
-#[cfg(target_arch = "x86_64")]
-mod interrupts;
-
 #[cfg(target_arch = "aarch64")]
 #[macro_use]
 mod regs;
 
 #[cfg(target_arch = "aarch64")]
 use regs::*;
-
-#[cfg(target_arch = "x86_64")]
-use interrupts::*;
 
 use crate::vm::VmRunState;
 #[cfg(target_arch = "aarch64")]
