@@ -1,9 +1,5 @@
-// Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
-#![cfg(target_arch = "x86_64")]
-
-use std::default::Default;
-
 use kvm_bindings::{kvm_msr_entry, Msrs};
 
 use crate::x86_64::msr_index::{
@@ -22,6 +18,19 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Creates and populates required MSR entries for booting Linux on X86_64.
+///
+/// # Example - Set boot MSRs
+///
+/// ```rust
+/// use kvm_ioctls::Kvm;
+/// use vm_vcpu_ref::x86_64::msrs::create_boot_msr_entries;
+///
+/// let kvm = Kvm::new().unwrap();
+/// let vm = kvm.create_vm().unwrap();
+/// let vcpu = vm.create_vcpu(0).unwrap();
+///
+/// vcpu.set_msrs(&create_boot_msr_entries().unwrap()).unwrap();
+/// ```
 pub fn create_boot_msr_entries() -> Result<Msrs> {
     let msr_entry_default = |msr| kvm_msr_entry {
         index: msr,
@@ -49,4 +58,23 @@ pub fn create_boot_msr_entries() -> Result<Msrs> {
     ];
 
     Msrs::from_entries(&raw_msrs).map_err(|_| Error::CreateMsrs)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::x86_64::msrs::create_boot_msr_entries;
+    use kvm_ioctls::Kvm;
+
+    #[test]
+    fn test_create_boot_msrs() {
+        // This is a rather dummy test to check that creating the MSRs that we
+        // need for booting can be initialized into the `Msrs` type without
+        // yielding any error.
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
+
+        let boot_msrs = create_boot_msr_entries().unwrap();
+        assert!(vcpu.set_msrs(&boot_msrs).is_ok())
+    }
 }
