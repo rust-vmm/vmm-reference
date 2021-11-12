@@ -27,10 +27,7 @@ use vm_memory::{GuestAddress, GuestMemory, GuestMemoryError};
 #[cfg(target_arch = "x86_64")]
 use vm_vcpu_ref::x86_64::{
     gdt::{self, write_idt_value, Gdt, BOOT_GDT_OFFSET, BOOT_IDT_OFFSET},
-    interrupts::{
-        get_klapic_reg, set_apic_delivery_mode, set_klapic_reg, APIC_LVT0, APIC_LVT1,
-        APIC_MODE_EXTINT, APIC_MODE_NMI,
-    },
+    interrupts::{set_klapic_delivery_mode, APIC_LVT0, APIC_LVT1, APIC_MODE_EXTINT, APIC_MODE_NMI},
     mptable, msr_index, msrs,
 };
 use vmm_sys_util::errno::Error as Errno;
@@ -360,18 +357,8 @@ impl KvmVcpu {
     fn configure_lapic(&self) -> Result<()> {
         let mut klapic = self.vcpu_fd.get_lapic().map_err(Error::KvmIoctl)?;
 
-        let lvt_lint0 = get_klapic_reg(&klapic, APIC_LVT0);
-        set_klapic_reg(
-            &mut klapic,
-            APIC_LVT0,
-            set_apic_delivery_mode(lvt_lint0, APIC_MODE_EXTINT),
-        );
-        let lvt_lint1 = get_klapic_reg(&klapic, APIC_LVT1);
-        set_klapic_reg(
-            &mut klapic,
-            APIC_LVT1,
-            set_apic_delivery_mode(lvt_lint1, APIC_MODE_NMI),
-        );
+        set_klapic_delivery_mode(&mut klapic, APIC_LVT0, APIC_MODE_EXTINT);
+        set_klapic_delivery_mode(&mut klapic, APIC_LVT1, APIC_MODE_NMI);
 
         self.vcpu_fd.set_lapic(&klapic).map_err(Error::KvmIoctl)
     }
