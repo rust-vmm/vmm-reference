@@ -27,7 +27,9 @@ use vm_memory::{GuestAddress, GuestMemory, GuestMemoryError};
 #[cfg(target_arch = "x86_64")]
 use vm_vcpu_ref::x86_64::{
     gdt::{self, write_idt_value, Gdt, BOOT_GDT_OFFSET, BOOT_IDT_OFFSET},
-    interrupts::{set_klapic_delivery_mode, DeliveryMode, APIC_LVT0, APIC_LVT1},
+    interrupts::{
+        set_klapic_delivery_mode, DeliveryMode, APIC_LVT0_REG_OFFSET, APIC_LVT1_REG_OFFSET,
+    },
     mptable, msr_index, msrs,
 };
 use vmm_sys_util::errno::Error as Errno;
@@ -360,8 +362,8 @@ impl KvmVcpu {
         // The following unwraps are safe because we are using valid values for all parameters
         // (using defines from the crate for APIC_LV*). If these end up being wrong,
         // it is a programming error in which case we want to fail fast.
-        set_klapic_delivery_mode(&mut klapic, APIC_LVT0, DeliveryMode::ExtINT).unwrap();
-        set_klapic_delivery_mode(&mut klapic, APIC_LVT1, DeliveryMode::NMI).unwrap();
+        set_klapic_delivery_mode(&mut klapic, APIC_LVT0_REG_OFFSET, DeliveryMode::ExtINT).unwrap();
+        set_klapic_delivery_mode(&mut klapic, APIC_LVT1_REG_OFFSET, DeliveryMode::NMI).unwrap();
 
         self.vcpu_fd.set_lapic(&klapic).map_err(Error::KvmIoctl)
     }
