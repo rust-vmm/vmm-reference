@@ -357,8 +357,11 @@ impl KvmVcpu {
     fn configure_lapic(&self) -> Result<()> {
         let mut klapic = self.vcpu_fd.get_lapic().map_err(Error::KvmIoctl)?;
 
-        set_klapic_delivery_mode(&mut klapic, APIC_LVT0, APIC_MODE_EXTINT);
-        set_klapic_delivery_mode(&mut klapic, APIC_LVT1, APIC_MODE_NMI);
+        // The following unwraps are safe because we are using valid values for all parameters
+        // (using defines from the crate (APIC_LV* and APIC_MODE_*). If these end up being wrong,
+        // it is a programming error in which case we want to fail fast.
+        set_klapic_delivery_mode(&mut klapic, APIC_LVT0, APIC_MODE_EXTINT).unwrap();
+        set_klapic_delivery_mode(&mut klapic, APIC_LVT1, APIC_MODE_NMI).unwrap();
 
         self.vcpu_fd.set_lapic(&klapic).map_err(Error::KvmIoctl)
     }
