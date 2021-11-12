@@ -55,6 +55,20 @@ pub fn set_klapic_reg(klapic: &mut kvm_lapic_state, reg_offset: usize, value: u3
     write_le_i32(&mut reg, value as i32)
 }
 
-pub fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
+fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
     ((reg) & !0x700) | ((mode) << 8)
+}
+
+/// Set the APIC delivery mode.
+///
+/// # Arguments
+/// * `klapic`: The corresponding `kvm_lapic_state` for which to set the delivery mode.
+/// * `reg_offset`: The offset that identifies the register for which to set the delivery mode.
+///                 Available options exported by this module are: [APIC_LVT0] and [APIC_LVT1].
+/// * `mode`: The APIC mode to set. Available options are:
+///           [Non Maskable Interrupt - NMI](APIC_MODE_NMI) and
+///           [external interrupt - ExtINT](APIC_MODE_EXTINT).
+pub fn set_klapic_delivery_mode(klapic: &mut kvm_lapic_state, reg_offset: usize, mode: u32) {
+    let reg_value = get_klapic_reg(&klapic, reg_offset);
+    set_klapic_reg(klapic, reg_offset, set_apic_delivery_mode(reg_value, mode));
 }
