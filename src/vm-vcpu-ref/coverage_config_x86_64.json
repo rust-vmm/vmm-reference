@@ -1,5 +1,5 @@
 {
-    "coverage_score": 92.8,
+    "coverage_score": 92.4,
     "exclude_path": "mpspec.rs",
     "crate_features": ""
 }
