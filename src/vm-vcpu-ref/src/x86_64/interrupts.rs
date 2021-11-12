@@ -1,4 +1,4 @@
-// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 //
 // Portions Copyright 2017 The Chromium OS Authors. All rights reserved.
@@ -10,7 +10,7 @@ use kvm_bindings::kvm_lapic_state;
 // Yanked from byte_order
 macro_rules! generate_read_fn {
     ($fn_name: ident, $data_type: ty, $byte_type: ty, $type_size: expr, $endian_type: ident) => {
-        pub fn $fn_name(input: &[$byte_type]) -> $data_type {
+        fn $fn_name(input: &[$byte_type]) -> $data_type {
             assert!($type_size == std::mem::size_of::<$data_type>());
             let mut array = [0u8; $type_size];
             for (byte, read) in array.iter_mut().zip(input.iter().cloned()) {
@@ -23,7 +23,7 @@ macro_rules! generate_read_fn {
 
 macro_rules! generate_write_fn {
     ($fn_name: ident, $data_type: ty, $byte_type: ty, $endian_type: ident) => {
-        pub fn $fn_name(buf: &mut [$byte_type], n: $data_type) {
+        fn $fn_name(buf: &mut [$byte_type], n: $data_type) {
             for (byte, read) in buf
                 .iter_mut()
                 .zip(<$data_type>::$endian_type(n).iter().cloned())
@@ -38,8 +38,10 @@ generate_read_fn!(read_le_i32, i32, i8, 4, from_le_bytes);
 generate_write_fn!(write_le_i32, i32, i8, to_le_bytes);
 
 // Defines poached from apicdef.h kernel header.
-pub const APIC_LVT0: usize = 0x350;
-pub const APIC_LVT1: usize = 0x360;
+/// The register offset corresponding to the APIC Local Vector Table for LINT0.
+pub const APIC_LVT0_REG_OFFSET: usize = 0x350;
+/// The register offset corresponding to the APIC Local Vector Table for LINT1.
+pub const APIC_LVT1_REG_OFFSET: usize = 0x360;
 
 /// Specifies the type of interrupt to be sent to the processor.
 #[derive(Debug, PartialEq)]
@@ -66,14 +68,19 @@ pub enum Error {
     InvalidRegisterOffset,
 }
 
+/// Specialized result type for operations related to interrupts.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Return the value of the register specified by `reg_offset`. Returns an error when the
+/// offset is invalid.
 pub fn get_klapic_reg(klapic: &kvm_lapic_state, reg_offset: usize) -> Result<u32> {
     let range = reg_offset..reg_offset + 4;
     let reg = klapic.regs.get(range).ok_or(Error::InvalidRegisterOffset)?;
     Ok(read_le_i32(&reg) as u32)
 }
 
+/// Set the `value` of the register located at `reg_offset`. Returns an error when the offset is
+/// invalid.
 pub fn set_klapic_reg(klapic: &mut kvm_lapic_state, reg_offset: usize, value: u32) -> Result<()> {
     // The value that we are setting is a u32, which needs 4 bytes of space.
     // We're here creating a range that can fit the whole value.
@@ -99,24 +106,23 @@ fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
 /// # Arguments
 /// * `klapic`: The corresponding `kvm_lapic_state` for which to set the delivery mode.
 /// * `reg_offset`: The offset that identifies the register for which to set the delivery mode.
-///                 Available options exported by this module are: [APIC_LVT0] and [APIC_LVT1].
-/// * `mode`: The APIC mode to set. Available options are:
-///           [Non Maskable Interrupt - NMI](APIC_MODE_NMI) and
-///           [external interrupt - ExtINT](APIC_MODE_EXTINT).
+///                 Available options exported by this module are: [APIC_LVT0_REG_OFFSET] and
+///                 [APIC_LVT1_REG_OFFSET].
+/// * `mode`: The APIC mode to set.
 ///
 /// # Example - Configure LAPIC with KVM
 /// ```rust
 /// # use kvm_ioctls::Kvm;
 /// use kvm_ioctls::{Error, VcpuFd};
 /// use vm_vcpu_ref::x86_64::interrupts::{
-///     set_klapic_delivery_mode, DeliveryMode, APIC_LVT0, APIC_LVT1,
+///     set_klapic_delivery_mode, DeliveryMode, APIC_LVT0_REG_OFFSET, APIC_LVT1_REG_OFFSET,
 /// };
 ///
 /// fn configure_default_lapic(vcpu_fd: &mut VcpuFd) -> Result<(), Error> {
 ///     let mut klapic = vcpu_fd.get_lapic()?;
 ///
-///     set_klapic_delivery_mode(&mut klapic, APIC_LVT0, DeliveryMode::ExtINT).unwrap();
-///     set_klapic_delivery_mode(&mut klapic, APIC_LVT1, DeliveryMode::NMI).unwrap();
+///     set_klapic_delivery_mode(&mut klapic, APIC_LVT0_REG_OFFSET, DeliveryMode::ExtINT).unwrap();
+///     set_klapic_delivery_mode(&mut klapic, APIC_LVT1_REG_OFFSET, DeliveryMode::NMI).unwrap();
 ///     vcpu_fd.set_lapic(&klapic)
 /// }
 ///
