@@ -40,8 +40,24 @@ generate_write_fn!(write_le_i32, i32, i8, to_le_bytes);
 // Defines poached from apicdef.h kernel header.
 pub const APIC_LVT0: usize = 0x350;
 pub const APIC_LVT1: usize = 0x360;
-pub const APIC_MODE_NMI: u32 = 0x4;
-pub const APIC_MODE_EXTINT: u32 = 0x7;
+
+/// Specifies the type of interrupt to be sent to the processor.
+#[derive(Debug, PartialEq)]
+// We user upper case acronyms so that we can stick to the names as they're
+// defined in the Intel Manual.
+#[allow(clippy::upper_case_acronyms)]
+pub enum DeliveryMode {
+    /// A fixed interrupt - delivers the interrupt specified in the vector field.
+    Fixed = 0b000,
+    /// System Management Interrupt.
+    SMI = 0b010,
+    /// Non Maskable Interrupt.
+    NMI = 0b100,
+    /// This type of interrupt causes the processor to perform an INIT.
+    INIT = 0b101,
+    /// External Interrupt.
+    ExtINT = 0b111,
+}
 
 /// Errors associated with operations related to interrupts.
 #[derive(Debug, PartialEq)]
@@ -93,14 +109,14 @@ fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
 /// # use kvm_ioctls::Kvm;
 /// use kvm_ioctls::{Error, VcpuFd};
 /// use vm_vcpu_ref::x86_64::interrupts::{
-///     set_klapic_delivery_mode, APIC_LVT0, APIC_LVT1, APIC_MODE_EXTINT, APIC_MODE_NMI,
+///     set_klapic_delivery_mode, DeliveryMode, APIC_LVT0, APIC_LVT1,
 /// };
 ///
 /// fn configure_default_lapic(vcpu_fd: &mut VcpuFd) -> Result<(), Error> {
 ///     let mut klapic = vcpu_fd.get_lapic()?;
 ///
-///     set_klapic_delivery_mode(&mut klapic, APIC_LVT0, APIC_MODE_EXTINT).unwrap();
-///     set_klapic_delivery_mode(&mut klapic, APIC_LVT1, APIC_MODE_NMI).unwrap();
+///     set_klapic_delivery_mode(&mut klapic, APIC_LVT0, DeliveryMode::ExtINT).unwrap();
+///     set_klapic_delivery_mode(&mut klapic, APIC_LVT1, DeliveryMode::NMI).unwrap();
 ///     vcpu_fd.set_lapic(&klapic)
 /// }
 ///
@@ -113,16 +129,20 @@ fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
 pub fn set_klapic_delivery_mode(
     klapic: &mut kvm_lapic_state,
     reg_offset: usize,
-    mode: u32,
+    mode: DeliveryMode,
 ) -> Result<()> {
     let reg_value = get_klapic_reg(&klapic, reg_offset)?;
-    set_klapic_reg(klapic, reg_offset, set_apic_delivery_mode(reg_value, mode))
+    set_klapic_reg(
+        klapic,
+        reg_offset,
+        set_apic_delivery_mode(reg_value, mode as u32),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use crate::x86_64::interrupts::{
-        get_klapic_reg, set_klapic_delivery_mode, Error, APIC_MODE_EXTINT,
+        get_klapic_reg, set_klapic_delivery_mode, DeliveryMode, Error,
     };
     use kvm_bindings::kvm_lapic_state;
 
@@ -132,19 +152,27 @@ mod tests {
         // 4 bytes, if we want to set it at offset = 1020 it should fit.
         let offset = 1020;
         let mut klapic = kvm_lapic_state::default();
-        assert!(set_klapic_delivery_mode(&mut klapic, offset, APIC_MODE_EXTINT).is_ok());
+        assert!(set_klapic_delivery_mode(&mut klapic, offset, DeliveryMode::ExtINT).is_ok());
         assert!(get_klapic_reg(&klapic, offset).is_ok());
 
         // Setting at the offset og 1021 does not work because 4 bytes don't fit.
         let offset = 1021;
         let mut klapic = kvm_lapic_state::default();
         assert_eq!(
-            set_klapic_delivery_mode(&mut klapic, offset, APIC_MODE_EXTINT).unwrap_err(),
+            set_klapic_delivery_mode(&mut klapic, offset, DeliveryMode::ExtINT).unwrap_err(),
             Error::InvalidRegisterOffset
         );
         assert_eq!(
             get_klapic_reg(&klapic, offset).unwrap_err(),
             Error::InvalidRegisterOffset
         );
+    }
+
+    #[test]
+    fn test_delivery_mode() {
+        assert_eq!(DeliveryMode::Fixed as u32, 0);
+        assert_eq!(DeliveryMode::NMI as u32, 0x4);
+        assert_eq!(DeliveryMode::INIT as u32, 0x5);
+        assert_eq!(DeliveryMode::ExtINT as u32, 0x7);
     }
 }
