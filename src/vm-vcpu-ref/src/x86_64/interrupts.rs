@@ -74,7 +74,11 @@ fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
     ((reg) & !0x700) | ((mode) << 8)
 }
 
-/// Set the APIC delivery mode. Returns an error when the register configuration is invalid.
+/// Set the Local APIC delivery mode. Returns an error when the register configuration
+/// is invalid.
+///
+/// **Note**: setting the Local APIC (using the kvm function `set_lapic`) MUST happen
+/// after creating the IRQ chip. Otherwise, KVM returns an invalid argument (errno 22).
 ///
 /// # Arguments
 /// * `klapic`: The corresponding `kvm_lapic_state` for which to set the delivery mode.
@@ -83,6 +87,29 @@ fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
 /// * `mode`: The APIC mode to set. Available options are:
 ///           [Non Maskable Interrupt - NMI](APIC_MODE_NMI) and
 ///           [external interrupt - ExtINT](APIC_MODE_EXTINT).
+///
+/// # Example - Configure LAPIC with KVM
+/// ```rust
+/// # use kvm_ioctls::Kvm;
+/// use kvm_ioctls::{Error, VcpuFd};
+/// use vm_vcpu_ref::x86_64::interrupts::{
+///     set_klapic_delivery_mode, APIC_LVT0, APIC_LVT1, APIC_MODE_EXTINT, APIC_MODE_NMI,
+/// };
+///
+/// fn configure_default_lapic(vcpu_fd: &mut VcpuFd) -> Result<(), Error> {
+///     let mut klapic = vcpu_fd.get_lapic()?;
+///
+///     set_klapic_delivery_mode(&mut klapic, APIC_LVT0, APIC_MODE_EXTINT).unwrap();
+///     set_klapic_delivery_mode(&mut klapic, APIC_LVT1, APIC_MODE_NMI).unwrap();
+///     vcpu_fd.set_lapic(&klapic)
+/// }
+///
+/// # let kvm = Kvm::new().unwrap();
+/// # let vm = kvm.create_vm().unwrap();
+/// # vm.create_irq_chip().unwrap();
+/// # let mut vcpu = vm.create_vcpu(0).unwrap();
+/// # configure_default_lapic(&mut vcpu).unwrap();
+/// ```
 pub fn set_klapic_delivery_mode(
     klapic: &mut kvm_lapic_state,
     reg_offset: usize,
