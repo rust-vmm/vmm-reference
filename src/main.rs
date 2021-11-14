@@ -6,7 +6,12 @@ use std::env;
 use api::Cli;
 use vmm::Vmm;
 
+mod logger;
+
 fn main() {
+    // Initialize the logger
+    logger::Logger::init();
+
     match Cli::launch(
         env::args()
             .collect::<Vec<String>>()

@@ -102,6 +102,34 @@ vmm-reference                           \
     --kernel path=/path/to/kernel/image
 ```
 
+## Logging
+
+The reference VMM implements a simple logger and makes use of the `log` crate.
+The `log` crate provides macros for five log levels: `error!`, `warn!`, `info!`,
+`debug!`, and `trace!`.  The logger implementation prints messages to `stderr`
+listing the runtime, thread name, log level, source file and line of code, and
+the formatted string provided to the macro.
+
+For example, the `vcpu` module executes the following after shutting down a
+guest:
+
+```rust
+use log::info;
+...
+info!("Guest shutdown: Shutdown. Bye!");
+```
+
+This results in a log entry similar to the following:
+
+```bash
+vmm-reference: 3.336720662s: <vcpu_0> INFO:src/vm-vcpu/src/vcpu/mod.rs:325 --
+Guest shutdown: Shutdown. Bye!
+```
+
+The `logger` module defaults to setting `Debug` as the maximum log level,
+meaning all log messages with the exception of those initiated with the `trace!`
+macro will be printed.
+
 ## Testing
 
 The reference VMM is, first and foremost, a vehicle for end-to-end testing of

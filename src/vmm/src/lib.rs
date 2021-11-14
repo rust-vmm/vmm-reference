@@ -13,6 +13,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use log::error;
+
 use event_manager::{EventManager, EventOps, Events, MutEventSubscriber, SubscriberOps};
 use kvm_bindings::KVM_API_VERSION;
 #[cfg(target_arch = "x86_64")]
@@ -317,14 +319,14 @@ impl Vmm {
         #[cfg(target_arch = "aarch64")]
         self.setup_fdt()?;
         if stdin().lock().set_raw_mode().is_err() {
-            eprintln!("Failed to set raw mode on terminal. Stdin will echo.");
+            error!("Failed to set raw mode on terminal. Stdin will echo.");
         }
 
         self.vm.run(kernel_load_addr).map_err(Error::Vm)?;
         loop {
             match self.event_mgr.run() {
                 Ok(_) => (),
-                Err(e) => eprintln!("Failed to handle events: {:?}", e),
+                Err(e) => error!("Failed to handle events: {:?}", e),
             }
             if !self.exit_handler.keep_running() {
                 break;

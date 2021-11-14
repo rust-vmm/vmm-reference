@@ -9,6 +9,8 @@ license = "Apache-2.0 OR BSD-3-Clause"
 vmm = { path = "src/vmm" }
 api = { path = "src/api" }
 
+log = { version = ">=0.4", features = ["std"] }
+
 [workspace]
 members = ["src/vm-vcpu-ref"]
 

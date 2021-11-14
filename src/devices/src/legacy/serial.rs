@@ -16,7 +16,7 @@ use vm_superio::serial::{NoEvents, SerialEvents};
 use vm_superio::{Serial, Trigger};
 use vmm_sys_util::epoll::EventSet;
 
-use utils::debug;
+use log::{debug, error};
 
 /// Newtype for implementing `event-manager` functionalities.
 pub struct SerialWrapper<T: Trigger, EV: SerialEvents, W: Write>(pub Serial<T, EV, W>);
@@ -29,7 +29,7 @@ impl<T: Trigger, W: Write> MutEventSubscriber for SerialWrapper<T, NoEvents, W> 
         let mut out = [0u8; 32];
         match stdin().read(&mut out) {
             Err(e) => {
-                eprintln!("Error while reading stdin: {:?}", e);
+                error!("Error while reading stdin: {:?}", e);
             }
             Ok(count) => {
                 let event_set = events.event_set();
@@ -37,7 +37,7 @@ impl<T: Trigger, W: Write> MutEventSubscriber for SerialWrapper<T, NoEvents, W> 
                     event_set.contains(EventSet::ERROR) | event_set.contains(EventSet::HANG_UP);
                 if count > 0 {
                     if self.0.enqueue_raw_bytes(&out[..count]).is_err() {
-                        eprintln!("Failed to send bytes to the guest via serial input");
+                        error!("Failed to send bytes to the guest via serial input");
                     }
                 } else if unregister_condition {
                     // Got 0 bytes from serial input; is it a hang-up or error?

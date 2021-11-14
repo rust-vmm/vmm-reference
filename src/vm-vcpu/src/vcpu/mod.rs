@@ -32,8 +32,6 @@ use vmm_sys_util::errno::Error as Errno;
 use vmm_sys_util::signal::{register_signal_handler, SIGRTMIN};
 use vmm_sys_util::terminal::Terminal;
 
-use utils::debug;
-
 #[cfg(target_arch = "x86_64")]
 mod interrupts;
 
@@ -50,6 +48,8 @@ use interrupts::*;
 use crate::vm::VmRunState;
 #[cfg(target_arch = "aarch64")]
 use arch::{AARCH64_FDT_MAX_SIZE, AARCH64_PHYS_MEM_START};
+
+use log::{debug, error, info};
 
 pub mod msr_index;
 pub mod msrs;
@@ -440,9 +440,9 @@ impl KvmVcpu {
                     // println!("{:#?}", exit_reason);
                     match exit_reason {
                         VcpuExit::Shutdown | VcpuExit::Hlt => {
-                            println!("Guest shutdown: {:?}. Bye!", exit_reason);
+                            info!("Guest shutdown: {:?}. Bye!", exit_reason);
                             if stdin().lock().set_canon_mode().is_err() {
-                                eprintln!("Failed to set canon mode. Stdin will not echo.");
+                                error!("Failed to set canon mode. Stdin will not echo.");
                             }
                             self.run_state.set_and_notify(VmRunState::Exiting);
                             break;

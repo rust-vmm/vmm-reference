@@ -6,7 +6,7 @@ use vm_device::bus::MmioAddress;
 use vm_device::MutDeviceMmio;
 use vm_superio::{rtc_pl031::NoEvents, Rtc};
 
-use utils::debug;
+use log::debug;
 
 pub struct RtcWrapper(pub Rtc<NoEvents>);
 
