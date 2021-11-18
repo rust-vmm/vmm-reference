@@ -58,6 +58,7 @@ impl From<kvm_ioctls::Error> for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// High level wrapper for creating and managing the GIC device.
+#[derive(Debug)]
 pub struct Gic {
     version: GicVersion,
     device_fd: DeviceFd,
@@ -336,16 +337,10 @@ mod tests {
             ..Default::default()
         };
 
-        // At the moment `DeviceFd` does not derive Debug so we cannot use `unwrap_err`.
-        // Tracking PR: https://github.com/rust-vmm/kvm-ioctls/pull/184
-        // TODO: replace this with `assert_eq` when a newer version of kvm-ioctls is published.
-        let gic_result = Gic::new(config, &vm);
-        match gic_result {
-            Err(Error::SetAttr("irq", e)) if e.errno() == 22 => (),
-            _ => {
-                panic!("Unexpected result");
-            }
-        }
+        assert_eq!(
+            Gic::new(config, &vm).unwrap_err(),
+            Error::SetAttr("irq", kvm_ioctls::Error::new(22))
+        );
 
         // We cannot check that setting a wrong number of vCPUs fails because in the case of
         // V2 GIC the number of vCPUs is not used for setting the attributes.
