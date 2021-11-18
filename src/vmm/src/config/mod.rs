@@ -32,6 +32,8 @@ pub enum ConversionError {
     ParseNet(String),
     /// Failed to parse the string representation for the block.
     ParseBlock(String),
+    /// Failed to parse the string representation for the serial config.
+    ParseSerial(String),
 }
 
 impl ConversionError {
@@ -49,6 +51,9 @@ impl ConversionError {
     }
     fn new_net<T: fmt::Display>(err: T) -> Self {
         Self::ParseNet(err.to_string())
+    }
+    fn new_serial<T: fmt::Display>(err: T) -> Self {
+        Self::ParseSerial(err.to_string())
     }
 }
 
@@ -68,6 +73,7 @@ impl fmt::Display for ConversionError {
             ParseVcpus(ref s) => write!(f, "Invalid input for vCPUs: {}", s),
             ParseNet(ref s) => write!(f, "Invalid input for network: {}", s),
             ParseBlock(ref s) => write!(f, "Invalid input for block: {}", s),
+            ParseSerial(ref s) => write!(f, "Invalid input for serial: {}", s),
         }
     }
 }
@@ -232,6 +238,50 @@ impl TryFrom<&str> for NetConfig {
     }
 }
 
+/// Serial communication configuration
+#[derive(Clone, Debug, PartialEq)]
+pub struct SerialConfig {
+    /// Optional path to pipe the input of the guest OS.
+    pub serial_input: Option<PathBuf>,
+    /// Optional path to pipe the output of the guest OS.
+    pub serial_output: Option<PathBuf>,
+}
+
+impl Default for SerialConfig {
+    fn default() -> Self {
+        SerialConfig {
+            serial_input: None,
+            serial_output: None,
+        }
+    }
+}
+
+impl TryFrom<&str> for SerialConfig {
+    type Error = ConversionError;
+
+    fn try_from(serial_console_str: &str) -> Result<Self, Self::Error> {
+        let mut arg_parser = CfgArgParser::new(serial_console_str);
+
+        let serial_input = arg_parser
+            .value_of::<String>("serial_input")
+            .map_err(ConversionError::new_serial)?
+            .map(PathBuf::from);
+
+        let serial_output = arg_parser
+            .value_of::<String>("serial_output")
+            .map_err(ConversionError::new_serial)?
+            .map(PathBuf::from);
+
+        arg_parser
+            .all_consumed()
+            .map_err(ConversionError::new_serial)?;
+        Ok(SerialConfig {
+            serial_input,
+            serial_output,
+        })
+    }
+}
+
 /// Block device configuration
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlockConfig {
@@ -271,6 +321,8 @@ pub struct VMMConfig {
     pub net_config: Option<NetConfig>,
     /// Block device configuration.
     pub block_config: Option<BlockConfig>,
+    /// Serial communication configuration.
+    pub serial_config: SerialConfig,
 }
 
 #[cfg(test)]
@@ -385,6 +437,67 @@ mod tests {
         // Test case: unused parameters
         let block_str = "path=/foo/bar,blah=blah";
         assert!(BlockConfig::try_from(block_str).is_err());
+    }
+
+    #[test]
+    fn test_serial_config() {
+        // Testing the positive case with both input and output
+        let serial_str = r#"serial_input=/foo/bar/in,serial_output=/foo/bar/out"#;
+        let serial_cfg = SerialConfig::try_from(serial_str).unwrap();
+        let expected_cfg = SerialConfig {
+            serial_input: Some(PathBuf::from(String::from("/foo/bar/in"))),
+            serial_output: Some(PathBuf::from(String::from("/foo/bar/out"))),
+        };
+        assert_eq!(serial_cfg, expected_cfg);
+
+        // Testing that the config is succesfully created with empty str for input
+        let serial_str_empty_in = r#"serial_input=,serial_output=/foo/bar/out"#;
+        let serial_cfg_empty_in = SerialConfig::try_from(serial_str_empty_in).unwrap();
+        let expected_cfg_empty_in = SerialConfig {
+            serial_input: None,
+            serial_output: Some(PathBuf::from(String::from("/foo/bar/out"))),
+        };
+        assert_eq!(serial_cfg_empty_in, expected_cfg_empty_in);
+
+        // Testing that the config is succesfully created with empty str for output
+        let serial_str_empty_out = r#"serial_input=/foo/bar/in,serial_output="#;
+        let serial_cfg_empty_out = SerialConfig::try_from(serial_str_empty_out).unwrap();
+        let expected_cfg_empty_out = SerialConfig {
+            serial_input: Some(PathBuf::from(String::from("/foo/bar/in"))),
+            serial_output: None,
+        };
+        assert_eq!(serial_cfg_empty_out, expected_cfg_empty_out);
+
+        // Testing that the config is succesfully created without input
+        let serial_str_no_in = r#"serial_output=/foo/bar/out"#;
+        let serial_cfg_no_in = SerialConfig::try_from(serial_str_no_in).unwrap();
+        let expected_cfg_no_in = SerialConfig {
+            serial_input: None,
+            serial_output: Some(PathBuf::from(String::from("/foo/bar/out"))),
+        };
+        assert_eq!(serial_cfg_no_in, expected_cfg_no_in);
+
+        // Testing that the config is succesfully created without output
+        let serial_str_no_out = r#"serial_input=/foo/bar/in"#;
+        let serial_cfg_no_out = SerialConfig::try_from(serial_str_no_out).unwrap();
+        let expected_cfg_no_out = SerialConfig {
+            serial_input: Some(PathBuf::from(String::from("/foo/bar/in"))),
+            serial_output: None,
+        };
+        assert_eq!(serial_cfg_no_out, expected_cfg_no_out);
+
+        // Testing that the config is succesfully created for an empty string
+        let serial_str_empty = r#""#;
+        let serial_cfg_empty = SerialConfig::try_from(serial_str_empty).unwrap();
+        let expected_cfg_empty = SerialConfig {
+            serial_input: None,
+            serial_output: None,
+        };
+        assert_eq!(serial_cfg_empty, expected_cfg_empty);
+
+        // Testing that the invalid string raises an error
+        let serial_str_invalid = r#"invalid"#;
+        assert!(SerialConfig::try_from(serial_str_invalid).is_err());
     }
 
     #[test]

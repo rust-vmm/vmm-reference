@@ -1,10 +1,10 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
-use std::convert::TryInto;
-use std::io::{self, stdin, Read, Write};
-
+use crate::legacy::console::ConsoleReaderWrapper;
 use event_manager::{EventOps, Events, MutEventSubscriber};
+use std::convert::TryInto;
+use std::io::{self, Read, Write};
 #[cfg(target_arch = "aarch64")]
 use vm_device::{bus::MmioAddress, MutDeviceMmio};
 #[cfg(target_arch = "x86_64")]
@@ -19,7 +19,10 @@ use vmm_sys_util::epoll::EventSet;
 use utils::debug;
 
 /// Newtype for implementing `event-manager` functionalities.
-pub struct SerialWrapper<T: Trigger, EV: SerialEvents, W: Write>(pub Serial<T, EV, W>);
+pub struct SerialWrapper<T: Trigger, EV: SerialEvents, W: Write> {
+    pub serial: Serial<T, EV, W>,
+    pub console_reader: ConsoleReaderWrapper,
+}
 
 impl<T: Trigger, W: Write> MutEventSubscriber for SerialWrapper<T, NoEvents, W> {
     fn process(&mut self, events: Events, ops: &mut EventOps) {
@@ -27,16 +30,17 @@ impl<T: Trigger, W: Write> MutEventSubscriber for SerialWrapper<T, NoEvents, W> 
         // `EventSet::IN` => send what's coming from stdin to the guest.
         // `EventSet::HANG_UP` or `EventSet::ERROR` => deregister the serial input.
         let mut out = [0u8; 32];
-        match stdin().read(&mut out) {
+        let reader = self.console_reader.read(&mut out);
+        match reader {
             Err(e) => {
-                eprintln!("Error while reading stdin: {:?}", e);
+                eprintln!("Error while reading input: {:?}", e);
             }
             Ok(count) => {
                 let event_set = events.event_set();
                 let unregister_condition =
                     event_set.contains(EventSet::ERROR) | event_set.contains(EventSet::HANG_UP);
                 if count > 0 {
-                    if self.0.enqueue_raw_bytes(&out[..count]).is_err() {
+                    if self.serial.enqueue_raw_bytes(&out[..count]).is_err() {
                         eprintln!("Failed to send bytes to the guest via serial input");
                     }
                 } else if unregister_condition {
@@ -50,7 +54,7 @@ impl<T: Trigger, W: Write> MutEventSubscriber for SerialWrapper<T, NoEvents, W> 
 
     fn init(&mut self, ops: &mut EventOps) {
         // Hook to stdin events.
-        ops.add(Events::new(&stdin(), EventSet::IN))
+        ops.add(Events::new(&self.console_reader, EventSet::IN))
             .expect("Failed to register serial input event");
     }
 }
@@ -63,7 +67,7 @@ impl<T: Trigger<E = io::Error>, W: Write> SerialWrapper<T, NoEvents, W> {
         }
 
         // This is safe because we checked that `data` has length 1.
-        data[0] = self.0.read(offset);
+        data[0] = self.serial.read(offset);
     }
 
     fn bus_write(&mut self, offset: u8, data: &[u8]) {
@@ -76,7 +80,7 @@ impl<T: Trigger<E = io::Error>, W: Write> SerialWrapper<T, NoEvents, W> {
         }
 
         // This is safe because we checked that `data` has length 1.
-        let res = self.0.write(offset, data[0]);
+        let res = self.serial.write(offset, data[0]);
         if res.is_err() {
             debug!("Error writing to serial console: {:#?}", res.unwrap_err());
         }
@@ -142,9 +146,14 @@ mod tests {
 
     use std::io::sink;
 
+    use crate::legacy::console::ConsoleReaderWrapper;
+
     fn check_invalid_data(invalid_data: &mut [u8]) {
         let interrupt_evt = EventFdTrigger::new(libc::EFD_NONBLOCK).unwrap();
-        let mut serial_console = SerialWrapper(Serial::new(interrupt_evt, sink()));
+        let mut serial_console = SerialWrapper {
+            serial: Serial::new(interrupt_evt, sink()),
+            console_reader: ConsoleReaderWrapper::new(None),
+        };
         let valid_iir_offset = 2;
 
         // Check that passing invalid data does not result in a crash.
@@ -173,7 +182,10 @@ mod tests {
     #[test]
     fn test_invalid_offset() {
         let interrupt_evt = EventFdTrigger::new(libc::EFD_NONBLOCK).unwrap();
-        let mut serial_console = SerialWrapper(Serial::new(interrupt_evt, sink()));
+        let mut serial_console = SerialWrapper {
+            serial: Serial::new(interrupt_evt, sink()),
+            console_reader: ConsoleReaderWrapper::new(None),
+        };
         let data = [0];
 
         // Check that passing an invalid offset does not result in a crash.
@@ -192,7 +204,10 @@ mod tests {
     #[test]
     fn test_valid_write_and_read() {
         let interrupt_evt = EventFdTrigger::new(libc::EFD_NONBLOCK).unwrap();
-        let mut serial_console = SerialWrapper(Serial::new(interrupt_evt, sink()));
+        let mut serial_console = SerialWrapper {
+            serial: Serial::new(interrupt_evt, sink()),
+            console_reader: ConsoleReaderWrapper::new(None),
+        };
         let write_data = [5];
         let mut read_data = [0];
         let offset = 7;

@@ -5,7 +5,8 @@
 use std::convert::TryFrom;
 
 use super::{
-    BlockConfig, ConversionError, KernelConfig, MemoryConfig, NetConfig, VMMConfig, VcpuConfig,
+    BlockConfig, ConversionError, KernelConfig, MemoryConfig, NetConfig, SerialConfig, VMMConfig,
+    VcpuConfig,
 };
 
 /// Builder structure for VMMConfig
@@ -45,6 +46,7 @@ impl Builder {
     ///     .kernel_config(Some("path=/path/to/bzImage"))
     ///     .net_config(Some("tap=tap0"))
     ///     .block_config(Some("path=/dev/loop0"))
+    ///     .serial_config(Some("serial_input=/foo_in,serial_output=/foo_out"))
     ///     .build();
     ///
     /// assert!(vmmconfig.is_ok());
@@ -168,6 +170,26 @@ impl Builder {
         }
     }
 
+    /// Configure Builder with Serial Device Configuration for the VMM.
+    ///
+    /// # Example
+    ///
+    /// You can see example of how to use this function in [`Example` section from
+    /// `build`](#method.build)
+    pub fn serial_config<T>(self, serial: Option<T>) -> Self
+    where
+        SerialConfig: TryFrom<T>,
+        <SerialConfig as TryFrom<T>>::Error: Into<ConversionError>,
+    {
+        match serial {
+            Some(s) => self.and_then(|mut config| {
+                config.serial_config = TryFrom::try_from(s).map_err(Into::into)?;
+                Ok(config)
+            }),
+            None => self,
+        }
+    }
+
     fn and_then<F>(self, func: F) -> Self
     where
         F: FnOnce(VMMConfig) -> Result<VMMConfig, ConversionError>,
@@ -184,6 +206,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::config::SerialConfig;
     use crate::DEFAULT_KERNEL_LOAD_ADDR;
 
     #[test]
@@ -338,7 +361,8 @@ mod tests {
                 }),
                 block_config: Some(BlockConfig {
                     path: PathBuf::from("/dev/loop0")
-                })
+                }),
+                serial_config: SerialConfig::default(),
             }
         );
     }

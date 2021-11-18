@@ -50,6 +50,13 @@ impl Cli {
                     .required(false)
                     .takes_value(true)
                     .help("Block device configuration. \n\tFormat: \"path=<string>\"")
+            )
+            .arg(
+                Arg::with_name("serial")
+                    .long("serial")
+                    .required(false)
+                    .takes_value(true)
+                    .help("Serial device configuration. \n\tFormat: \"serial_input=<string>,serial_output=<string>\"")
             );
 
         // Save the usage beforehand as a string, because `get_matches` consumes the `App`.
@@ -69,6 +76,7 @@ impl Cli {
             .vcpu_config(matches.value_of("vcpu"))
             .net_config(matches.value_of("net"))
             .block_config(matches.value_of("block"))
+            .serial_config(matches.value_of("serial"))
             .build()
             .map_err(|e| format!("{:?}", e))
     }
@@ -82,7 +90,7 @@ mod tests {
 
     use linux_loader::cmdline::Cmdline;
 
-    use vmm::{KernelConfig, MemoryConfig, VcpuConfig, DEFAULT_KERNEL_LOAD_ADDR};
+    use vmm::{KernelConfig, MemoryConfig, SerialConfig, VcpuConfig, DEFAULT_KERNEL_LOAD_ADDR};
 
     #[test]
     fn test_launch() {
@@ -236,6 +244,7 @@ mod tests {
                 vcpu_config: VcpuConfig { num: 1 },
                 block_config: None,
                 net_config: None,
+                serial_config: SerialConfig::default(),
             }
         );
 
@@ -252,6 +261,7 @@ mod tests {
                 vcpu_config: VcpuConfig { num: 1 },
                 block_config: None,
                 net_config: None,
+                serial_config: SerialConfig::default(),
             }
         );
     }

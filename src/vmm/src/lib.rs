@@ -7,7 +7,7 @@ use std::convert::TryFrom;
 #[cfg(target_arch = "aarch64")]
 use std::convert::TryInto;
 use std::fs::File;
-use std::io::{self, stdin, stdout};
+use std::io::{self, stdin, Write};
 use std::ops::DerefMut;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -59,7 +59,7 @@ use devices::virtio::block::{self, BlockArgs};
 use devices::virtio::net::{self, NetArgs};
 use devices::virtio::{Env, MmioConfig};
 
-use devices::legacy::{EventFdTrigger, SerialWrapper};
+use devices::legacy::{ConsoleReaderWrapper, ConsoleWriterWrapper, EventFdTrigger, SerialWrapper};
 use vm_vcpu::vcpu::VcpuState;
 use vm_vcpu::vm::{self, ExitHandler, KvmVm, VmState};
 #[cfg(target_arch = "x86_64")]
@@ -187,6 +187,7 @@ pub struct Vmm {
     exit_handler: WrappedExitHandler,
     block_devices: Vec<Arc<Mutex<Block>>>,
     net_devices: Vec<Arc<Mutex<Net>>>,
+    serial_config: SerialConfig,
     // TODO: fetch the vcpu number from the `vm` object.
     // TODO-continued: this is needed to make the arm POC work as we need to create the FDT
     // TODO-continued: after the other resources are created.
@@ -283,6 +284,7 @@ impl TryFrom<VMMConfig> for Vmm {
             exit_handler: wrapped_exit_handler,
             block_devices: Vec::new(),
             net_devices: Vec::new(),
+            serial_config: config.serial_config,
             #[cfg(target_arch = "aarch64")]
             num_vcpus: config.vcpu_config.num as u64,
         };
@@ -441,11 +443,17 @@ impl Vmm {
     // Create and add a serial console to the VMM.
     fn add_serial_console(&mut self) -> Result<()> {
         // Create the serial console.
+        let serial;
         let interrupt_evt = EventFdTrigger::new(libc::EFD_NONBLOCK).map_err(Error::IO)?;
-        let serial = Arc::new(Mutex::new(SerialWrapper(Serial::new(
-            interrupt_evt.try_clone().map_err(Error::IO)?,
-            stdout(),
-        ))));
+
+        let input = ConsoleReaderWrapper::new(self.serial_config.serial_input.clone());
+        let output = ConsoleWriterWrapper::new(self.serial_config.serial_output.clone());
+
+        let out_writer: Box<dyn Write + Send> = Box::new(output);
+        serial = Arc::new(Mutex::new(SerialWrapper {
+            serial: Serial::new(interrupt_evt.try_clone().map_err(Error::IO)?, out_writer),
+            console_reader: input,
+        }));
 
         // Register its interrupt fd with KVM. IRQ line 4 is typically used for serial port 1.
         // See more IRQ assignments & info: https://tldp.org/HOWTO/Serial-HOWTO-8.html
@@ -730,6 +738,7 @@ mod tests {
             vcpu_config: VcpuConfig { num: NUM_VCPUS },
             block_config: None,
             net_config: None,
+            serial_config: SerialConfig::default(),
         }
     }
 
@@ -763,6 +772,7 @@ mod tests {
             exit_handler,
             block_devices: Vec::new(),
             net_devices: Vec::new(),
+            serial_config: vmm_config.serial_config,
             #[cfg(target_arch = "aarch64")]
             num_vcpus: vmm_config.vcpu_config.num as u64,
         }

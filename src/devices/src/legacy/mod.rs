@@ -1,10 +1,13 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
+mod console;
+mod pipe;
 #[cfg(target_arch = "aarch64")]
 mod rtc;
 mod serial;
 
+pub use console::{ConsoleReaderWrapper, ConsoleWriterWrapper};
 #[cfg(target_arch = "aarch64")]
 pub use rtc::RtcWrapper;
 pub use serial::Error as SerialError;
