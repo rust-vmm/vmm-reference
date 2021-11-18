@@ -7,7 +7,7 @@ license = "Apache-2.0 OR BSD-3-Clause"
 
 [dependencies]
 event-manager = { version = "0.2.1", features = ["remote_endpoint"] }
-kvm-ioctls = "0.8.0"
+kvm-ioctls = "0.11.0"
 libc = "0.2.76"
 linux-loader = "0.4.0"
 log = "0.4.6"
