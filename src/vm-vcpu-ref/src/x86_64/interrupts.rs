@@ -7,35 +7,22 @@
 #![cfg(target_arch = "x86_64")]
 use kvm_bindings::kvm_lapic_state;
 
-// Yanked from byte_order
-macro_rules! generate_read_fn {
-    ($fn_name: ident, $data_type: ty, $byte_type: ty, $type_size: expr, $endian_type: ident) => {
-        fn $fn_name(input: &[$byte_type]) -> $data_type {
-            assert!($type_size == std::mem::size_of::<$data_type>());
-            let mut array = [0u8; $type_size];
-            for (byte, read) in array.iter_mut().zip(input.iter().cloned()) {
-                *byte = read as u8;
-            }
-            <$data_type>::$endian_type(array)
-        }
-    };
+// Helper function that writes the input (which must have 4 bytes) into an i32.
+fn read_le_i32(input: &[i8]) -> i32 {
+    assert_eq!(input.len(), 4);
+    let mut array = [0u8; 4];
+    for (byte, read) in array.iter_mut().zip(input.iter().cloned()) {
+        *byte = read as u8;
+    }
+    i32::from_le_bytes(array)
 }
 
-macro_rules! generate_write_fn {
-    ($fn_name: ident, $data_type: ty, $byte_type: ty, $endian_type: ident) => {
-        fn $fn_name(buf: &mut [$byte_type], n: $data_type) {
-            for (byte, read) in buf
-                .iter_mut()
-                .zip(<$data_type>::$endian_type(n).iter().cloned())
-            {
-                *byte = read as $byte_type;
-            }
-        }
-    };
+// Helper function that writes bytes from an i32 into `buf`.
+fn write_le_i32(buf: &mut [i8], n: i32) {
+    for (byte, read) in buf.iter_mut().zip(i32::to_le_bytes(n).iter().cloned()) {
+        *byte = read as i8;
+    }
 }
-
-generate_read_fn!(read_le_i32, i32, i8, 4, from_le_bytes);
-generate_write_fn!(write_le_i32, i32, i8, to_le_bytes);
 
 // Defines poached from apicdef.h kernel header.
 /// The register offset corresponding to the APIC Local Vector Table for LINT0.
