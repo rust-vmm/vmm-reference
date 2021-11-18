@@ -73,15 +73,15 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Return the value of the register specified by `reg_offset`. Returns an error when the
 /// offset is invalid.
-pub fn get_klapic_reg(klapic: &kvm_lapic_state, reg_offset: usize) -> Result<u32> {
+pub fn get_klapic_reg(klapic: &kvm_lapic_state, reg_offset: usize) -> Result<i32> {
     let range = reg_offset..reg_offset + 4;
     let reg = klapic.regs.get(range).ok_or(Error::InvalidRegisterOffset)?;
-    Ok(read_le_i32(&reg) as u32)
+    Ok(read_le_i32(&reg))
 }
 
 /// Set the `value` of the register located at `reg_offset`. Returns an error when the offset is
 /// invalid.
-pub fn set_klapic_reg(klapic: &mut kvm_lapic_state, reg_offset: usize, value: u32) -> Result<()> {
+pub fn set_klapic_reg(klapic: &mut kvm_lapic_state, reg_offset: usize, value: i32) -> Result<()> {
     // The value that we are setting is a u32, which needs 4 bytes of space.
     // We're here creating a range that can fit the whole value.
     let range = reg_offset..reg_offset + 4;
@@ -89,11 +89,11 @@ pub fn set_klapic_reg(klapic: &mut kvm_lapic_state, reg_offset: usize, value: u3
         .regs
         .get_mut(range)
         .ok_or(Error::InvalidRegisterOffset)?;
-    write_le_i32(&mut reg, value as i32);
+    write_le_i32(&mut reg, value);
     Ok(())
 }
 
-fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
+fn set_apic_delivery_mode(reg: i32, mode: i32) -> i32 {
     ((reg) & !0x700) | ((mode) << 8)
 }
 
@@ -141,7 +141,7 @@ pub fn set_klapic_delivery_mode(
     set_klapic_reg(
         klapic,
         reg_offset,
-        set_apic_delivery_mode(reg_value, mode as u32),
+        set_apic_delivery_mode(reg_value, mode as i32),
     )
 }
 
@@ -176,9 +176,10 @@ mod tests {
 
     #[test]
     fn test_delivery_mode() {
-        assert_eq!(DeliveryMode::Fixed as u32, 0);
-        assert_eq!(DeliveryMode::NMI as u32, 0x4);
-        assert_eq!(DeliveryMode::INIT as u32, 0x5);
-        assert_eq!(DeliveryMode::ExtINT as u32, 0x7);
+        assert_eq!(DeliveryMode::Fixed as i32, 0);
+        assert_eq!(DeliveryMode::SMI as i32, 0x2);
+        assert_eq!(DeliveryMode::NMI as i32, 0x4);
+        assert_eq!(DeliveryMode::INIT as i32, 0x5);
+        assert_eq!(DeliveryMode::ExtINT as i32, 0x7);
     }
 }
