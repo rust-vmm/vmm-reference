@@ -380,4 +380,36 @@ mod tests {
         checked_create_device(&mut vm, GicVersion::V2);
         checked_create_device(&mut vm, GicVersion::V3);
     }
+
+    #[test]
+    fn test_create_with_max_values() {
+        {
+            let kvm = Kvm::new().unwrap();
+            let vm = kvm.create_vm().unwrap();
+            // For the creation of GICv2 to work we need to first create the vcpus.
+            vm.create_vcpu(0).unwrap();
+            let gic_config = GicConfig {
+                num_cpus: u8::MAX,
+                ..Default::default()
+            };
+
+            assert!(Gic::new(gic_config, &vm).is_ok());
+        }
+
+        {
+            let kvm = Kvm::new().unwrap();
+            let vm = kvm.create_vm().unwrap();
+            // For the creation of GICv2 to work we need to first create the vcpus.
+            vm.create_vcpu(0).unwrap();
+            let gic_config = GicConfig {
+                num_irqs: u32::MAX,
+                ..Default::default()
+            };
+            // This fails because the maximum number of IRQs is 1024.
+            assert_eq!(
+                Gic::new(gic_config, &vm).unwrap_err(),
+                Error::SetAttr("irq", kvm_ioctls::Error::new(22))
+            );
+        }
+    }
 }
