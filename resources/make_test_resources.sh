@@ -24,7 +24,7 @@ DEST_INITRD_DIR=${DEST_INITRD_DIR:="$TEST_RESOURCE_DIR/initrd"}
 # By default use 2 CPUs. User can change this to speed up the builds. 
 NPROC=${NPROC:=2}
 
-arch=$(uname -i)
+arch=$(uname -m)
 if [[ $arch = "x86_64" ]]; then
     ./kernel/make_kernel_busybox_image.sh -f elf -k vmlinux-hello-busybox -w $TMP_KERNEL_DIR -j $NPROC
     ./kernel/make_kernel_busybox_image.sh -f elf -k vmlinux-hello-busybox -w $TMP_KERNEL_DIR -j $NPROC -h

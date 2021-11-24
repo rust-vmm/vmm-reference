@@ -7,7 +7,7 @@
 # from this script. The current busybox version is compatible with glibc
 # version > 2.31.
 
-arch=$(uname -i)
+arch=$(uname -m)
 KERNEL_VERSION="5.4.81"
 
 if [[ $arch = "x86_64" ]]; then
