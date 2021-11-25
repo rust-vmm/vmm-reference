@@ -10,8 +10,8 @@ license = "Apache-2.0 OR BSD-3-Clause"
 keywords = ["virt", "kvm", "vm"]
 
 [dependencies]
-kvm-ioctls = { version = "0.8.0" }
-kvm-bindings = { version = "0.4.0", features = ["fam-wrappers"] }
+kvm-ioctls = { version = "0.11.0" }
+kvm-bindings = { version = "0.5.0", features = ["fam-wrappers"] }
 vm-memory = "0.6.0"
 libc = "0.2.76"
 

@@ -25,10 +25,6 @@ const AARCH64_AXI_BASE: u64 = 0x40000000;
 const AARCH64_GIC_DIST_SIZE: u64 = 0x10000;
 const AARCH64_GIC_CPUI_SIZE: u64 = 0x20000;
 
-// This is the minimum number of SPI interrupts aligned to 32 + 32 for the
-// PPI (16) and GSI (16).
-pub const AARCH64_GIC_NR_IRQS: u32 = 64;
-
 // These constants indicate the placement of the GIC registers in the physical
 // address space.
 pub const AARCH64_GIC_DIST_BASE: u64 = AARCH64_AXI_BASE - AARCH64_GIC_DIST_SIZE;

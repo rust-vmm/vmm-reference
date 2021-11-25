@@ -7,14 +7,6 @@ use std::sync::{Arc, Barrier, Mutex};
 use std::thread::{self, JoinHandle};
 
 use kvm_bindings::kvm_userspace_memory_region;
-#[cfg(target_arch = "aarch64")]
-use kvm_bindings::{
-    kvm_create_device, kvm_device_attr, kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V2,
-    kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V3, KVM_DEV_ARM_VGIC_CTRL_INIT,
-    KVM_DEV_ARM_VGIC_GRP_ADDR, KVM_DEV_ARM_VGIC_GRP_CTRL, KVM_DEV_ARM_VGIC_GRP_NR_IRQS,
-    KVM_VGIC_V2_ADDR_TYPE_CPU, KVM_VGIC_V2_ADDR_TYPE_DIST, KVM_VGIC_V3_ADDR_TYPE_DIST,
-    KVM_VGIC_V3_ADDR_TYPE_REDIST,
-};
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::{kvm_pit_config, KVM_PIT_SPEAKER_DUMMY};
 
@@ -26,13 +18,10 @@ use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::signal::{Killable, SIGRTMIN};
 
 use crate::vcpu::{self, KvmVcpu, VcpuRunState, VcpuState};
+#[cfg(target_arch = "aarch64")]
+use vm_vcpu_ref::aarch64::interrupts::{self, Gic, GicConfig};
 #[cfg(target_arch = "x86_64")]
 use vm_vcpu_ref::x86_64::mptable::{self, MpTable};
-
-#[cfg(target_arch = "aarch64")]
-use arch::{
-    AARCH64_GIC_CPUI_BASE, AARCH64_GIC_DIST_BASE, AARCH64_GIC_NR_IRQS, AARCH64_GIC_REDIST_SIZE,
-};
 
 /// Defines the state from which a `KvmVm` is initialized.
 pub struct VmState {
@@ -65,7 +54,10 @@ pub enum Error {
     /// Not enough memory slots.
     NotEnoughMemorySlots,
     /// Failed to setup the interrupt controller.
+    #[cfg(target_arch = "x86_64")]
     SetupInterruptController(kvm_ioctls::Error),
+    #[cfg(target_arch = "aarch64")]
+    SetupInterruptController(interrupts::Error),
     /// Failed to create the vcpu.
     CreateVcpu(vcpu::Error),
     /// Failed to register IRQ event.
@@ -89,6 +81,14 @@ impl From<mptable::Error> for Error {
         Error::Mptable(err)
     }
 }
+
+#[cfg(target_arch = "aarch64")]
+impl From<interrupts::Error> for Error {
+    fn from(inner: interrupts::Error) -> Self {
+        Error::SetupInterruptController(inner)
+    }
+}
+
 /// Dedicated [`Result`](https://doc.rust-lang.org/std/result/) type.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -110,12 +110,6 @@ impl Default for VmRunState {
     fn default() -> Self {
         Self::Running
     }
-}
-
-#[cfg(target_arch = "aarch64")]
-enum DeviceKind {
-    ArmVgicV3,
-    ArmVgicV2,
 }
 
 impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
@@ -216,91 +210,16 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
 
     #[cfg(target_arch = "aarch64")]
     pub fn setup_irq_controller(&self) -> Result<()> {
-        let cpu_if_addr: u64 = AARCH64_GIC_CPUI_BASE;
-        let dist_if_addr: u64 = AARCH64_GIC_DIST_BASE;
-        let redist_addr: u64 =
-            dist_if_addr - (AARCH64_GIC_REDIST_SIZE * self.state.num_vcpus as u64);
-        let raw_cpu_if_addr = &cpu_if_addr as *const u64;
-        let raw_dist_if_addr = &dist_if_addr as *const u64;
-        let raw_redist_addr = &redist_addr as *const u64;
+        // TODO: we need a reference to the GIC to be able to implement save/restore.
+        // TODO: find an abstraction that make this possible.
 
-        let cpu_if_attr = kvm_device_attr {
-            group: KVM_DEV_ARM_VGIC_GRP_ADDR,
-            attr: KVM_VGIC_V2_ADDR_TYPE_CPU as u64,
-            addr: raw_cpu_if_addr as u64,
-            flags: 0,
-        };
-        let redist_attr = kvm_device_attr {
-            group: KVM_DEV_ARM_VGIC_GRP_ADDR,
-            attr: KVM_VGIC_V3_ADDR_TYPE_REDIST as u64,
-            addr: raw_redist_addr as u64,
-            flags: 0,
-        };
-        let mut dist_attr = kvm_device_attr {
-            group: KVM_DEV_ARM_VGIC_GRP_ADDR,
-            addr: raw_dist_if_addr as u64,
-            attr: 0,
-            flags: 0,
-        };
-
-        let mut gic_v3_device = kvm_create_device {
-            type_: kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V3,
-            ..Default::default()
-        };
-
-        let mut gic_v2_device = kvm_create_device {
-            type_: kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V2,
-            ..Default::default()
-        };
-
-        let (vgic, _, cpu_redist_attr, dist_attr_attr) =
-            match self.vm_fd().create_device(&mut gic_v3_device) {
-                Err(_) => (
-                    self.vm_fd()
-                        .create_device(&mut gic_v2_device)
-                        .map_err(Error::SetupInterruptController)?,
-                    DeviceKind::ArmVgicV2,
-                    cpu_if_attr,
-                    KVM_VGIC_V2_ADDR_TYPE_DIST as u64,
-                ),
-                Ok(vgic) => (
-                    vgic,
-                    DeviceKind::ArmVgicV3,
-                    redist_attr,
-                    KVM_VGIC_V3_ADDR_TYPE_DIST as u64,
-                ),
-            };
-        dist_attr.attr = dist_attr_attr;
-
-        // Safe because we allocated the struct that's being passed in
-        vgic.set_device_attr(&cpu_redist_attr)
-            .map_err(Error::SetupInterruptController)?;
-        vgic.set_device_attr(&dist_attr)
-            .map_err(Error::SetupInterruptController)?;
-
-        // We need to tell the kernel how many irqs to support with this vgic
-        let nr_irqs: u32 = AARCH64_GIC_NR_IRQS;
-        let nr_irqs_ptr = &nr_irqs as *const u32;
-        let nr_irqs_attr = kvm_device_attr {
-            group: KVM_DEV_ARM_VGIC_GRP_NR_IRQS,
-            attr: 0,
-            addr: nr_irqs_ptr as u64,
-            flags: 0,
-        };
-        vgic.set_device_attr(&nr_irqs_attr)
-            .map_err(Error::SetupInterruptController)?;
-
-        // Finalize the GIC
-        let init_gic_attr = kvm_device_attr {
-            group: KVM_DEV_ARM_VGIC_GRP_CTRL,
-            attr: KVM_DEV_ARM_VGIC_CTRL_INIT as u64,
-            addr: 0,
-            flags: 0,
-        };
-
-        vgic.set_device_attr(&init_gic_attr)
-            .map_err(Error::SetupInterruptController)?;
-
+        let _gic = Gic::new(
+            GicConfig {
+                num_cpus: self.state.num_vcpus,
+                ..Default::default()
+            },
+            &self.vm_fd(),
+        )?;
         Ok(())
     }
 

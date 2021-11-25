@@ -9,3 +9,6 @@
 
 /// Helpers for setting up the `VM` for running on x86_64.
 pub mod x86_64;
+
+/// Helpers for setting up the `VM` for running on aarch64.
+pub mod aarch64;
