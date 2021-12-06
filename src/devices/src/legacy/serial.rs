@@ -9,7 +9,7 @@ use event_manager::{EventOps, Events, MutEventSubscriber};
 use vm_device::{bus::MmioAddress, MutDeviceMmio};
 #[cfg(target_arch = "x86_64")]
 use vm_device::{
-    bus::{PioAddress, PioAddressValue},
+    bus::{PioAddress, PioAddressOffset},
     MutDevicePio,
 };
 use vm_superio::serial::{NoEvents, SerialEvents};
@@ -85,7 +85,7 @@ impl<T: Trigger<E = io::Error>, W: Write> SerialWrapper<T, NoEvents, W> {
 
 #[cfg(target_arch = "x86_64")]
 impl<T: Trigger<E = io::Error>, W: Write> MutDevicePio for SerialWrapper<T, NoEvents, W> {
-    fn pio_read(&mut self, _base: PioAddress, offset: PioAddressValue, data: &mut [u8]) {
+    fn pio_read(&mut self, _base: PioAddress, offset: PioAddressOffset, data: &mut [u8]) {
         // TODO: this function can't return an Err, so we'll mark error conditions
         // (data being more than 1 byte, offset overflowing an u8) with logs & metrics.
 
@@ -95,7 +95,7 @@ impl<T: Trigger<E = io::Error>, W: Write> MutDevicePio for SerialWrapper<T, NoEv
         }
     }
 
-    fn pio_write(&mut self, _base: PioAddress, offset: PioAddressValue, data: &[u8]) {
+    fn pio_write(&mut self, _base: PioAddress, offset: PioAddressOffset, data: &[u8]) {
         // TODO: this function can't return an Err, so we'll mark error conditions
         // (data being more than 1 byte, offset overflowing an u8) with logs & metrics.
 
@@ -179,7 +179,7 @@ mod tests {
         // Check that passing an invalid offset does not result in a crash.
         #[cfg(target_arch = "x86_64")]
         {
-            let invalid_offset = PioAddressValue::MAX;
+            let invalid_offset = PioAddressOffset::MAX;
             serial_console.pio_write(PioAddress(0), invalid_offset, &data);
         }
         #[cfg(target_arch = "aarch64")]

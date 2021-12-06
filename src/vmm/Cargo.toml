@@ -17,7 +17,7 @@ vmm-sys-util = "0.8.0"
 # vm-device is not yet published on crates.io.
 # To make sure that breaking changes to vm-device are not breaking the
 # vm-vcpu build, we're using a fixed revision.
-vm-device = { git = "https://github.com/rust-vmm/vm-device", rev = "5847f12" }
+vm-device = { git = "https://github.com/rust-vmm/vm-device", rev = "7723d9b" }
 
 devices = { path = "../devices" }
 vm-vcpu = { path = "../vm-vcpu" }

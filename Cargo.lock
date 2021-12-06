@@ -211,7 +211,7 @@ dependencies = [
 [[package]]
 name = "vm-device"
 version = "0.1.0"
-source = "git+https://github.com/rust-vmm/vm-device?rev=5847f12#5847f1286492b7191f1400e6647fb220f8941f89"
+source = "git+https://github.com/rust-vmm/vm-device?rev=7723d9b#7723d9b63aa12d5a12bd6e3b97732f2fcb38ab4d"
 
 [[package]]
 name = "vm-fdt"
