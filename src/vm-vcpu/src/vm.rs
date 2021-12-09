@@ -250,7 +250,14 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
         exit_handler: EH,
         bus: Arc<Mutex<IoManager>>,
     ) -> Result<Self> {
+        // Restoring a VM from a previously saved state needs to happen in the following order:
+        // 1. we first need to create the VM fd (from KVM).
+        // 2. On x86_64, we need to create the in-kernel IRQ chip so we can then create the vCPUs.
+        // 3. Create the vCPUs.
+        // 4. Restore the vCPU state.
         let mut vm = Self::create_vm(kvm, state.config.clone(), exit_handler, guest_memory)?;
+        #[cfg(target_arch = "x86_64")]
+        vm.setup_irq_controller()?;
         let vcpus_state = state.vcpus_state.clone();
         vm.set_state(state)?;
         vm.create_vcpus_from_state::<M>(bus, vcpus_state)?;
@@ -516,6 +523,8 @@ mod tests {
     use std::thread::sleep;
     use std::time::Duration;
 
+    #[cfg(target_arch = "x86_64")]
+    use kvm_bindings::bindings::kvm_regs;
     use kvm_ioctls::Kvm;
     use vm_memory::{Bytes, GuestAddress};
 
@@ -643,7 +652,11 @@ mod tests {
         let mut guest_memory = default_memory();
 
         let mut vm = create_vm_and_vcpus(num_vcpus, &mut guest_memory);
-        println!("{:#?}", vm.vcpus[0].vcpu_fd.get_regs().unwrap());
+        let expected_regs = vm
+            .vcpus
+            .iter()
+            .map(|vcpu| vcpu.vcpu_fd.get_regs().unwrap())
+            .collect::<Vec<kvm_regs>>();
         let vm_state = vm.save_state().unwrap();
         assert_eq!(
             vm_state.pitstate.flags | KVM_PIT_SPEAKER_DUMMY,
@@ -656,6 +669,21 @@ mod tests {
 
         // At this point the vcpus have not been running, so the REGS should
         // be the default ones.
-        // println!("{:#?}", vm_state.vcpus_state[0].kvm);
+        // Without the vCPUs running there is not much that we can test in
+        // save/restore.
+        assert_eq!(
+            vm_state
+                .vcpus_state
+                .iter()
+                .map(|vcpu_state| vcpu_state.regs)
+                .collect::<Vec<kvm_regs>>(),
+            expected_regs
+        );
+
+        // Let's create a new VM from the previously saved state.
+        let kvm = Kvm::new().unwrap();
+        let io_manager = Arc::new(Mutex::new(IoManager::new()));
+        let exit_handler = WrappedExitHandler::default();
+        assert!(KvmVm::from_state(&kvm, vm_state, &guest_memory, exit_handler, io_manager).is_ok());
     }
 }
