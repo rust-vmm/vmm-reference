@@ -86,7 +86,7 @@ and run locally.
 """
 
 
-def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=1024):
+def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=1024, serial_in="", serial_out=""):
     # Kernel config
     cmdline = "console=ttyS0 i8042.nokbd reboot=t panic=1 pci=off"
 
@@ -101,8 +101,12 @@ def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=102
         "--kernel", "cmdline={},path={},kernel_load_addr={}".format(
             cmdline, kernel_path, kernel_load_addr
         ),
-        "--vcpu", "num={}".format(num_vcpus)
+        "--vcpu", "num={}".format(num_vcpus),
     ]
+    if serial_in != "" and serial_out != "":
+        vmm_cmd.append("--serial")
+        vmm_cmd.append("serial_input={},serial_output={}".format(serial_in, serial_out))
+
     tmp_file_path = None
 
     if disk_path is not None:
@@ -129,17 +133,15 @@ def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=102
 
     return vmm_process, tmp_file_path
 
-
-def shutdown(vmm_process):
-    vmm_process.stdin.write(b'reboot -f\n')
+def shutdown(vmm_process, vmm_input_fd):
+    os.write(vmm_input_fd, b'reboot -f\n')
     vmm_process.stdin.flush()
 
     # If the process hasn't ended within 3 seconds, this will raise a
     # TimeoutExpired exception and fail the test.
     vmm_process.wait(timeout=3)
 
-
-def setup_stdout_nonblocking(vmm_process):
+def setup_stdout_nonblocking(vmm_output_fd):
     # We'll need to do non-blocking I/O with the underlying sub-process since
     # we cannot use `communicate`, because `communicate` would close the
     # `stdin` that we later want to use to `shutdown`, to do that by hand,
@@ -148,13 +150,11 @@ def setup_stdout_nonblocking(vmm_process):
 
     # FIXME: This should NOT be required to be done on every call, do it when we
     #        'Class'ify the test case
-    flags = fcntl.fcntl(vmm_process.stdout, fcntl.F_GETFL)
-    fcntl.fcntl(vmm_process.stdout, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+    flags = fcntl.fcntl(vmm_output_fd, fcntl.F_GETFL)
+    fcntl.fcntl(vmm_output_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
-
-def expect_string(vmm_process, expected_string, timeout=TEST_TIMEOUT):
-    setup_stdout_nonblocking(vmm_process)
-
+def expect_string(vmm_output_fd, expected_string, timeout=TEST_TIMEOUT):
+    setup_stdout_nonblocking(vmm_output_fd)
     # No. of seconds after which we'll give up
     giveup_after = timeout
     then = time.time()
@@ -163,7 +163,7 @@ def expect_string(vmm_process, expected_string, timeout=TEST_TIMEOUT):
     all_data = bytes()
     while not found:
         try:
-            data = os.read(vmm_process.stdout.fileno(), 4096)
+            data = os.read(vmm_output_fd, 4096)
             all_data += data
             for line in all_data.split(b'\r\n'):
                 if expected_string in line.decode():
@@ -224,13 +224,13 @@ def expect_vcpus(vmm_process, expected_vcpus):
     # `expect_string` is called once, which sets non-blocking, but let's not be
     # dependent on it, so it's just fine to call it again, less than ideal, but not
     # wrong.
-    setup_stdout_nonblocking(vmm_process)
+    setup_stdout_nonblocking(vmm_process.stdout.fileno())
 
     # /proc/cpuinfo displays info about each vCPU
     vmm_process.stdin.write(b'cat /proc/cpuinfo\n')
     vmm_process.stdin.flush()
 
-    siblings_line = expect_string(vmm_process, "siblings")
+    siblings_line = expect_string(vmm_process.stdout.fileno(), "siblings")
     actual_vcpus = int(siblings_line.split(":")[1].strip())
 
     assert actual_vcpus == expected_vcpus, \
@@ -247,7 +247,7 @@ def expect_mem(vmm_process, expected_mem_mib):
     # 0K cma-reserved)
     # The second value (523896K) is the initial guest memory in KiB, which we
     # will compare against the expected memory specified during VM creation.
-    memory_string = expect_string(vmm_process, "Memory:")
+    memory_string = expect_string(vmm_process.stdout.fileno(), "Memory:")
     actual_mem_kib = int(memory_string.split('/')[1].split('K')[0])
 
     # Expect the difference between the expected and actual memory
@@ -270,9 +270,9 @@ def test_expect_string_timeout():
         # Let's expect a string that cannot show up as part of booting the
         # vmm reference.
         expected_string = "Goodbye, world, from the rust-vmm reference VMM!"
-        expect_string(vmm_process, expected_string, timeout=20)
+        expect_string(vmm_process.stdout.fileno(), expected_string, timeout=20)
 
-    shutdown(vmm_process)
+    shutdown(vmm_process, vmm_process.stdin.fileno())
 
     assert e.type is TimeoutError
 
@@ -287,9 +287,9 @@ def test_reference_vmm(kernel):
     # If we do not find the expected message, this loop will not break and the
     # test will fail when the timeout expires.
     expected_string = "Hello, world, from the rust-vmm reference VMM!"
-    expect_string(vmm_process, expected_string)
+    expect_string(vmm_process.stdout.fileno(), expected_string)
 
-    shutdown(vmm_process)
+    shutdown(vmm_process, vmm_process.stdin.fileno())
 
 
 @pytest.mark.parametrize("kernel,disk", UBUNTU_KERNEL_DISK_PAIRS)
@@ -299,12 +299,12 @@ def test_reference_vmm_with_disk(kernel, disk):
     vmm_process, tmp_disk_path = start_vmm_process(kernel, disk_path=disk)
 
     prompt = 'root@ubuntu-rust-vmm:~#'
-    expect_string(vmm_process, prompt)
+    expect_string(vmm_process.stdout.fileno(), prompt)
 
     cmd = 'lsblk --json'
     output = run_cmd_inside_vm(cmd.encode(), vmm_process, prompt.encode(), timeout=5)
 
-    shutdown(vmm_process)
+    shutdown(vmm_process, vmm_process.stdin.fileno())
     if tmp_disk_path is not None:
         os.remove(tmp_disk_path)
 
@@ -329,7 +329,7 @@ def test_reference_vmm_num_vcpus(kernel):
         #
         expect_vcpus(vmm_process, expected_vcpus)
 
-        shutdown(vmm_process)
+        shutdown(vmm_process, vmm_process.stdin.fileno())
 
 
 @pytest.mark.parametrize("kernel", KERNELS_INITRAMFS)
@@ -369,4 +369,34 @@ def test_reference_vmm_mem(kernel):
         # the test will fail immediately with an explanation.
         expect_mem(vmm_process, expected_mem_mib)
 
-        shutdown(vmm_process)
+        shutdown(vmm_process, vmm_process.stdin.fileno())
+
+
+@pytest.mark.parametrize("kernel", KERNELS_INITRAMFS)
+def test_serial_console_piping(kernel, tmp_path):
+    """Start the reference VMM with piped input/output and verify that it works."""
+    # tmp_path is a pytest fixture which will provide a temporary directory 
+    # unique to the test invocation, created in the base temporary directory.
+    pipe_dir = tmp_path/"named_pipes"
+    pipe_dir.mkdir()
+
+    vmm_process, _ = start_vmm_process(
+                        kernel,
+                        serial_in=pipe_dir/"in",
+                        serial_out=pipe_dir/"out")
+
+    time.sleep(1)
+
+    vmm_input_fd = os.open(pipe_dir/"in", os.O_WRONLY)
+
+    time.sleep(1)
+
+    vmm_output_fd = os.open(pipe_dir/"out", os.O_RDONLY | os.O_NONBLOCK)
+
+    # Poll process for new output until we find the hello world message.
+    # If we do not find the expected message, this loop will not break and the
+    # test will fail when the timeout expires.
+    expected_string = "Hello, world, from the rust-vmm reference VMM!"
+    expect_string(vmm_output_fd, expected_string)
+
+    shutdown(vmm_process, vmm_input_fd)
