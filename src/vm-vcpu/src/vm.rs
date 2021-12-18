@@ -80,54 +80,71 @@ pub struct KvmVm<EH: ExitHandler + Send> {
     vcpu_run_state: Arc<VcpuRunState>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Failed to create the VM Configuration.
+    #[error("Failed to create the VM Configuration: {0}")]
     CreateVmConfig(vcpu::Error),
     /// Failed to create a VM.
+    #[error("Failed to create a VM: {0}")]
     CreateVm(kvm_ioctls::Error),
     /// Failed to setup the user memory regions.
+    #[error("Failed to setup the user memory regions: {0}")]
     SetupMemoryRegion(kvm_ioctls::Error),
     /// Not enough memory slots.
+    #[error("Not enough memory slots.")]
     NotEnoughMemorySlots,
     /// Failed to setup the interrupt controller.
+    #[error("Failed to setup the interrupt controller: {0}")]
     #[cfg(target_arch = "x86_64")]
     SetupInterruptController(kvm_ioctls::Error),
+    #[error("Failed to setup the interrupt controller: {0}")]
     #[cfg(target_arch = "aarch64")]
     SetupInterruptController(interrupts::Error),
     /// Failed to create the vcpu.
+    #[error("Failed to create the vcpu: {0}")]
     CreateVcpu(vcpu::Error),
     /// Failed to register IRQ event.
+    #[error("Failed to register IRQ event: {0}")]
     RegisterIrqEvent(kvm_ioctls::Error),
     /// Failed to run the vcpus.
+    #[error("Failed to run the vcpus: {0}")]
     RunVcpus(io::Error),
     /// Failed to configure mptables.
+    #[error("Failed to configure mptables.")]
     #[cfg(target_arch = "x86_64")]
     Mptable(mptable::Error),
     /// Failed to pause the vcpus.
+    #[error("Failed to pause the vcpus: {0}")]
     PauseVcpus(Errno),
     /// Failed to resume vcpus.
+    #[error("Failed to resume vcpus: {0}")]
     ResumeVcpus(Errno),
     /// Failed to get KVM vm pit state.
+    #[error("Failed to get KVM vm pit state: {0}")]
     VmGetPit2(kvm_ioctls::Error),
     /// Failed to get KVM vm clock.
+    #[error("Failed to get KVM vm clock: {0}")]
     VmGetClock(kvm_ioctls::Error),
     /// Failed to get KVM vm irqchip.
+    #[error("Failed to get KVM vm irqchip: {0}")]
     VmGetIrqChip(kvm_ioctls::Error),
     /// Failed to set KVM vm pit state.
+    #[error("Failed to set KVM vm pit state: {0}")]
     #[cfg(target_arch = "x86_64")]
     VmSetPit2(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
     /// Failed to set KVM vm clock.
+    #[error("Failed to set KVM vm clock: {0}")]
     VmSetClock(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
     /// Failed to set KVM vm irqchip.
+    #[error("Failed to set KVM vm irqchip: {0}")]
     VmSetIrqChip(kvm_ioctls::Error),
     /// Failed to save the state of vCPUs.
+    #[error("Failed to save the state of vCPUs: {0}")]
     SaveVcpuState(vcpu::Error),
 }
-
-// TODO: Implement std::error::Error for Error.
 
 #[cfg(target_arch = "x86_64")]
 impl From<mptable::Error> for Error {

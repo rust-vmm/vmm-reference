@@ -38,13 +38,16 @@ pub enum GicVersion {
 }
 
 /// Errors associated with operations related to the GIC.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum Error {
     /// Error calling into KVM ioctl.
+    #[error("Error calling into KVM ioctl: {0}")]
     Kvm(kvm_ioctls::Error),
     /// Error creating the GIC device.
+    #[error("Error creating the GIC device: {0}")]
     CreateDevice(kvm_ioctls::Error),
     /// Error setting an attribute for the GIC device.
+    #[error("Error setting an attribute ({0}) for the GIC device: {1}")]
     SetAttr(&'static str, kvm_ioctls::Error),
 }
 
