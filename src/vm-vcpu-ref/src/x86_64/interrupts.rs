@@ -49,9 +49,10 @@ pub enum DeliveryMode {
 }
 
 /// Errors associated with operations related to interrupts.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum Error {
     /// The register offset is invalid.
+    #[error("The register offset is invalid.")]
     InvalidRegisterOffset,
 }
 

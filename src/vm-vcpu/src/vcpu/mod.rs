@@ -82,83 +82,118 @@ use regs::*;
 use kvm_bindings::{PSR_MODE_EL1h, PSR_A_BIT, PSR_D_BIT, PSR_F_BIT, PSR_I_BIT};
 
 /// Errors encountered during vCPU operation.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Invalid number of vcpus specified in configuration.
+    #[error("Invalid number of vcpus specified in configuration: {0}")]
     VcpuNumber(u8),
     /// Cannot get the supported MSRs.
+    #[error("Cannot get the supported MSRs.")]
     #[cfg(target_arch = "x86_64")]
     GetSupportedMsrs(msrs::Error),
     /// Failed to operate on guest memory.
+    #[error("Failed to operate on guest memory: {0}")]
     GuestMemory(GuestMemoryError),
     /// I/O Error.
+    #[error("I/O Error: {0}")]
     IO(io::Error),
     /// Error issuing an ioctl to KVM.
+    #[error("Error issuing an ioctl to KVM: {0}")]
     KvmIoctl(kvm_ioctls::Error),
     /// Failed to configure mptables.
+    #[error("Failed to configure mptables.")]
     #[cfg(target_arch = "x86_64")]
     Mptable(mptable::Error),
     /// Failed to setup the GDT.
+    #[error("Failed to setup the GDT.")]
     #[cfg(target_arch = "x86_64")]
     Gdt(gdt::Error),
     /// Failed to initialize MSRS.
+    #[error("Failed to initialize MSRS.")]
     #[cfg(target_arch = "x86_64")]
     CreateMsrs(msrs::Error),
     /// Failed to configure MSRs.
+    #[error("Failed to configure MSRs.")]
     #[cfg(target_arch = "x86_64")]
     SetModelSpecificRegistersCount,
     /// TLS already initialized.
+    #[error("TLS already initialized.")]
     TlsInitialized,
     /// Unable to register signal handler.
+    #[error("Unable to register signal handler: {0}")]
     RegisterSignalHandler(Errno),
+    #[error("SetReg error: {0}")]
     SetReg(kvm_ioctls::Error),
 
     // These are all Save/Restore errors. Maybe it makes sense to move them
     // to a separate enum.
+    #[error("FamError")]
     FamError(vmm_sys_util::fam::Error),
     /// Failed to get KVM vcpu debug regs.
+    #[error("Failed to get KVM vcpu debug regs: {0}")]
     VcpuGetDebugRegs(kvm_ioctls::Error),
     /// Failed to get KVM vcpu lapic.
+    #[error("Failed to get KVM vcpu lapic: {0}")]
     VcpuGetLapic(kvm_ioctls::Error),
     /// Failed to get KVM vcpu mp state.
+    #[error("Failed to get KVM vcpu mp state: {0}")]
     VcpuGetMpState(kvm_ioctls::Error),
     /// The number of MSRS returned by the kernel is unexpected.
+    #[error("The number of MSRS returned by the kernel is unexpected.")]
     VcpuGetMSRSIncomplete,
     /// Failed to get KVM vcpu msrs.
+    #[error("Failed to get KVM vcpu msrs: {0}")]
     VcpuGetMsrs(kvm_ioctls::Error),
     /// Failed to get KVM vcpu regs.
+    #[error("Failed to get KVM vcpu regs: {0}")]
     VcpuGetRegs(kvm_ioctls::Error),
     /// Failed to get KVM vcpu sregs.
+    #[error("Failed to get KVM vcpu sregs: {0}")]
     VcpuGetSregs(kvm_ioctls::Error),
     /// Failed to get KVM vcpu event.
+    #[error("Failed to get KVM vcpu event: {0}")]
     VcpuGetVcpuEvents(kvm_ioctls::Error),
     /// Failed to get KVM vcpu xcrs.
+    #[error("Failed to get KVM vcpu xcrs: {0}")]
     VcpuGetXcrs(kvm_ioctls::Error),
     /// Failed to get KVM vcpu xsave.
+    #[error("Failed to get KVM vcpu xsave: {0}")]
     VcpuGetXsave(kvm_ioctls::Error),
     /// Failed to get KVM vcpu cpuid.
+    #[error("Failed to get KVM vcpu cpuid: {0}")]
     VcpuGetCpuid(kvm_ioctls::Error),
     /// Failed to get KVM TSC freq.
+    #[error("Failed to get KVM TSC freq: {0}")]
     VcpuGetTSC(kvm_ioctls::Error),
     /// Failed to set KVM vcpu cpuid.
+    #[error("Failed to set KVM vcpu cpuid: {0}")]
     VcpuSetCpuid(kvm_ioctls::Error),
     /// Failed to set KVM vcpu debug regs.
+    #[error("Failed to set KVM vcpu debug regs: {0}")]
     VcpuSetDebugRegs(kvm_ioctls::Error),
     /// Failed to set KVM vcpu lapic.
+    #[error("Failed to set KVM vcpu lapic: {0}")]
     VcpuSetLapic(kvm_ioctls::Error),
     /// Failed to set KVM vcpu mp state.
+    #[error("Failed to set KVM vcpu mp state: {0}")]
     VcpuSetMpState(kvm_ioctls::Error),
     /// Failed to set KVM vcpu msrs.
+    #[error("Failed to set KVM vcpu msrs: {0}")]
     VcpuSetMsrs(kvm_ioctls::Error),
     /// Failed to set KVM vcpu regs.
+    #[error("Failed to set KVM vcpu regs: {0}")]
     VcpuSetRegs(kvm_ioctls::Error),
     /// Failed to set KVM vcpu sregs.
+    #[error("Failed to set KVM vcpu sregs: {0}")]
     VcpuSetSregs(kvm_ioctls::Error),
     /// Failed to set KVM vcpu event.
+    #[error("Failed to set KVM vcpu event: {0}")]
     VcpuSetVcpuEvents(kvm_ioctls::Error),
     /// Failed to set KVM vcpu xcrs.
+    #[error("Failed to set KVM vcpu xcrs: {0}")]
     VcpuSetXcrs(kvm_ioctls::Error),
     /// Failed to set KVM vcpu xsave.
+    #[error("Failed to set KVM vcpu xsave: {0}")]
     VcpuSetXsave(kvm_ioctls::Error),
 }
 

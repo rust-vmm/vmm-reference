@@ -7,6 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+thiserror = "1.0.30"
 libc = "0.2.76"
 kvm-bindings = { version = "0.5.0", features = ["fam-wrappers"] }
 kvm-ioctls = "0.11.0"
