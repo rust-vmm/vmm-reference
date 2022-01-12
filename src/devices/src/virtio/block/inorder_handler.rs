@@ -8,7 +8,7 @@ use log::warn;
 use virtio_blk::request::Request;
 use virtio_blk::stdio_executor::{self, StdIoBackend};
 use virtio_queue::{DescriptorChain, Queue};
-use vm_memory::{self, Bytes, GuestAddressSpace};
+use vm_memory::{self, GuestAddressSpace};
 
 use crate::virtio::SignalUsedQueue;
 
@@ -16,6 +16,7 @@ use crate::virtio::SignalUsedQueue;
 pub enum Error {
     GuestMemory(vm_memory::GuestMemoryError),
     Queue(virtio_queue::Error),
+    ProcessRequest(stdio_executor::ProcessReqError),
 }
 
 impl From<vm_memory::GuestMemoryError> for Error {
@@ -27,6 +28,12 @@ impl From<vm_memory::GuestMemoryError> for Error {
 impl From<virtio_queue::Error> for Error {
     fn from(e: virtio_queue::Error) -> Self {
         Error::Queue(e)
+    }
+}
+
+impl From<stdio_executor::ProcessReqError> for Error {
+    fn from(e: stdio_executor::ProcessReqError) -> Self {
+        Error::ProcessRequest(e)
     }
 }
 
@@ -47,43 +54,15 @@ where
     S: SignalUsedQueue,
 {
     fn process_chain(&mut self, mut chain: DescriptorChain<M>) -> result::Result<(), Error> {
-        let len;
-
-        match Request::parse(&mut chain) {
-            Ok(request) => {
-                let status = match self.disk.execute(chain.memory(), &request) {
-                    Ok(l) => {
-                        // TODO: Using `saturating_add` until we consume the recent changes
-                        // proposed for the executor upstream.
-                        len = l.saturating_add(1);
-                        // VIRTIO_BLK_S_OK defined as 0 in the standard.
-                        0
-                    }
-                    Err(e) => {
-                        warn!("failed to execute block request: {:?}", e);
-                        len = 1;
-                        // TODO: add `status` or similar method to executor error.
-                        if let stdio_executor::Error::Unsupported(_) = e {
-                            // UNSUPP
-                            2
-                        } else {
-                            // IOERR
-                            1
-                        }
-                    }
-                };
-
-                chain
-                    .memory()
-                    .write_obj(status as u8, request.status_addr())?;
-            }
+        let used_len = match Request::parse(&mut chain) {
+            Ok(request) => self.disk.process_request(chain.memory(), &request)?,
             Err(e) => {
-                len = 0;
                 warn!("block request parse error: {:?}", e);
+                0
             }
-        }
+        };
 
-        self.queue.add_used(chain.head_index(), len)?;
+        self.queue.add_used(chain.head_index(), used_len)?;
 
         if self.queue.needs_notification()? {
             self.driver_notify.signal_used_queue(0);
