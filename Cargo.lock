@@ -268,7 +268,8 @@ dependencies = [
 [[package]]
 name = "vm-device"
 version = "0.1.0"
-source = "git+https://github.com/rust-vmm/vm-device?rev=7723d9b#7723d9b63aa12d5a12bd6e3b97732f2fcb38ab4d"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "599adbdaddea4947ca23c085d2b8e47f3499ccda35438424526f3853748a8eb6"
 
 [[package]]
 name = "vm-fdt"
