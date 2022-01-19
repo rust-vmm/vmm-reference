@@ -384,7 +384,7 @@ pub(crate) mod tests {
         let virtio_cfg = VirtioConfig::new(device_features, queues, config_space);
 
         let mut cfg = CommonConfig::new(virtio_cfg, &env).unwrap();
-        assert_eq!(cfg.virtio.device_activated, false);
+        assert!(!cfg.virtio.device_activated);
 
         assert!(matches!(cfg.prepare_activate(), Err(Error::QueuesNotValid)));
 
@@ -422,7 +422,7 @@ pub(crate) mod tests {
 
         let t = std::thread::spawn(move || {
             cfg.finalize_activate(Arc::new(Mutex::new(Dummy))).unwrap();
-            assert_eq!(cfg.virtio.device_activated, true);
+            assert!(cfg.virtio.device_activated);
         });
 
         assert_eq!(mock.event_mgr.run(), Ok(1));

@@ -12,6 +12,7 @@
     clippy::redundant_static_lifetimes
 )]
 #![cfg_attr(test, allow(clippy::zero_ptr))]
+#![cfg_attr(test, allow(deref_nullptr))]
 
 pub const MPC_SIGNATURE: &'static [u8; 5usize] = b"PCMP\x00";
 pub const MP_PROCESSOR: ::std::os::raw::c_uint = 0;
