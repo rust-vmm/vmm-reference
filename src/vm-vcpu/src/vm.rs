@@ -415,7 +415,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
     /// just write on the specified `event`.
     pub fn register_irqfd(&self, event: &EventFd, irq_number: u32) -> Result<()> {
         self.fd
-            .register_irqfd(&event, irq_number)
+            .register_irqfd(event, irq_number)
             .map_err(Error::RegisterIrqEvent)
     }
 
@@ -575,7 +575,7 @@ mod tests {
         let vm_config = VmConfig::new(kvm, num_vcpus).unwrap();
         let io_manager = Arc::new(Mutex::new(IoManager::new()));
         let exit_handler = WrappedExitHandler::default();
-        let vm = KvmVm::new(&kvm, vm_config, guest_memory, exit_handler, io_manager)?;
+        let vm = KvmVm::new(kvm, vm_config, guest_memory, exit_handler, io_manager)?;
 
         assert_eq!(vm.vcpus.len() as u8, num_vcpus);
         assert_eq!(vm.vcpu_handles.len() as u8, 0);
@@ -654,7 +654,7 @@ mod tests {
 
         sleep(Duration::new(2, 0));
         vm.shutdown();
-        assert_eq!(vm.exit_handler.0.kicked.load(Ordering::Relaxed), true);
+        assert!(vm.exit_handler.0.kicked.load(Ordering::Relaxed));
         assert_eq!(vm.vcpus.len(), 0);
         assert_eq!(
             *vm.vcpu_run_state.vm_state.lock().unwrap(),

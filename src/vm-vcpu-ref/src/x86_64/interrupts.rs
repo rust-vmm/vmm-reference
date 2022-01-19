@@ -64,7 +64,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub fn get_klapic_reg(klapic: &kvm_lapic_state, reg_offset: usize) -> Result<i32> {
     let range = reg_offset..reg_offset + 4;
     let reg = klapic.regs.get(range).ok_or(Error::InvalidRegisterOffset)?;
-    Ok(read_le_i32(&reg))
+    Ok(read_le_i32(reg))
 }
 
 /// Set the `value` of the register located at `reg_offset`. Returns an error when the offset is
@@ -125,7 +125,7 @@ pub fn set_klapic_delivery_mode(
     reg_offset: usize,
     mode: DeliveryMode,
 ) -> Result<()> {
-    let reg_value = get_klapic_reg(&klapic, reg_offset)?;
+    let reg_value = get_klapic_reg(klapic, reg_offset)?;
     set_klapic_reg(
         klapic,
         reg_offset,
