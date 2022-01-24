@@ -73,11 +73,11 @@ pub fn set_klapic_reg(klapic: &mut kvm_lapic_state, reg_offset: usize, value: i3
     // The value that we are setting is a u32, which needs 4 bytes of space.
     // We're here creating a range that can fit the whole value.
     let range = reg_offset..reg_offset + 4;
-    let mut reg = klapic
+    let reg = klapic
         .regs
         .get_mut(range)
         .ok_or(Error::InvalidRegisterOffset)?;
-    write_le_i32(&mut reg, value);
+    write_le_i32(reg, value);
     Ok(())
 }
 
