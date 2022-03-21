@@ -225,16 +225,37 @@ def expect_vcpus(vmm_process, expected_vcpus):
     # dependent on it, so it's just fine to call it again, less than ideal, but not
     # wrong.
     setup_stdout_nonblocking(vmm_process)
+    giveup_after = timeout
+    then = time.time()
+    cnt=0
+    while True:
+        try:
+            data = os.read(vmm_process.stdout.fileno(), 4096)
+            output_lines = data.split(b'\r\n')
+            for line in output_lines:
+                if expected_string in line.decode():
+                    cnt+=1
+            return cnt
+        except BlockingIOError as _:
+            # Raised on `EWOULDBLOCK`, so it's better to wait for sometime before retrying
+            time.sleep(1)
+            now = time.time()
+            if now - then > giveup_after:
+                raise TimeoutError(
+                    "Timed out {} waiting for {}".format(now - then, expected_string))
+        except Exception as _:
+            raise
+       
+    return cnt
 
-    # /proc/cpuinfo displays info about each vCPU
-    vmm_process.stdin.write(b'cat /proc/cpuinfo\n')
-    vmm_process.stdin.flush()
 
-    siblings_line = expect_string(vmm_process, "siblings")
-    actual_vcpus = int(siblings_line.split(":")[1].strip())
-
-    assert actual_vcpus == expected_vcpus, \
-        "Expected {}, found {} vCPUs".format(expected_vcpus, actual_vcpus)
+def expect_vcpus(vmm_process, expected_vcpus):
+    setup_stdout_nonblocking(vmm_process)
+    expected_string = "Processors"
+    res=expect_string(vmm_process, expected_string)
+    res=int(res.split(":")[1])
+    assert res == expected_vcpus, \
+        "Expected {}, found {} vCPUs".format(expected_vcpus, res)
 
 
 def expect_mem(vmm_process, expected_mem_mib):
@@ -369,4 +390,7 @@ def test_reference_vmm_mem(kernel):
         # the test will fail immediately with an explanation.
         expect_mem(vmm_process, expected_mem_mib)
 
-        shutdown(vmm_process)
+        shutdown(vmm_process) 
+        
+        
+        
