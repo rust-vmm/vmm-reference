@@ -615,6 +615,8 @@ impl Vmm {
             self.num_vcpus.try_into().unwrap(),
             &self.guest_memory,
             fdt_offset,
+            0x40000000,
+            0x40001000,
         )
         .map_err(Error::SetupFdt)?;
 
