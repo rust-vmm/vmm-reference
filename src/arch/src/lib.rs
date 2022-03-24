@@ -68,6 +68,8 @@ pub fn create_fdt<T: GuestMemory>(
     num_vcpus: u32,
     guest_mem: &T,
     fdt_load_offset: u64,
+    serial_addr: u64,
+    rtc_addr: u64,
 ) -> Result<()> {
     let mut fdt = FdtWriter::new()?;
 
@@ -85,8 +87,8 @@ pub fn create_fdt<T: GuestMemory>(
     create_memory_node(&mut fdt, mem_size)?;
     create_cpu_nodes(&mut fdt, num_vcpus)?;
     create_gic_node(&mut fdt, true, num_vcpus as u64)?;
-    create_serial_node(&mut fdt)?;
-    create_rtc_node(&mut fdt)?;
+    create_serial_node(&mut fdt, serial_addr)?;
+    create_rtc_node(&mut fdt, rtc_addr)?;
     create_timer_node(&mut fdt, num_vcpus)?;
     create_psci_node(&mut fdt)?;
     create_pmu_node(&mut fdt, num_vcpus)?;
@@ -173,8 +175,7 @@ fn create_psci_node(fdt: &mut FdtWriter) -> Result<()> {
     Ok(())
 }
 
-fn create_serial_node(fdt: &mut FdtWriter) -> Result<()> {
-    let addr = 0x40000000;
+fn create_serial_node(fdt: &mut FdtWriter, addr: u64) -> Result<()> {
     let serial_node = fdt.begin_node(&format!("uart@{:x}", addr))?;
     fdt.property_string("compatible", "ns16550a")?;
     let serial_reg_prop = [addr, 0x1000];
@@ -230,7 +231,7 @@ fn create_pmu_node(fdt: &mut FdtWriter, num_cpus: u32) -> Result<()> {
     Ok(())
 }
 
-fn create_rtc_node(fdt: &mut FdtWriter) -> Result<()> {
+fn create_rtc_node(fdt: &mut FdtWriter, rtc_addr: u64) -> Result<()> {
     // the kernel driver for pl030 really really wants a clock node
     // associated with an AMBA device or it will fail to probe, so we
     // need to make up a clock node to associate with the pl030 rtc
@@ -244,7 +245,6 @@ fn create_rtc_node(fdt: &mut FdtWriter) -> Result<()> {
     fdt.property_phandle(CLK_PHANDLE)?;
     fdt.end_node(clock_node)?;
 
-    let rtc_addr = 0x40001000;
     let rtc_name = format!("rtc@{:x}", rtc_addr);
     let reg = [rtc_addr, 0x1000];
     let irq = [GIC_FDT_IRQ_TYPE_SPI, 33, IRQ_TYPE_LEVEL_HIGH];
