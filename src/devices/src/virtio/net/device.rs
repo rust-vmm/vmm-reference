@@ -51,7 +51,11 @@ where
             | (1 << VIRTIO_NET_F_HOST_UFO);
 
         // An rx/tx queue pair.
-        let queues = vec![Queue::new(env.mem.clone(), QUEUE_MAX_SIZE); 2];
+        let queues = vec![
+            Queue::new(env.mem.clone(), QUEUE_MAX_SIZE),
+            Queue::new(env.mem.clone(), QUEUE_MAX_SIZE),
+        ];
+
         // TODO: We'll need a minimal config space to support setting an explicit MAC addr
         // on the guest interface at least. We use an empty one for now.
         let config_space = Vec::new();
@@ -93,9 +97,6 @@ impl<M: GuestAddressSpace + Clone + Send + 'static> VirtioDeviceActions for Net<
     type E = Error;
 
     fn activate(&mut self) -> Result<()> {
-        let rxq = self.cfg.virtio.queues[0].clone();
-        let txq = self.cfg.virtio.queues[1].clone();
-
         let tap = Tap::open_named(self.tap_name.as_str()).map_err(Error::Tap)?;
 
         // Set offload flags to match the relevant virtio features of the device (for now,
@@ -118,9 +119,11 @@ impl<M: GuestAddressSpace + Clone + Send + 'static> VirtioDeviceActions for Net<
             interrupt_status: self.cfg.virtio.interrupt_status.clone(),
         };
 
-        let inner = SimpleHandler::new(driver_notify, rxq, txq, tap);
-
         let mut ioevents = self.cfg.prepare_activate().map_err(Error::Virtio)?;
+
+        let rxq = self.cfg.virtio.queues.remove(0);
+        let txq = self.cfg.virtio.queues.remove(0);
+        let inner = SimpleHandler::new(driver_notify, rxq, txq, tap);
 
         let handler = Arc::new(Mutex::new(QueueHandler {
             inner,

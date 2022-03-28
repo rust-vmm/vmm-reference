@@ -133,7 +133,7 @@ impl<M: GuestAddressSpace, S: SignalUsedQueue> SimpleHandler<M, S> {
 
     fn send_frame_from_chain(
         &mut self,
-        chain: &mut DescriptorChain<M>,
+        chain: &mut DescriptorChain<M::T>,
     ) -> result::Result<u32, Error> {
         let mut count = 0;
 
