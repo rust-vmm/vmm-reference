@@ -53,7 +53,7 @@ where
     M: GuestAddressSpace,
     S: SignalUsedQueue,
 {
-    fn process_chain(&mut self, mut chain: DescriptorChain<M>) -> result::Result<(), Error> {
+    fn process_chain(&mut self, mut chain: DescriptorChain<M::T>) -> result::Result<(), Error> {
         let used_len = match Request::parse(&mut chain) {
             Ok(request) => self.disk.process_request(chain.memory(), &request)?,
             Err(e) => {
