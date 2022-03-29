@@ -3,9 +3,7 @@
 // found in the LICENSE file.
 
 pub use vm_fdt::{Error as FdtError, FdtWriter};
-use vm_memory::{
-    guest_memory::Error as GuestMemoryError, Bytes, GuestAddress, GuestMemory, GuestMemoryRegion,
-};
+use vm_memory::{guest_memory::Error as GuestMemoryError, Bytes, GuestAddress, GuestMemory};
 // This is an arbitrary number to specify the node for the GIC.
 // If we had a more complex interrupt architecture, then we'd need an enum for
 // these.
@@ -47,6 +45,7 @@ const AARCH64_PMU_IRQ: u32 = 7;
 pub enum Error {
     Fdt(FdtError),
     Memory(GuestMemoryError),
+    MissingRequiredConfig(String),
 }
 
 impl From<FdtError> for Error {
@@ -63,43 +62,98 @@ impl From<GuestMemoryError> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub fn create_fdt<T: GuestMemory>(
-    cmdline: &str,
-    num_vcpus: u32,
-    guest_mem: &T,
-    fdt_load_offset: u64,
-    serial_addr: u64,
-    rtc_addr: u64,
-) -> Result<()> {
-    let mut fdt = FdtWriter::new()?;
+#[derive(Default)]
+pub struct FdtBuilder<'a> {
+    cmdline: Option<&'a str>,
+    mem_size: Option<u64>,
+    num_vcpus: Option<u32>,
+    serial_console: Option<(u64, u64)>,
+    rtc: Option<(u64, u64)>,
+}
 
-    // The whole thing is put into one giant node with s
-    // ome top level properties
-    let root_node = fdt.begin_node("")?;
-    fdt.property_u32("interrupt-parent", PHANDLE_GIC)?;
-    fdt.property_string("compatible", "linux,dummy-virt")?;
-    fdt.property_u32("#address-cells", 0x2)?;
-    fdt.property_u32("#size-cells", 0x2)?;
+impl<'a> FdtBuilder<'a> {
+    pub fn new() -> Self {
+        FdtBuilder::default()
+    }
 
-    create_chosen_node(&mut fdt, cmdline)?;
+    pub fn with_cmdline(&mut self, cmdline: &'a str) -> &mut Self {
+        self.cmdline = Some(cmdline);
+        self
+    }
 
-    let mem_size: u64 = guest_mem.iter().map(|region| region.len() as u64).sum();
-    create_memory_node(&mut fdt, mem_size)?;
-    create_cpu_nodes(&mut fdt, num_vcpus)?;
-    create_gic_node(&mut fdt, true, num_vcpus as u64)?;
-    create_serial_node(&mut fdt, serial_addr)?;
-    create_rtc_node(&mut fdt, rtc_addr)?;
-    create_timer_node(&mut fdt, num_vcpus)?;
-    create_psci_node(&mut fdt)?;
-    create_pmu_node(&mut fdt, num_vcpus)?;
+    pub fn with_mem_size(&mut self, mem_size: u64) -> &mut Self {
+        self.mem_size = Some(mem_size);
+        self
+    }
 
-    fdt.end_node(root_node)?;
-    let fdt_final = fdt.finish()?;
+    pub fn with_num_vcpus(&mut self, num_vcpus: u32) -> &mut Self {
+        self.num_vcpus = Some(num_vcpus);
+        self
+    }
 
-    let fdt_address = GuestAddress(AARCH64_PHYS_MEM_START + fdt_load_offset);
-    guest_mem.write_slice(fdt_final.as_slice(), fdt_address)?;
+    pub fn with_serial_console(&mut self, addr: u64, size: u64) -> &mut Self {
+        self.serial_console = Some((addr, size));
+        self
+    }
 
-    Ok(())
+    pub fn with_rtc(&mut self, addr: u64, size: u64) -> &mut Self {
+        self.rtc = Some((addr, size));
+        self
+    }
+
+    pub fn create_fdt(&self) -> Result<Fdt> {
+        let mut fdt = FdtWriter::new()?;
+
+        // The whole thing is put into one giant node with s
+        // ome top level properties
+        let root_node = fdt.begin_node("")?;
+        fdt.property_u32("interrupt-parent", PHANDLE_GIC)?;
+        fdt.property_string("compatible", "linux,dummy-virt")?;
+        fdt.property_u32("#address-cells", 0x2)?;
+        fdt.property_u32("#size-cells", 0x2)?;
+
+        let cmdline = self
+            .cmdline
+            .ok_or_else(|| Error::MissingRequiredConfig("cmdline".to_owned()))?;
+        create_chosen_node(&mut fdt, cmdline)?;
+
+        let mem_size = self
+            .mem_size
+            .ok_or_else(|| Error::MissingRequiredConfig("memory".to_owned()))?;
+        create_memory_node(&mut fdt, mem_size)?;
+        let num_vcpus = self
+            .num_vcpus
+            .ok_or_else(|| Error::MissingRequiredConfig("vcpu".to_owned()))?;
+        create_cpu_nodes(&mut fdt, num_vcpus)?;
+        create_gic_node(&mut fdt, true, num_vcpus as u64)?;
+        if let Some(serial_console) = self.serial_console {
+            create_serial_node(&mut fdt, serial_console.0, serial_console.1)?;
+        }
+        if let Some(rtc) = self.rtc {
+            create_rtc_node(&mut fdt, rtc.0, rtc.1)?;
+        }
+        create_timer_node(&mut fdt, num_vcpus)?;
+        create_psci_node(&mut fdt)?;
+        create_pmu_node(&mut fdt, num_vcpus)?;
+
+        fdt.end_node(root_node)?;
+
+        Ok(Fdt {
+            fdt_blob: fdt.finish()?,
+        })
+    }
+}
+
+pub struct Fdt {
+    fdt_blob: Vec<u8>,
+}
+
+impl Fdt {
+    pub fn write_to_mem<T: GuestMemory>(&self, guest_mem: &T, fdt_load_offset: u64) -> Result<()> {
+        let fdt_address = GuestAddress(AARCH64_PHYS_MEM_START + fdt_load_offset);
+        guest_mem.write_slice(self.fdt_blob.as_slice(), fdt_address)?;
+        Ok(())
+    }
 }
 
 fn create_chosen_node(fdt: &mut FdtWriter, cmdline: &str) -> Result<()> {
@@ -175,10 +229,10 @@ fn create_psci_node(fdt: &mut FdtWriter) -> Result<()> {
     Ok(())
 }
 
-fn create_serial_node(fdt: &mut FdtWriter, addr: u64) -> Result<()> {
+fn create_serial_node(fdt: &mut FdtWriter, addr: u64, size: u64) -> Result<()> {
     let serial_node = fdt.begin_node(&format!("uart@{:x}", addr))?;
     fdt.property_string("compatible", "ns16550a")?;
-    let serial_reg_prop = [addr, 0x1000];
+    let serial_reg_prop = [addr, size];
     fdt.property_array_u64("reg", &serial_reg_prop)?;
 
     // fdt.property_u32("clock-frequency", AARCH64_SERIAL_SPEED)?;
@@ -231,7 +285,7 @@ fn create_pmu_node(fdt: &mut FdtWriter, num_cpus: u32) -> Result<()> {
     Ok(())
 }
 
-fn create_rtc_node(fdt: &mut FdtWriter, rtc_addr: u64) -> Result<()> {
+fn create_rtc_node(fdt: &mut FdtWriter, rtc_addr: u64, size: u64) -> Result<()> {
     // the kernel driver for pl030 really really wants a clock node
     // associated with an AMBA device or it will fail to probe, so we
     // need to make up a clock node to associate with the pl030 rtc
@@ -246,7 +300,7 @@ fn create_rtc_node(fdt: &mut FdtWriter, rtc_addr: u64) -> Result<()> {
     fdt.end_node(clock_node)?;
 
     let rtc_name = format!("rtc@{:x}", rtc_addr);
-    let reg = [rtc_addr, 0x1000];
+    let reg = [rtc_addr, size];
     let irq = [GIC_FDT_IRQ_TYPE_SPI, 33, IRQ_TYPE_LEVEL_HIGH];
 
     let rtc_node = fdt.begin_node(&rtc_name)?;
@@ -262,4 +316,45 @@ fn create_rtc_node(fdt: &mut FdtWriter, rtc_addr: u64) -> Result<()> {
     fdt.property_string("clock-names", "apb_pclk")?;
     fdt.end_node(rtc_node)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::FdtBuilder;
+
+    #[test]
+    fn test_create_fdt() {
+        let fdt_ok = FdtBuilder::new()
+            .with_cmdline("reboot=t panic=1 pci=off")
+            .with_num_vcpus(8)
+            .with_mem_size(4096)
+            .with_serial_console(0x40000000, 0x1000)
+            .with_rtc(0x40001000, 0x1000)
+            .create_fdt();
+        assert!(fdt_ok.is_ok());
+
+        let fdt_no_cmdline = FdtBuilder::new()
+            .with_num_vcpus(8)
+            .with_mem_size(4096)
+            .with_serial_console(0x40000000, 0x1000)
+            .with_rtc(0x40001000, 0x1000)
+            .create_fdt();
+        assert!(fdt_no_cmdline.is_err());
+
+        let fdt_no_num_vcpus = FdtBuilder::new()
+            .with_cmdline("reboot=t panic=1 pci=off")
+            .with_mem_size(4096)
+            .with_serial_console(0x40000000, 0x1000)
+            .with_rtc(0x40001000, 0x1000)
+            .create_fdt();
+        assert!(fdt_no_num_vcpus.is_err());
+
+        let fdt_no_mem_size = FdtBuilder::new()
+            .with_cmdline("reboot=t panic=1 pci=off")
+            .with_num_vcpus(8)
+            .with_serial_console(0x40000000, 0x1000)
+            .with_rtc(0x40001000, 0x1000)
+            .create_fdt();
+        assert!(fdt_no_mem_size.is_err());
+    }
 }

@@ -64,7 +64,7 @@ use vm_vcpu::vm::{self, ExitHandler, KvmVm, VmConfig};
 use devices::legacy::RtcWrapper;
 
 #[cfg(target_arch = "aarch64")]
-use arch::{create_fdt, AARCH64_FDT_MAX_SIZE, AARCH64_MMIO_BASE, AARCH64_PHYS_MEM_START};
+use arch::{FdtBuilder, AARCH64_FDT_MAX_SIZE, AARCH64_MMIO_BASE, AARCH64_PHYS_MEM_START};
 
 mod boot;
 mod config;
@@ -608,18 +608,18 @@ impl Vmm {
     // TODO: move this where it makes sense from a config point of view as we add all
     // needed stuff in FDT.
     fn setup_fdt(&mut self) -> Result<()> {
-        let mut fdt_offset: u64 = self.guest_memory.iter().map(|region| region.len()).sum();
-        fdt_offset = fdt_offset - AARCH64_FDT_MAX_SIZE - 0x10000;
-        create_fdt(
-            self.kernel_cfg.cmdline.as_str(),
-            self.num_vcpus.try_into().unwrap(),
-            &self.guest_memory,
-            fdt_offset,
-            0x40000000,
-            0x40001000,
-        )
-        .map_err(Error::SetupFdt)?;
-
+        let mem_size: u64 = self.guest_memory.iter().map(|region| region.len()).sum();
+        let fdt_offset = mem_size - AARCH64_FDT_MAX_SIZE - 0x10000;
+        let fdt = FdtBuilder::new()
+            .with_cmdline(self.kernel_cfg.cmdline.as_str())
+            .with_num_vcpus(self.num_vcpus.try_into().unwrap())
+            .with_mem_size(mem_size)
+            .with_serial_console(0x40000000, 0x1000)
+            .with_rtc(0x40001000, 0x1000)
+            .create_fdt()
+            .map_err(Error::SetupFdt)?;
+        fdt.write_to_mem(&self.guest_memory, fdt_offset)
+            .map_err(Error::SetupFdt)?;
         Ok(())
     }
 }
@@ -1041,6 +1041,32 @@ mod tests {
             // This currently fails because a device is already registered with the provided
             // MMIO range.
             assert!(vmm.add_net_device(&cfg).is_err());
+        }
+    }
+
+    #[test]
+    #[cfg(target_arch = "aarch64")]
+    fn test_setup_fdt() {
+        let vmm_config = default_vmm_config();
+        let mut vmm = mock_vmm(vmm_config);
+
+        {
+            let result = vmm.setup_fdt();
+            assert!(result.is_ok());
+        }
+
+        {
+            let mem_size: u64 = vmm.guest_memory.iter().map(|region| region.len()).sum();
+            let fdt_offset = mem_size + AARCH64_FDT_MAX_SIZE;
+            let fdt = FdtBuilder::new()
+                .with_cmdline(vmm.kernel_cfg.cmdline.as_str())
+                .with_num_vcpus(vmm.num_vcpus.try_into().unwrap())
+                .with_mem_size(mem_size)
+                .with_serial_console(0x40000000, 0x1000)
+                .with_rtc(0x40001000, 0x1000)
+                .create_fdt()
+                .unwrap();
+            assert!(fdt.write_to_mem(&vmm.guest_memory, fdt_offset).is_err());
         }
     }
 }
