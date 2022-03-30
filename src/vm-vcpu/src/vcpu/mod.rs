@@ -684,7 +684,18 @@ impl KvmVcpu {
                                 }
                             } else if addr == 0x060 || addr == 0x061 || addr == 0x064 {
                                 // Write at the i8042 port.
+                                //i8042 is registered at port 0x64.
                                 // See https://wiki.osdev.org/%228042%22_PS/2_Controller#PS.2F2_Controller_IO_Ports
+                                #[cfg(target_arch = "x86_64")]
+                                if self
+                                    .device_mgr
+                                    .lock()
+                                    .unwrap()
+                                    .pio_write(PioAddress(addr), data)
+                                    .is_err()
+                                {
+                                    debug!("Failed to write to i8042 port")
+                                }
                             } else if (0x070..=0x07f).contains(&addr) {
                                 // Write at the RTC port.
                             } else {

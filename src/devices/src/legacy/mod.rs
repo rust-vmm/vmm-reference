@@ -1,15 +1,16 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
-
+#[cfg(target_arch = "x86_64")]
+mod i8042;
 #[cfg(target_arch = "aarch64")]
 mod rtc;
 mod serial;
-
+#[cfg(target_arch = "x86_64")]
+pub use i8042::I8042Wrapper;
 #[cfg(target_arch = "aarch64")]
 pub use rtc::RtcWrapper;
 pub use serial::Error as SerialError;
 pub use serial::SerialWrapper;
-
 use std::io;
 use std::ops::Deref;
 
