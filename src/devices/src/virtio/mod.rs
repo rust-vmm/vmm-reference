@@ -389,8 +389,8 @@ pub(crate) mod tests {
         assert!(matches!(cfg.prepare_activate(), Err(Error::QueuesNotValid)));
 
         // Let's pretend the queue has been configured such that the `is_valid` check passes.
-        cfg.virtio.queues[0].ready = true;
-        cfg.virtio.queues[0].size = 256;
+        cfg.virtio.queues[0].state.ready = true;
+        cfg.virtio.queues[0].state.size = 256;
 
         // This will fail because the "driver" didn't acknowledge `VIRTIO_F_VERSION_1`.
         assert!(matches!(cfg.prepare_activate(), Err(Error::BadFeatures(0))));

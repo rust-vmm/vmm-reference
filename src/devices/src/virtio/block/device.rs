@@ -122,13 +122,13 @@ impl<M: GuestAddressSpace + Clone + Send + 'static> VirtioDeviceActions for Bloc
             interrupt_status: self.cfg.virtio.interrupt_status.clone(),
         };
 
+        let mut ioevents = self.cfg.prepare_activate().map_err(Error::Virtio)?;
+
         let inner = InOrderQueueHandler {
             driver_notify,
-            queue: self.cfg.virtio.queues[0].clone(),
+            queue: self.cfg.virtio.queues.remove(0),
             disk,
         };
-
-        let mut ioevents = self.cfg.prepare_activate().map_err(Error::Virtio)?;
 
         let handler = Arc::new(Mutex::new(QueueHandler {
             inner,

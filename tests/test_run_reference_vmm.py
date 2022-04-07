@@ -86,7 +86,7 @@ and run locally.
 """
 
 
-def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=1024):
+def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=1024 ,default_cmdline=False):
     # Kernel config
     cmdline = "console=ttyS0 i8042.nokbd reboot=t panic=1 pci=off"
 
@@ -94,15 +94,22 @@ def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=102
 
     build_cmd = "cargo build --release"
     subprocess.run(build_cmd, shell=True, check=True)
-
     vmm_cmd = [
         "target/release/vmm-reference",
         "--memory", "size_mib={}".format(mem_size_mib),
-        "--kernel", "cmdline={},path={},kernel_load_addr={}".format(
-            cmdline, kernel_path, kernel_load_addr
-        ),
-        "--vcpu", "num={}".format(num_vcpus)
+        "--vcpu", "num={}".format(num_vcpus),
+        "--kernel"
     ]
+    if default_cmdline:
+        kernel_config = "path={},kernel_load_addr={}".format(
+            kernel_path, kernel_load_addr
+        )
+    else:
+        kernel_config = "cmdline={},path={},kernel_load_addr={}".format(
+            cmdline, kernel_path, kernel_load_addr
+        )
+    vmm_cmd.append(kernel_config)
+    
     tmp_file_path = None
 
     if disk_path is not None:
@@ -291,6 +298,19 @@ def test_reference_vmm(kernel):
 
     shutdown(vmm_process)
 
+@pytest.mark.parametrize("kernel", KERNELS_INITRAMFS)
+def test_reference_vmm_with_deault_cmdline(kernel):
+    """Start the reference VMM with default cmdline and verify that it works."""
+
+    vmm_process, _ = start_vmm_process(kernel,default_cmdline=True)
+
+    # Poll process for new output until we find the hello world message.
+    # If we do not find the expected message, this loop will not break and the
+    # test will fail when the timeout expires.
+    expected_string = "Hello, world, from the rust-vmm reference VMM!"
+    expect_string(vmm_process, expected_string)
+
+    shutdown(vmm_process)
 
 @pytest.mark.parametrize("kernel,disk", UBUNTU_KERNEL_DISK_PAIRS)
 def test_reference_vmm_with_disk(kernel, disk):

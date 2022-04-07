@@ -45,6 +45,8 @@ use vm_device::device_manager::PioManager;
 #[cfg(target_arch = "aarch64")]
 use vm_memory::GuestMemoryRegion;
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
+#[cfg(target_arch = "x86_64")]
+use vm_superio::I8042Device;
 #[cfg(target_arch = "aarch64")]
 use vm_superio::Rtc;
 use vm_superio::Serial;
@@ -57,6 +59,8 @@ use devices::virtio::block::{self, BlockArgs};
 use devices::virtio::net::{self, NetArgs};
 use devices::virtio::{Env, MmioConfig};
 
+#[cfg(target_arch = "x86_64")]
+use devices::legacy::I8042Wrapper;
 use devices::legacy::{EventFdTrigger, SerialWrapper};
 use vm_vcpu::vm::{self, ExitHandler, KvmVm, VmConfig};
 
@@ -95,7 +99,7 @@ pub const DEFAULT_KERNEL_LOAD_ADDR: u64 = AARCH64_PHYS_MEM_START;
 
 /// Default kernel command line.
 #[cfg(target_arch = "x86_64")]
-pub const DEFAULT_KERNEL_CMDLINE: &str = "i8042.nokbd reboot=t panic=1 pci=off";
+pub const DEFAULT_KERNEL_CMDLINE: &str = "panic=1 pci=off";
 #[cfg(target_arch = "aarch64")]
 /// Default kernel command line.
 pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=t panic=1 pci=off";
@@ -286,6 +290,8 @@ impl TryFrom<VMMConfig> for Vmm {
         };
 
         vmm.add_serial_console()?;
+        #[cfg(target_arch = "x86_64")]
+        vmm.add_i8042_device()?;
         #[cfg(target_arch = "aarch64")]
         vmm.add_rtc_device();
 
@@ -485,6 +491,24 @@ impl Vmm {
         // Hook it to event management.
         self.event_mgr.add_subscriber(serial);
 
+        Ok(())
+    }
+
+    // Create and add a i8042 device to the VMM.
+    #[cfg(target_arch = "x86_64")]
+    fn add_i8042_device(&mut self) -> Result<()> {
+        let reset_evt = EventFdTrigger::new(libc::EFD_NONBLOCK).map_err(Error::IO)?;
+        let i8042_device = Arc::new(Mutex::new(I8042Wrapper(I8042Device::new(
+            reset_evt.try_clone().map_err(Error::IO)?,
+        ))));
+        self.vm.register_irqfd(&reset_evt, 1)?;
+        let range = PioRange::new(PioAddress(0x060), 0x5).unwrap();
+
+        self.device_mgr
+            .lock()
+            .unwrap()
+            .register_pio(range, i8042_device)
+            .unwrap();
         Ok(())
     }
 
