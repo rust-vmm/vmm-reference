@@ -29,6 +29,7 @@ fn run_vmm(kernel_path: PathBuf) {
         vcpu_config: default_vcpu_config(),
         block_config: None,
         net_config: None,
+        console_config: None,
     };
 
     let mut vmm = Vmm::try_from(vmm_config).unwrap();

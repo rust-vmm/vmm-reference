@@ -77,6 +77,7 @@ dependencies = [
  "log",
  "utils",
  "virtio-blk",
+ "virtio-console",
  "virtio-device",
  "virtio-queue",
  "vm-device",
@@ -236,7 +237,7 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 [[package]]
 name = "virtio-blk"
 version = "0.1.0"
-source = "git+https://github.com/rust-vmm/vm-virtio.git#d8ef45f57b46baa99e80e555deffd3fa1ab9affc"
+source = "git+https://github.com/rust-vmm/vm-virtio.git?rev=1cde0af5c80aead5e44018029b5ecc0be83dea50#1cde0af5c80aead5e44018029b5ecc0be83dea50"
 dependencies = [
  "log",
  "virtio-device",
@@ -246,9 +247,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "virtio-console"
+version = "0.1.0"
+source = "git+https://github.com/rust-vmm/vm-virtio.git?rev=1cde0af5c80aead5e44018029b5ecc0be83dea50#1cde0af5c80aead5e44018029b5ecc0be83dea50"
+dependencies = [
+ "virtio-queue",
+ "vm-memory",
+]
+
+[[package]]
 name = "virtio-device"
 version = "0.1.0"
-source = "git+https://github.com/rust-vmm/vm-virtio.git#d8ef45f57b46baa99e80e555deffd3fa1ab9affc"
+source = "git+https://github.com/rust-vmm/vm-virtio.git?rev=1cde0af5c80aead5e44018029b5ecc0be83dea50#1cde0af5c80aead5e44018029b5ecc0be83dea50"
 dependencies = [
  "log",
  "virtio-queue",
@@ -257,8 +267,8 @@ dependencies = [
 
 [[package]]
 name = "virtio-queue"
-version = "0.2.0"
-source = "git+https://github.com/rust-vmm/vm-virtio.git#d8ef45f57b46baa99e80e555deffd3fa1ab9affc"
+version = "0.3.0"
+source = "git+https://github.com/rust-vmm/vm-virtio.git?rev=1cde0af5c80aead5e44018029b5ecc0be83dea50#1cde0af5c80aead5e44018029b5ecc0be83dea50"
 dependencies = [
  "log",
  "vm-memory",
@@ -279,9 +289,9 @@ checksum = "f43fb5a6bd1a7d423ad72802801036719b7546cf847a103f8fe4575f5b0d45a6"
 
 [[package]]
 name = "vm-memory"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "339d4349c126fdcd87e034631d7274370cf19eb0e87b33166bcd956589fc72c5"
+checksum = "767ed8aaebbff902e02e6d3749dc2baef55e46565f8a6414a065e5baee4b4a81"
 dependencies = [
  "libc",
  "winapi",

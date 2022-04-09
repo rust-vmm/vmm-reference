@@ -50,6 +50,18 @@ impl Cli {
                     .required(false)
                     .takes_value(true)
                     .help("Block device configuration. \n\tFormat: \"path=<string>\"")
+            )
+            .arg(
+                Arg::with_name("console")
+                    .long("console")
+                    .required(false)
+                    .takes_value(true)
+                    .help("Console configuration. \n\tFormat: \"type=<string>\" \
+                            \nPossible values for \"type\":\
+                            \n\t * uart - Use the serial UART console.\
+                            \n\t * virtio - Use the virtio console.\
+                            \nUses the UART console by default if the \"--console\" \
+                            option is not present.")
             );
 
         // Save the usage beforehand as a string, because `get_matches` consumes the `App`.
@@ -69,6 +81,7 @@ impl Cli {
             .vcpu_config(matches.value_of("vcpu"))
             .net_config(matches.value_of("net"))
             .block_config(matches.value_of("block"))
+            .console_config(matches.value_of("console"))
             .build()
             .map_err(|e| format!("{:?}", e))
     }
@@ -82,7 +95,10 @@ mod tests {
 
     use linux_loader::cmdline::Cmdline;
 
-    use vmm::{KernelConfig, MemoryConfig, VcpuConfig, DEFAULT_KERNEL_LOAD_ADDR};
+    use vmm::{
+        ConsoleConfig, ConsoleType, KernelConfig, MemoryConfig, VcpuConfig,
+        DEFAULT_KERNEL_LOAD_ADDR,
+    };
 
     #[test]
     fn test_launch() {
@@ -214,7 +230,7 @@ mod tests {
         let mut foo_cmdline = Cmdline::new(4096);
         foo_cmdline.insert_str("\"foo=bar bar=foo\"").unwrap();
 
-        // OK.
+        // OK. Virtio console.
         assert_eq!(
             Cli::launch(vec![
                 "foobar",
@@ -224,6 +240,8 @@ mod tests {
                 "num=1",
                 "--kernel",
                 "path=/foo/bar,cmdline=\"foo=bar bar=foo\",kernel_load_addr=42",
+                "--console",
+                "type=virtio",
             ])
             .unwrap(),
             VMMConfig {
@@ -236,6 +254,42 @@ mod tests {
                 vcpu_config: VcpuConfig { num: 1 },
                 block_config: None,
                 net_config: None,
+                console_config: Some(ConsoleConfig {
+                    console_type: ConsoleType::Virtio
+                }),
+            }
+        );
+
+        let mut foo_cmdline = Cmdline::new(4096);
+        foo_cmdline.insert_str("\"foo=bar bar=foo\"").unwrap();
+
+        // OK. UART console.
+        assert_eq!(
+            Cli::launch(vec![
+                "foobar",
+                "--memory",
+                "size_mib=128",
+                "--vcpu",
+                "num=1",
+                "--kernel",
+                "path=/foo/bar,cmdline=\"foo=bar bar=foo\",kernel_load_addr=42",
+                "--console",
+                "type=uart",
+            ])
+            .unwrap(),
+            VMMConfig {
+                kernel_config: KernelConfig {
+                    path: PathBuf::from("/foo/bar"),
+                    cmdline: foo_cmdline,
+                    load_addr: 42,
+                },
+                memory_config: MemoryConfig { size_mib: 128 },
+                vcpu_config: VcpuConfig { num: 1 },
+                block_config: None,
+                net_config: None,
+                console_config: Some(ConsoleConfig {
+                    console_type: ConsoleType::Uart
+                }),
             }
         );
 
@@ -252,6 +306,7 @@ mod tests {
                 vcpu_config: VcpuConfig { num: 1 },
                 block_config: None,
                 net_config: None,
+                console_config: None
             }
         );
     }

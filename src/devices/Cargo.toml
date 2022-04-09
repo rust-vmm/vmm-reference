@@ -11,16 +11,17 @@ kvm-ioctls = "0.11.0"
 libc = "0.2.76"
 linux-loader = "0.4.0"
 log = "0.4.6"
-vm-memory = "0.7.0"
+vm-memory = "0.8.0"
 vm-superio = "0.5.0"
 vmm-sys-util = "0.8.0"
 vm-device = "0.1.0"
 
-virtio-blk = { git = "https://github.com/rust-vmm/vm-virtio.git", features = ["backend-stdio"] }
-virtio-device = { git = "https://github.com/rust-vmm/vm-virtio.git"}
-virtio-queue = { git = "https://github.com/rust-vmm/vm-virtio.git"}
+virtio-blk = { git = "https://github.com/rust-vmm/vm-virtio.git", rev = "1cde0af5c80aead5e44018029b5ecc0be83dea50", features = ["backend-stdio"] }
+virtio-device = { git = "https://github.com/rust-vmm/vm-virtio.git", rev = "1cde0af5c80aead5e44018029b5ecc0be83dea50"}
+virtio-queue = { git = "https://github.com/rust-vmm/vm-virtio.git", rev = "1cde0af5c80aead5e44018029b5ecc0be83dea50"}
+virtio-console = { git = "https://github.com/rust-vmm/vm-virtio.git", rev = "1cde0af5c80aead5e44018029b5ecc0be83dea50"}
 
 utils = { path = "../utils" }
 
 [dev-dependencies]
-vm-memory = { version = "0.7.0", features = ["backend-mmap"] }
+vm-memory = { version = "0.8.0", features = ["backend-mmap"] }
