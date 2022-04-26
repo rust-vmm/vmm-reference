@@ -256,7 +256,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
 
     #[cfg(target_arch = "aarch64")]
     fn set_state(&mut self, _state: VmState) -> Result<()> {
-        todo!();
+        Ok(())
     }
 
     /// Create a VM from a previously saved state.
@@ -471,7 +471,17 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
 
     #[cfg(target_arch = "aarch64")]
     pub fn save_state(&mut self) -> Result<VmState> {
-        todo!();
+        let vcpus_state = self
+            .vcpus
+            .iter_mut()
+            .map(|vcpu| vcpu.save_state())
+            .collect::<vcpu::Result<Vec<VcpuState>>>()
+            .map_err(Error::SaveVcpuState)?;
+
+        Ok(VmState {
+            config: self.config.clone(),
+            vcpus_state,
+        })
     }
 
     /// Retrieve the state of a `paused` VM.
@@ -702,5 +712,21 @@ mod tests {
         let io_manager = Arc::new(Mutex::new(IoManager::new()));
         let exit_handler = WrappedExitHandler::default();
         assert!(KvmVm::from_state(&kvm, vm_state, &guest_memory, exit_handler, io_manager).is_ok());
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn test_vm_save_state() {
+        let num_vcpus = 4;
+        let mut guest_memory = default_memory();
+
+        let mut vm = create_vm_and_vcpus(num_vcpus, &mut guest_memory);
+        let vm_state = vm.save_state().unwrap();
+
+        // Let's create a new VM from the previously saved state.
+        let kvm = Kvm::new().unwrap();
+        let io_manager = Arc::new(Mutex::new(IoManager::new()));
+        let exit_handler = WrappedExitHandler::default();
+        KvmVm::from_state(&kvm, vm_state, &guest_memory, exit_handler, io_manager).unwrap();
     }
 }
