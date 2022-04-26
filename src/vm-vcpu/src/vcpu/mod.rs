@@ -17,7 +17,8 @@ use kvm_bindings::{
 };
 #[cfg(target_arch = "aarch64")]
 use kvm_bindings::{
-    kvm_vcpu_init, KVM_SYSTEM_EVENT_CRASH, KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN,
+    kvm_mp_state, kvm_one_reg, kvm_vcpu_init, KVM_REG_ARM64, KVM_REG_ARM_CORE, KVM_REG_SIZE_U64,
+    KVM_SYSTEM_EVENT_CRASH, KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN,
 };
 use kvm_ioctls::{Kvm, VcpuExit, VcpuFd, VmFd};
 use vm_device::bus::{MmioAddress, PioAddress};
@@ -122,8 +123,6 @@ pub enum Error {
     /// Unable to register signal handler.
     #[error("Unable to register signal handler: {0}")]
     RegisterSignalHandler(Errno),
-    #[error("SetReg error: {0}")]
-    SetReg(kvm_ioctls::Error),
 
     // These are all Save/Restore errors. Maybe it makes sense to move them
     // to a separate enum.
@@ -165,6 +164,15 @@ pub enum Error {
     /// Failed to get KVM TSC freq.
     #[error("Failed to get KVM TSC freq: {0}")]
     VcpuGetTSC(kvm_ioctls::Error),
+    /// Failed to get KVM vcpu reglist.
+    #[error("Failed to get KVM vcpu reglist: {0}")]
+    VcpuGetRegList(kvm_ioctls::Error),
+    /// Failed to get KVM vcpu reg.
+    #[error("Failed to get KVM vcpu reg: {0}")]
+    VcpuGetReg(kvm_ioctls::Error),
+    /// Failed to get KVM vcpu MPIDR reg.
+    #[error("Failed to get KVM vcpu MPIDR reg")]
+    VcpuGetMpidrReg,
     /// Failed to set KVM vcpu cpuid.
     #[error("Failed to set KVM vcpu cpuid: {0}")]
     VcpuSetCpuid(kvm_ioctls::Error),
@@ -195,6 +203,9 @@ pub enum Error {
     /// Failed to set KVM vcpu xsave.
     #[error("Failed to set KVM vcpu xsave: {0}")]
     VcpuSetXsave(kvm_ioctls::Error),
+    /// Failed to set KVM vcpu reg.
+    #[error("Failed to set KVM vcpu reg: {0}")]
+    VcpuSetReg(kvm_ioctls::Error),
 }
 
 /// Dedicated Result type.
@@ -275,6 +286,11 @@ pub struct VcpuState {
 #[cfg(target_arch = "aarch64")]
 #[derive(Clone)]
 pub struct VcpuState {
+    pub mp_state: kvm_mp_state,
+    pub regs: Vec<kvm_one_reg>,
+    /// Cached value of MPIDR register. Even though it's stored
+    /// in `regs`, searching for it is an expensive linear scan.
+    pub mpidr: u64,
     pub config: VcpuConfig,
 }
 
@@ -390,8 +406,18 @@ impl KvmVcpu {
     }
 
     #[cfg(target_arch = "aarch64")]
-    fn set_state(&mut self, _state: VcpuState) -> Result<()> {
-        todo!();
+    fn set_state(&mut self, state: VcpuState) -> Result<()> {
+        for reg in state.regs {
+            self.vcpu_fd
+                .set_one_reg(reg.id, reg.addr)
+                .map_err(Error::VcpuSetReg)?;
+        }
+
+        self.vcpu_fd
+            .set_mp_state(state.mp_state)
+            .map_err(Error::VcpuSetMpState)?;
+
+        Ok(())
     }
 
     /// Create a vCPU from a previously saved state.
@@ -411,6 +437,10 @@ impl KvmVcpu {
             run_barrier,
             run_state,
         };
+
+        #[cfg(target_arch = "aarch64")]
+        vcpu.init(vm_fd)?;
+
         vcpu.set_state(state)?;
         Ok(vcpu)
     }
@@ -426,7 +456,7 @@ impl KvmVcpu {
         reg_id = arm64_core_reg!(pstate);
         self.vcpu_fd
             .set_one_reg(reg_id, data)
-            .map_err(Error::SetReg)?;
+            .map_err(Error::VcpuSetReg)?;
 
         // Other cpus are powered off initially
         if self.config.id == 0 {
@@ -438,7 +468,7 @@ impl KvmVcpu {
             reg_id = arm64_core_reg!(regs);
             self.vcpu_fd
                 .set_one_reg(reg_id, data)
-                .map_err(Error::SetReg)?;
+                .map_err(Error::VcpuSetReg)?;
         }
 
         Ok(())
@@ -650,7 +680,7 @@ impl KvmVcpu {
                 let reg_id = arm64_core_reg!(pc);
                 self.vcpu_fd
                     .set_one_reg(reg_id, data)
-                    .map_err(Error::SetReg)?;
+                    .map_err(Error::VcpuSetReg)?;
             }
         }
         self.init_tls()?;
@@ -857,6 +887,19 @@ impl KvmVcpu {
             vcpu_events,
             xcrs,
             xsave,
+            config: self.config.clone(),
+        })
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    pub fn save_state(&mut self) -> Result<VcpuState> {
+        let mp_state = self.vcpu_fd.get_mp_state().map_err(Error::VcpuGetMpState)?;
+        let (regs, mpidr) = get_regs_and_mpidr(&self.vcpu_fd)?;
+
+        Ok(VcpuState {
+            mp_state,
+            regs,
+            mpidr,
             config: self.config.clone(),
         })
     }
