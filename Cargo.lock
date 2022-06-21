@@ -266,6 +266,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vm-allocator"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "565b6886b7dd1b3bf34ec9243d90a97db4f2a83c2416caa52fcc95fd255d45e4"
+dependencies = [
+ "libc",
+ "thiserror",
+]
+
+[[package]]
 name = "vm-device"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -333,6 +343,7 @@ dependencies = [
  "libc",
  "linux-loader",
  "utils",
+ "vm-allocator",
  "vm-device",
  "vm-memory",
  "vm-superio",
