@@ -5,7 +5,8 @@
 use std::convert::TryFrom;
 
 use super::{
-    BlockConfig, ConversionError, KernelConfig, MemoryConfig, NetConfig, VMMConfig, VcpuConfig,
+    BlockConfig, ConsoleConfig, ConversionError, KernelConfig, MemoryConfig, NetConfig, VMMConfig,
+    VcpuConfig,
 };
 
 /// Builder structure for VMMConfig
@@ -168,6 +169,26 @@ impl Builder {
         }
     }
 
+    /// Configure Builder with Console Configuration for the VMM.
+    ///
+    /// # Example
+    ///
+    /// You can see example of how to use this function in [`Example` section from
+    /// `build`](#method.build)
+    pub fn console_config<T>(self, console: Option<T>) -> Self
+    where
+        ConsoleConfig: TryFrom<T>,
+        <ConsoleConfig as TryFrom<T>>::Error: Into<ConversionError>,
+    {
+        match console {
+            Some(c) => self.and_then(|mut config| {
+                config.console_config = Some(TryFrom::try_from(c).map_err(Into::into)?);
+                Ok(config)
+            }),
+            None => self,
+        }
+    }
+
     fn and_then<F>(self, func: F) -> Self
     where
         F: FnOnce(VMMConfig) -> Result<VMMConfig, ConversionError>,
@@ -184,7 +205,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::DEFAULT_KERNEL_LOAD_ADDR;
+    use crate::{ConsoleType, DEFAULT_KERNEL_LOAD_ADDR};
 
     #[test]
     fn test_builder_default_err() {
@@ -314,6 +335,46 @@ mod tests {
     }
 
     #[test]
+    fn test_builder_console_config_none_default() {
+        let vmm_config = Builder::default()
+            .console_config(None as Option<&str>)
+            .kernel_config(Some("path=bzImage"))
+            .build();
+        assert!(vmm_config.is_ok());
+        assert!(vmm_config.unwrap().console_config.is_none());
+    }
+
+    #[test]
+    fn test_builder_console_config_success_uart() {
+        let vmm_config = Builder::default()
+            .console_config(Some("type=uart"))
+            .kernel_config(Some("path=bzImage"))
+            .build();
+        assert!(vmm_config.is_ok());
+        assert_eq!(
+            vmm_config.unwrap().console_config,
+            Some(ConsoleConfig {
+                console_type: ConsoleType::Uart,
+            })
+        );
+    }
+
+    #[test]
+    fn test_builder_console_config_success_virtio() {
+        let vmm_config = Builder::default()
+            .console_config(Some("type=virtio"))
+            .kernel_config(Some("path=bzImage"))
+            .build();
+        assert!(vmm_config.is_ok());
+        assert_eq!(
+            vmm_config.unwrap().console_config,
+            Some(ConsoleConfig {
+                console_type: ConsoleType::Virtio,
+            })
+        );
+    }
+
+    #[test]
     fn test_builder_vmm_config_success() {
         let vmm_config = Builder::default()
             .memory_config(Some("size_mib=1024"))
@@ -321,6 +382,7 @@ mod tests {
             .net_config(Some("tap=tap0"))
             .kernel_config(Some("path=bzImage"))
             .block_config(Some("path=/dev/loop0"))
+            .console_config(Some("type=uart"))
             .build();
         assert!(vmm_config.is_ok());
         assert_eq!(
@@ -338,6 +400,9 @@ mod tests {
                 }),
                 block_config: Some(BlockConfig {
                     path: PathBuf::from("/dev/loop0")
+                }),
+                console_config: Some(ConsoleConfig {
+                    console_type: ConsoleType::Uart,
                 })
             }
         );

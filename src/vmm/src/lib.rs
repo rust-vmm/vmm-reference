@@ -56,6 +56,7 @@ use vmm_sys_util::{epoll::EventSet, eventfd::EventFd, terminal::Terminal};
 use boot::build_bootparams;
 pub use config::*;
 use devices::virtio::block::{self, BlockArgs};
+use devices::virtio::console;
 use devices::virtio::net::{self, NetArgs};
 use devices::virtio::{Env, MmioConfig};
 
@@ -118,6 +119,8 @@ pub enum MemoryError {
 pub enum Error {
     /// Failed to create block device.
     Block(block::Error),
+    /// Failed to create console device
+    Console(console::Error),
     /// Failed to write boot parameters to guest memory.
     #[cfg(target_arch = "x86_64")]
     BootConfigure(configurator::Error),
@@ -169,6 +172,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 type Block = block::Block<Arc<GuestMemoryMmap>>;
 type Net = net::Net<Arc<GuestMemoryMmap>>;
+type Console = console::Console<Arc<GuestMemoryMmap>>;
 
 /// A live VMM.
 pub struct Vmm {
@@ -185,6 +189,7 @@ pub struct Vmm {
     exit_handler: WrappedExitHandler,
     block_devices: Vec<Arc<Mutex<Block>>>,
     net_devices: Vec<Arc<Mutex<Net>>>,
+    console_devices: Vec<Arc<Mutex<Console>>>,
     // TODO: fetch the vcpu number from the `vm` object.
     // TODO-continued: this is needed to make the arm POC work as we need to create the FDT
     // TODO-continued: after the other resources are created.
@@ -285,11 +290,18 @@ impl TryFrom<VMMConfig> for Vmm {
             exit_handler: wrapped_exit_handler,
             block_devices: Vec::new(),
             net_devices: Vec::new(),
+            console_devices: Vec::new(),
             #[cfg(target_arch = "aarch64")]
             num_vcpus: config.vcpu_config.num as u64,
         };
-
-        vmm.add_serial_console()?;
+        if let Some(cfg) = config.console_config.as_ref() {
+            match cfg.console_type {
+                ConsoleType::Uart => vmm.add_serial_console()?,
+                ConsoleType::Virtio => vmm.add_virtio_console()?,
+            }
+        } else {
+            vmm.add_serial_console()?;
+        }
         #[cfg(target_arch = "x86_64")]
         vmm.add_i8042_device()?;
         #[cfg(target_arch = "aarch64")]
@@ -586,6 +598,35 @@ impl Vmm {
         Ok(())
     }
 
+    fn add_virtio_console(&mut self) -> Result<()> {
+        let mem = Arc::new(self.guest_memory.clone());
+
+        self.kernel_cfg
+            .cmdline
+            .insert_str("console=hvc0")
+            .map_err(Error::Cmdline)?;
+
+        let range = MmioRange::new(MmioAddress(MMIO_GAP_START + 0x4000), 0x1000).unwrap();
+        let mmio_cfg = MmioConfig { range, gsi: 7 };
+
+        let mut guard = self.device_mgr.lock().unwrap();
+
+        let mut env = Env {
+            mem,
+            vm_fd: self.vm.vm_fd(),
+            event_mgr: &mut self.event_mgr,
+            mmio_mgr: guard.deref_mut(),
+            mmio_cfg,
+            kernel_cmdline: &mut self.kernel_cfg.cmdline,
+        };
+
+        // We can also hold this somewhere if we need to keep the handle for later.
+        let console = Console::new(&mut env).map_err(Error::Console)?;
+        self.console_devices.push(console);
+
+        Ok(())
+    }
+
     // Helper function that computes the kernel_load_addr needed by the
     // VcpuState when creating the Vcpus.
     #[cfg(target_arch = "x86_64")]
@@ -720,6 +761,7 @@ mod tests {
             vcpu_config: VcpuConfig { num: NUM_VCPUS },
             block_config: None,
             net_config: None,
+            console_config: None,
         }
     }
 
@@ -759,6 +801,7 @@ mod tests {
             exit_handler,
             block_devices: Vec::new(),
             net_devices: Vec::new(),
+            console_devices: Vec::new(),
             #[cfg(target_arch = "aarch64")]
             num_vcpus: vmm_config.vcpu_config.num as u64,
         }

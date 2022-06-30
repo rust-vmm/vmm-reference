@@ -32,6 +32,8 @@ pub enum ConversionError {
     ParseNet(String),
     /// Failed to parse the string representation for the block.
     ParseBlock(String),
+    /// Failed to parse the string representation for the console.
+    ParseConsole(String),
 }
 
 impl ConversionError {
@@ -49,6 +51,9 @@ impl ConversionError {
     }
     fn new_net<T: fmt::Display>(err: T) -> Self {
         Self::ParseNet(err.to_string())
+    }
+    fn new_console<T: fmt::Display>(err: T) -> Self {
+        Self::ParseConsole(err.to_string())
     }
 }
 
@@ -68,6 +73,7 @@ impl fmt::Display for ConversionError {
             ParseVcpus(ref s) => write!(f, "Invalid input for vCPUs: {}", s),
             ParseNet(ref s) => write!(f, "Invalid input for network: {}", s),
             ParseBlock(ref s) => write!(f, "Invalid input for block: {}", s),
+            ParseConsole(ref s) => write!(f, "Invalid input for console: {}", s),
         }
     }
 }
@@ -258,6 +264,59 @@ impl TryFrom<&str> for BlockConfig {
     }
 }
 
+/// Console type enum.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ConsoleType {
+    /// Serial UART console.
+    Uart,
+    /// Virtio console.
+    Virtio,
+}
+
+/// Console configuration.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConsoleConfig {
+    /// Type of console.
+    pub console_type: ConsoleType,
+}
+
+impl Default for ConsoleConfig {
+    fn default() -> Self {
+        ConsoleConfig {
+            console_type: ConsoleType::Uart,
+        }
+    }
+}
+
+impl TryFrom<&str> for ConsoleConfig {
+    type Error = ConversionError;
+
+    fn try_from(console_cfg_str: &str) -> Result<Self, Self::Error> {
+        // Supported options: `type=String`
+        let mut arg_parser = CfgArgParser::new(console_cfg_str);
+
+        let console_type_str: String = arg_parser
+            .value_of("type")
+            .map_err(ConversionError::new_console)?
+            .ok_or_else(|| ConversionError::new_console("Missing required argument: type"))?;
+
+        let console_type = match console_type_str.as_str() {
+            "uart" => ConsoleType::Uart,
+            "virtio" => ConsoleType::Virtio,
+            arg => {
+                return Err(ConversionError::ParseConsole(
+                    "Invalid argument for \"type\": ".to_string() + arg,
+                ))
+            }
+        };
+
+        arg_parser
+            .all_consumed()
+            .map_err(ConversionError::new_console)?;
+        Ok(ConsoleConfig { console_type })
+    }
+}
+
 /// VMM configuration.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct VMMConfig {
@@ -271,6 +330,8 @@ pub struct VMMConfig {
     pub net_config: Option<NetConfig>,
     /// Block device configuration.
     pub block_config: Option<BlockConfig>,
+    /// Console configuration.
+    pub console_config: Option<ConsoleConfig>,
 }
 
 #[cfg(test)]
@@ -416,5 +477,41 @@ mod tests {
         // Test case: unused parameters
         let memory_str = "size_mib=12,blah=blah";
         assert!(MemoryConfig::try_from(memory_str).is_err());
+    }
+
+    #[test]
+    fn test_console_config() {
+        let type_str = "type=uart";
+        let console_cfg = ConsoleConfig::try_from(type_str).unwrap();
+        let expected_cfg = ConsoleConfig {
+            console_type: ConsoleType::Uart,
+        };
+        assert_eq!(console_cfg, expected_cfg);
+
+        let type_str = "type=virtio";
+        let console_cfg = ConsoleConfig::try_from(type_str).unwrap();
+        let expected_cfg = ConsoleConfig {
+            console_type: ConsoleType::Virtio,
+        };
+        assert_eq!(console_cfg, expected_cfg);
+
+        // Test case: empty string error.
+        assert!(ConsoleConfig::try_from("").is_err());
+
+        // Test case: empty type name error.
+        let type_str = "type=";
+        assert!(ConsoleConfig::try_from(type_str).is_err());
+
+        // Test case: invalid string.
+        let type_str = "type=blah";
+        assert!(ConsoleConfig::try_from(type_str).is_err());
+
+        // Test case: invalid argument name.
+        let type_str = "blah=uart";
+        assert!(ConsoleConfig::try_from(type_str).is_err());
+
+        // Test case: unused parameters
+        let type_str = "type=uart,blah=blah";
+        assert!(ConsoleConfig::try_from(type_str).is_err());
     }
 }

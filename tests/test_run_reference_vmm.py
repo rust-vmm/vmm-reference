@@ -14,6 +14,9 @@ import pytest
 
 from tools.s3 import s3_download
 
+import random
+import string
+
 # No. of seconds after which to give up for the test
 TEST_TIMEOUT = 30
 
@@ -86,9 +89,9 @@ and run locally.
 """
 
 
-def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=1024 ,default_cmdline=False):
+def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=1024, console_type="uart", default_cmdline=False):
     # Kernel config
-    cmdline = "console=ttyS0 i8042.nokbd reboot=t panic=1 pci=off"
+    cmdline = "i8042.nokbd reboot=t panic=1 pci=off"
 
     kernel_load_addr = 1048576
 
@@ -98,6 +101,7 @@ def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=102
         "target/release/vmm-reference",
         "--memory", "size_mib={}".format(mem_size_mib),
         "--vcpu", "num={}".format(num_vcpus),
+        "--console", "type={}".format(console_type),
         "--kernel"
     ]
     if default_cmdline:
@@ -205,16 +209,18 @@ def run_cmd_inside_vm(cmd, vmm_process, prompt, timeout=5):
 
     then = time.time()
     giveup_after = timeout
+    total_data = b''
     while True:
         try:
             data = os.read(vmm_process.stdout.fileno(), 4096)
-            output_lines = data.split(b'\r\n')
-            last = output_lines[-1].strip()
-            if prompt in last:
+            total_data += data
+            crt_lines = data.split(b'\r\n')
+            last = crt_lines[-1].strip()
+            if prompt == last[-len(prompt):]:
                 # FIXME: WE get the prompt twice in the output at the end,
                 # So removing it. No idea why twice?
                 # First one is 'cmd'
-                return output_lines[1:-2]
+                return total_data.split(b'\r\n')[1:-2]
 
         except BlockingIOError as _:
             time.sleep(1)
@@ -390,3 +396,26 @@ def test_reference_vmm_mem(kernel):
         expect_mem(vmm_process, expected_mem_mib)
 
         shutdown(vmm_process)
+
+
+@pytest.mark.parametrize("kernel,disk", UBUNTU_KERNEL_DISK_PAIRS)
+def test_reference_vmm_virtio_console_perf(kernel, disk):
+    """Start the reference VMM and test the virtio console."""
+
+    vmm_process, tmp_disk_path = start_vmm_process(kernel, disk_path=disk, console_type="virtio")
+
+    prompt = 'root@ubuntu-rust-vmm:~#'
+    login_string = 'ubuntu-rust-vmm login:'
+    expect_string(vmm_process, login_string)
+
+    cmd = 'root'
+    output = run_cmd_inside_vm(cmd.encode(), vmm_process, prompt.encode(), timeout=5)
+    output = b''.join(output).decode()
+    assert 'Welcome to Ubuntu 20.04 LTS' in output
+
+    cmd = 'echo ' + 10000 * '*'
+    output = run_cmd_inside_vm(cmd.encode(), vmm_process, prompt.encode(), timeout=5)
+    output = b''.join(output).decode()
+    assert output == 10000 * '*'
+
+    shutdown(vmm_process)
