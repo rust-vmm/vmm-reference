@@ -208,6 +208,8 @@ pub struct Vmm {
     // TODO-continued: after the other resources are created.
     #[cfg(target_arch = "aarch64")]
     num_vcpus: u64,
+    #[cfg(target_arch = "aarch64")]
+    fdt_builder: FdtBuilder,
 }
 
 // The `VmmExitHandler` is used as the mechanism for exiting from the event manager loop.
@@ -294,6 +296,8 @@ impl TryFrom<VMMConfig> for Vmm {
         let mut event_manager = EventManager::<Arc<Mutex<dyn MutEventSubscriber + Send>>>::new()
             .map_err(Error::EventManager)?;
         event_manager.add_subscriber(wrapped_exit_handler.0.clone());
+        #[cfg(target_arch = "aarch64")]
+        let fdt_builder = FdtBuilder::new();
 
         let mut vmm = Vmm {
             vm,
@@ -307,8 +311,9 @@ impl TryFrom<VMMConfig> for Vmm {
             net_devices: Vec::new(),
             #[cfg(target_arch = "aarch64")]
             num_vcpus: config.vcpu_config.num as u64,
+            #[cfg(target_arch = "aarch64")]
+            fdt_builder,
         };
-
         vmm.add_serial_console()?;
         #[cfg(target_arch = "x86_64")]
         vmm.add_i8042_device()?;
@@ -336,9 +341,9 @@ impl Vmm {
         let kernel_load_addr = self.compute_kernel_load_addr(&load_result)?;
         #[cfg(target_arch = "aarch64")]
         let kernel_load_addr = load_result.kernel_load;
-
         #[cfg(target_arch = "aarch64")]
         self.setup_fdt()?;
+
         if stdin().lock().set_raw_mode().is_err() {
             eprintln!("Failed to set raw mode on terminal. Stdin will echo.");
         }
@@ -516,6 +521,8 @@ impl Vmm {
                 DEFAULT_ADDRESSS_ALIGNEMNT,
                 AllocPolicy::ExactMatch(AARCH64_MMIO_BASE),
             )?;
+            self.fdt_builder
+                .with_serial_console(range.start(), range.len());
             let range = mmio_from_range(range);
             self.device_mgr
                 .lock()
@@ -556,6 +563,7 @@ impl Vmm {
             DEFAULT_ADDRESSS_ALIGNEMNT,
             DEFAULT_ALLOC_POLICY,
         )?;
+        self.fdt_builder.with_rtc(range.start(), range.len());
         let range = mmio_from_range(range);
         self.device_mgr
             .lock()
@@ -684,12 +692,12 @@ impl Vmm {
     fn setup_fdt(&mut self) -> Result<()> {
         let mem_size: u64 = self.guest_memory.iter().map(|region| region.len()).sum();
         let fdt_offset = mem_size - AARCH64_FDT_MAX_SIZE - 0x10000;
-        let fdt = FdtBuilder::new()
-            .with_cmdline(self.kernel_cfg.cmdline.as_str())
+        let cmdline = &self.kernel_cfg.cmdline;
+        let fdt = self
+            .fdt_builder
+            .with_cmdline(cmdline.as_str().to_string())
             .with_num_vcpus(self.num_vcpus.try_into().unwrap())
             .with_mem_size(mem_size)
-            .with_serial_console(0x40000000, 0x1000)
-            .with_rtc(0x40001000, 0x1000)
             .create_fdt()
             .map_err(Error::SetupFdt)?;
         fdt.write_to_mem(&self.guest_memory, fdt_offset)
@@ -805,7 +813,8 @@ mod tests {
             device_mgr.clone(),
         )
         .unwrap();
-
+        #[cfg(target_arch = "aarch64")]
+        let fdt_builder = FdtBuilder::new();
         Vmm {
             vm,
             guest_memory,
@@ -818,6 +827,8 @@ mod tests {
             net_devices: Vec::new(),
             #[cfg(target_arch = "aarch64")]
             num_vcpus: vmm_config.vcpu_config.num as u64,
+            #[cfg(target_arch = "aarch64")]
+            fdt_builder,
         }
     }
 
@@ -1123,8 +1134,10 @@ mod tests {
         {
             let mem_size: u64 = vmm.guest_memory.iter().map(|region| region.len()).sum();
             let fdt_offset = mem_size + AARCH64_FDT_MAX_SIZE;
-            let fdt = FdtBuilder::new()
-                .with_cmdline(vmm.kernel_cfg.cmdline.as_str())
+            let cmdline = &vmm.kernel_cfg.cmdline;
+            let fdt = vmm
+                .fdt_builder
+                .with_cmdline(cmdline.as_str().to_string())
                 .with_num_vcpus(vmm.num_vcpus.try_into().unwrap())
                 .with_mem_size(mem_size)
                 .with_serial_console(0x40000000, 0x1000)
@@ -1143,46 +1156,42 @@ mod tests {
         let start_addr = MMIO_GAP_START;
         #[cfg(target_arch = "aarch64")]
         let start_addr = AARCH64_MMIO_BASE;
-        let address_alloc = Vmm::create_address_allocator(&memory_config);
-        assert!(address_alloc.is_ok());
-        let mut address_alloc = address_alloc.unwrap();
+        let mut address_alloc = Vmm::create_address_allocator(&memory_config).unwrap();
+
         // Trying to allocate at an address before the base address.
-        let range =
-            address_alloc.allocate(100, DEFAULT_ADDRESSS_ALIGNEMNT, AllocPolicy::ExactMatch(0));
-        assert_eq!(
-            range.unwrap_err(),
-            vm_allocator::Error::ResourceNotAvailable
-        );
-        let range = address_alloc.allocate(
-            100,
-            DEFAULT_ADDRESSS_ALIGNEMNT,
-            AllocPolicy::ExactMatch(start_addr - DEFAULT_ADDRESSS_ALIGNEMNT),
-        );
-        assert_eq!(
-            range.unwrap_err(),
-            vm_allocator::Error::ResourceNotAvailable
-        );
+        let alloc_err = address_alloc
+            .allocate(100, DEFAULT_ADDRESSS_ALIGNEMNT, AllocPolicy::ExactMatch(0))
+            .unwrap_err();
+        assert_eq!(alloc_err, vm_allocator::Error::ResourceNotAvailable);
+        let alloc_err = address_alloc
+            .allocate(
+                100,
+                DEFAULT_ADDRESSS_ALIGNEMNT,
+                AllocPolicy::ExactMatch(start_addr - DEFAULT_ADDRESSS_ALIGNEMNT),
+            )
+            .unwrap_err();
+        assert_eq!(alloc_err, vm_allocator::Error::ResourceNotAvailable);
+
         // Testing it outside the available range
         let outside_avail_range =
             start_addr + ((MEM_SIZE_MIB as u64) << 20) + DEFAULT_ADDRESSS_ALIGNEMNT;
-        let range = address_alloc.allocate(
-            100,
-            DEFAULT_ADDRESSS_ALIGNEMNT,
-            AllocPolicy::ExactMatch(outside_avail_range),
-        );
-        assert_eq!(
-            range.unwrap_err(),
-            vm_allocator::Error::ResourceNotAvailable
-        );
+        let alloc_err = address_alloc
+            .allocate(
+                100,
+                DEFAULT_ADDRESSS_ALIGNEMNT,
+                AllocPolicy::ExactMatch(outside_avail_range),
+            )
+            .unwrap_err();
+        assert_eq!(alloc_err, vm_allocator::Error::ResourceNotAvailable);
+
         // Trying to add more than available range.
-        let range = address_alloc.allocate(
-            ((MEM_SIZE_MIB as u64) << 20) + 2,
-            DEFAULT_ADDRESSS_ALIGNEMNT,
-            DEFAULT_ALLOC_POLICY,
-        );
-        assert_eq!(
-            range.unwrap_err(),
-            vm_allocator::Error::ResourceNotAvailable
-        );
+        let alloc_err = address_alloc
+            .allocate(
+                ((MEM_SIZE_MIB as u64) << 20) + 2,
+                DEFAULT_ADDRESSS_ALIGNEMNT,
+                DEFAULT_ALLOC_POLICY,
+            )
+            .unwrap_err();
+        assert_eq!(alloc_err, vm_allocator::Error::ResourceNotAvailable);
     }
 }
