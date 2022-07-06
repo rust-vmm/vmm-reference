@@ -23,7 +23,7 @@ use vmm_sys_util::signal::{Killable, SIGRTMIN};
 use crate::vcpu::{self, KvmVcpu, VcpuConfigList, VcpuRunState, VcpuState};
 
 #[cfg(target_arch = "aarch64")]
-use vm_vcpu_ref::aarch64::interrupts::{self, Gic, GicConfig};
+use vm_vcpu_ref::aarch64::interrupts::{self, Gic, GicConfig, GicState};
 #[cfg(target_arch = "x86_64")]
 use vm_vcpu_ref::x86_64::mptable::{self, MpTable};
 
@@ -61,6 +61,7 @@ pub struct VmState {
 pub struct VmState {
     pub config: VmConfig,
     pub vcpus_state: Vec<VcpuState>,
+    pub gic_state: GicState,
 }
 
 /// A KVM specific implementation of a Virtual Machine.
@@ -78,6 +79,9 @@ pub struct KvmVm<EH: ExitHandler + Send> {
     exit_handler: EH,
     vcpu_barrier: Arc<Barrier>,
     vcpu_run_state: Arc<VcpuRunState>,
+
+    #[cfg(target_arch = "aarch64")]
+    gic: Option<Gic>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -204,6 +208,9 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
             vcpu_handles: Vec::new(),
             exit_handler,
             vcpu_run_state,
+
+            #[cfg(target_arch = "aarch64")]
+            gic: None,
         };
         vm.configure_memory_regions(guest_memory, kvm)?;
 
@@ -255,7 +262,9 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
     }
 
     #[cfg(target_arch = "aarch64")]
-    fn set_state(&mut self, _state: VmState) -> Result<()> {
+    fn set_state(&mut self, state: VmState) -> Result<()> {
+        let mpidrs = state.vcpus_state.iter().map(|state| state.mpidr).collect();
+        self.gic().restore_state(&state.gic_state, mpidrs)?;
         Ok(())
     }
 
@@ -267,23 +276,42 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
         exit_handler: EH,
         bus: Arc<Mutex<IoManager>>,
     ) -> Result<Self> {
-        // Restoring a VM from a previously saved state needs to happen in the following order:
-        // 1. we first need to create the VM fd (from KVM).
-        // 2. On x86_64, we need to create the in-kernel IRQ chip so we can then create the vCPUs.
-        // 3. Create the vCPUs.
-        // 4. Restore the vCPU state.
+        // Restoring a VM from a previously saved state needs to happen differently
+        // on x86_64 and aarch64.
+        // For both, we first need to create the VM fd (from KVM).
         let mut vm = Self::create_vm(kvm, state.config.clone(), exit_handler, guest_memory)?;
-        #[cfg(target_arch = "x86_64")]
-        vm.setup_irq_controller()?;
         let vcpus_state = state.vcpus_state.clone();
-        vm.set_state(state)?;
-        vm.create_vcpus_from_state::<M>(bus, vcpus_state)?;
+        #[cfg(target_arch = "x86_64")]
+        {
+            // On x86_64, we need to create the in-kernel IRQ chip so we can then create the vCPUs.
+            // Then create the vCPUs and restore their state.
+            vm.setup_irq_controller()?;
+            vm.set_state(state)?;
+            vm.create_vcpus_from_state::<M>(bus, vcpus_state)?;
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) and configured before
+            // setting up the IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
+            // was already initialized.
+            // Search for `kvm_arch_vcpu_create` in arch/arm/kvm/arm.c.
+            vm.create_vcpus_from_state::<M>(bus, vcpus_state)?;
+            vm.setup_irq_controller()?;
+            vm.set_state(state)?;
+        }
         Ok(vm)
     }
 
     /// Retrieve the associated KVM VM file descriptor.
     pub fn vm_fd(&self) -> Arc<VmFd> {
         self.fd.clone()
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn gic(&self) -> &Gic {
+        // This method panics if the `gic` field, which
+        // is Option<Gic> is not properly initialized.
+        self.gic.as_ref().expect("GIC is not set")
     }
 
     // Create the kvm memory regions based on the configuration passed as `guest_memory`.
@@ -318,7 +346,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
     // Configures the in kernel interrupt controller.
     // This function should be reused to configure the aarch64 interrupt controller (GIC).
     #[cfg(target_arch = "x86_64")]
-    fn setup_irq_controller(&self) -> Result<()> {
+    fn setup_irq_controller(&mut self) -> Result<()> {
         // First, create the irqchip.
         // On `x86_64`, this _must_ be created _before_ the vCPUs.
         // It sets up the virtual IOAPIC, virtual PIC, and sets up the future vCPUs for local APIC.
@@ -344,17 +372,15 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
     }
 
     #[cfg(target_arch = "aarch64")]
-    pub fn setup_irq_controller(&self) -> Result<()> {
-        // TODO: we need a reference to the GIC to be able to implement save/restore.
-        // TODO: find an abstraction that make this possible.
-
-        let _gic = Gic::new(
+    pub fn setup_irq_controller(&mut self) -> Result<()> {
+        let gic = Gic::new(
             GicConfig {
                 num_cpus: self.config.num_vcpus,
                 ..Default::default()
             },
             &self.vm_fd(),
         )?;
+        self.gic = Some(gic);
         Ok(())
     }
 
@@ -478,9 +504,13 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
             .collect::<vcpu::Result<Vec<VcpuState>>>()
             .map_err(Error::SaveVcpuState)?;
 
+        let mpidrs = vcpus_state.iter().map(|state| state.mpidr).collect();
+        let gic_state = self.gic().save_state(mpidrs)?;
+
         Ok(VmState {
             config: self.config.clone(),
             vcpus_state,
+            gic_state,
         })
     }
 
@@ -632,7 +662,7 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let num_vcpus = 1;
         let vm_state = VmConfig::new(&kvm, num_vcpus).unwrap();
-        let vm = KvmVm {
+        let mut vm = KvmVm {
             vcpus: Vec::new(),
             vcpu_handles: Vec::new(),
             vcpu_barrier: Arc::new(Barrier::new(num_vcpus as usize)),
@@ -640,6 +670,9 @@ mod tests {
             fd: Arc::new(kvm.create_vm().unwrap()),
             exit_handler: WrappedExitHandler::default(),
             vcpu_run_state: Arc::new(VcpuRunState::default()),
+
+            #[cfg(target_arch = "aarch64")]
+            gic: None,
         };
 
         // Setting up the irq_controller twice should return an error.

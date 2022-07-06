@@ -9,6 +9,11 @@ use kvm_bindings::{
 };
 use kvm_ioctls::{DeviceFd, VmFd};
 
+use super::regs::{
+    convert_to_kvm_mpidrs, dist_regs, icc_regs, redist_regs, save_pending_tables, set_dist_regs,
+    set_icc_regs, set_redist_regs, GicRegState, GicSysRegsState,
+};
+
 /// The minimum number of interrupts supported by the GIC.
 // This is the minimum number of SPI interrupts aligned to 32 + 32 for the
 // PPI (16) and GSI (16).
@@ -49,6 +54,12 @@ pub enum Error {
     /// Error setting an attribute for the GIC device.
     #[error("Error setting an attribute ({0}) for the GIC device: {1}")]
     SetAttr(&'static str, kvm_ioctls::Error),
+    /// Inconsisted vCPU count between GIC and vCPU states.
+    #[error("Inconsisted vCPU count between the GIC and vCPU states")]
+    InconsistentVcpuCount,
+    /// Invalid state of the GIC system registers.
+    #[error("Invalid state of the GIC system registers")]
+    InvalidGicSysRegState,
 }
 
 impl From<kvm_ioctls::Error> for Error {
@@ -116,6 +127,20 @@ impl Default for GicConfig {
             version: None,
         }
     }
+}
+
+/// Structure used for serializing the state of the GIC registers
+#[derive(Clone, Debug)]
+pub struct GicState {
+    dist: Vec<GicRegState<u32>>,
+    gic_vcpu_states: Vec<GicVcpuState>,
+}
+
+/// Structure used for serializing the state of the GIC registers for a specific vCPU
+#[derive(Clone, Debug)]
+pub struct GicVcpuState {
+    redist: Vec<GicRegState<u32>>,
+    icc: GicSysRegsState,
 }
 
 impl Gic {
@@ -286,6 +311,48 @@ impl Gic {
     pub fn version(&self) -> GicVersion {
         self.version
     }
+
+    /// Save the state of this GIC.
+    pub fn save_state(&self, vcpu_mpidrs: Vec<u64>) -> Result<GicState> {
+        let fd = self.device_fd();
+
+        let kvm_mpidrs = convert_to_kvm_mpidrs(vcpu_mpidrs);
+
+        // Flush redistributors pending tables to guest RAM.
+        save_pending_tables(fd)?;
+
+        let mut gic_vcpu_states = Vec::with_capacity(kvm_mpidrs.len());
+        for mpidr in kvm_mpidrs {
+            gic_vcpu_states.push(GicVcpuState {
+                redist: redist_regs(fd, mpidr)?,
+                icc: icc_regs(fd, mpidr)?,
+            })
+        }
+
+        Ok(GicState {
+            dist: dist_regs(fd)?,
+            gic_vcpu_states,
+        })
+    }
+
+    /// Restore the state of GIC.
+    pub fn restore_state(&self, state: &GicState, vcpu_mpidrs: Vec<u64>) -> Result<()> {
+        if vcpu_mpidrs.len() != state.gic_vcpu_states.len() {
+            return Err(Error::InconsistentVcpuCount);
+        }
+
+        let kvm_mpidrs = convert_to_kvm_mpidrs(vcpu_mpidrs);
+
+        let fd = self.device_fd();
+        set_dist_regs(fd, &state.dist)?;
+
+        for (mpidr, vcpu_state) in kvm_mpidrs.iter().zip(&state.gic_vcpu_states) {
+            set_redist_regs(fd, &vcpu_state.redist, *mpidr)?;
+            set_icc_regs(fd, &vcpu_state.icc, *mpidr)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -295,6 +362,8 @@ mod tests {
     };
     use kvm_bindings::kvm_device_attr;
     use kvm_ioctls::{Kvm, VmFd};
+
+    use super::GicState;
 
     #[test]
     fn test_create_device() {
@@ -325,6 +394,29 @@ mod tests {
         };
         gic.device_fd().get_device_attr(&mut nr_irqs_attr).unwrap();
         assert_eq!(data, config.num_irqs);
+    }
+
+    #[test]
+    fn test_restore_with_invalid_vcpu_count() {
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let config = GicConfig {
+            ..Default::default()
+        };
+        let gic = Gic::new(config, &vm).unwrap();
+
+        // This is a completely synthetic test that does not expect
+        // any real data; only the lengths of mpidrs and gic_vcpu_states
+        // are compared.
+        let dummy_gic_state = GicState {
+            dist: vec![],
+            // Zero vCPUs.
+            gic_vcpu_states: vec![],
+        };
+        // One vCPU.
+        let mpidrs = vec![1];
+        let res = gic.restore_state(&dummy_gic_state, mpidrs);
+        assert_eq!(res, Err(Error::InconsistentVcpuCount));
     }
 
     #[test]
