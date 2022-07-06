@@ -2,3 +2,4 @@
 
 /// Helpers for setting up the interrupt controller.
 pub mod interrupts;
+mod regs;
