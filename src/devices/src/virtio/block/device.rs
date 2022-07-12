@@ -164,10 +164,6 @@ mod tests {
 
     use super::super::VIRTIO_BLK_F_FLUSH;
     use super::*;
-
-    // Restricting this for now, because registering irqfds does not work on Arm without properly
-    // setting up the equivalent of the irqchip first (as part of `EnvMock::new`).
-    #[cfg_attr(target_arch = "aarch64", ignore)]
     #[test]
     fn test_device() {
         let tmp = TempFile::new().unwrap();
