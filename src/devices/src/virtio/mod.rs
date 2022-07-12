@@ -276,12 +276,15 @@ pub(crate) mod tests {
     use vm_device::MutDeviceMmio;
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
-    use event_manager::{EventOps, Events};
-    use virtio_queue::Queue;
-
     use super::features::VIRTIO_F_VERSION_1;
     use super::*;
-
+    use event_manager::{EventOps, Events};
+    #[cfg(target_arch = "aarch64")]
+    use kvm_bindings::{
+        kvm_create_device, kvm_device_attr, kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V3,
+        KVM_DEV_ARM_VGIC_CTRL_INIT, KVM_DEV_ARM_VGIC_GRP_CTRL,
+    };
+    use virtio_queue::Queue;
     pub type MockMem = Arc<GuestMemoryMmap>;
 
     // Can be used in other modules to test functionality that requires a `CommonArgs` struct as
@@ -300,14 +303,18 @@ pub(crate) mod tests {
         pub fn new() -> Self {
             let mem =
                 Arc::new(GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000_0000)]).unwrap());
-
             let kvm = kvm_ioctls::Kvm::new().unwrap();
             let vm_fd = Arc::new(kvm.create_vm().unwrap());
-
             let range = MmioRange::new(MmioAddress(0x1_0000_0000), 0x1000).unwrap();
             let mmio_cfg = MmioConfig { range, gsi: 5 };
-
+            #[cfg(target_arch = "aarch64")]
+            // aarch64 requires GIC to be added before adding vcpus.
+            {
+                vm_fd.create_vcpu(0).unwrap();
+                EnvMock::create_gic(&vm_fd);
+            }
             // Required so the vm_fd can be used to register irqfds.
+            #[cfg(target_arch = "x86_64")]
             vm_fd.create_irq_chip().unwrap();
 
             EnvMock {
@@ -320,7 +327,6 @@ pub(crate) mod tests {
                 kernel_cmdline: Cmdline::new(4096),
             }
         }
-
         pub fn env(&mut self) -> Env<MockMem, &mut IoManager> {
             Env {
                 mem: self.mem.clone(),
@@ -331,11 +337,25 @@ pub(crate) mod tests {
                 kernel_cmdline: &mut self.kernel_cmdline,
             }
         }
+        #[cfg(target_arch = "aarch64")]
+        // Adding a dummy GIC V3 so that we can register
+        // the IRQ fds and thus test the virtio functionality in arm as well.
+        fn create_gic(vm_fd: &VmFd) {
+            let mut create_device_attr = kvm_create_device {
+                type_: kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V3 as u32,
+                fd: 0,
+                flags: 0,
+            };
+            let device_fd = vm_fd.create_device(&mut create_device_attr).unwrap();
+            let init_gic_attr = kvm_device_attr {
+                group: KVM_DEV_ARM_VGIC_GRP_CTRL,
+                attr: KVM_DEV_ARM_VGIC_CTRL_INIT as u64,
+                ..Default::default()
+            };
+            device_fd.set_device_attr(&init_gic_attr).unwrap();
+        }
     }
 
-    // Skipping until adding Arm support and figuring out how make the irqchip creation in the
-    // `Mock` object work there as well.
-    #[cfg_attr(target_arch = "aarch64", ignore)]
     #[test]
     fn test_env() {
         // Just a dummy device we're going to register on the bus.
@@ -371,8 +391,6 @@ pub(crate) mod tests {
         assert!(mock.kernel_cmdline.as_str().ends_with("ending_string"));
     }
 
-    // Ignoring until aarch64 support is here.
-    #[cfg_attr(target_arch = "aarch64", ignore)]
     #[test]
     fn test_common_config() {
         let mut mock = EnvMock::new();

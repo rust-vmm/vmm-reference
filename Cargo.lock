@@ -71,6 +71,7 @@ name = "devices"
 version = "0.1.0"
 dependencies = [
  "event-manager",
+ "kvm-bindings",
  "kvm-ioctls",
  "libc",
  "linux-loader",
