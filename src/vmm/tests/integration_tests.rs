@@ -41,7 +41,8 @@ fn test_dummy_vmm_elf() {
     let tags = r#"
     {
         "halt_after_boot": true,
-        "image_format": "elf"
+        "image_format": "elf",
+        "with_disk": false
     }
     "#;
 
@@ -55,7 +56,8 @@ fn test_dummy_vmm_bzimage() {
     let tags = r#"
     {
         "halt_after_boot": true,
-        "image_format": "bzimage"
+        "image_format": "bzimage",
+        "with_disk": false
     }
     "#;
     let bzimage_halt = s3_download("kernel", Some(tags)).unwrap();
@@ -68,7 +70,8 @@ fn test_dummy_vmm_pe() {
     let tags = r#"
     {
         "halt_after_boot": true,
-        "image_format": "pe"
+        "image_format": "pe",
+        "with_disk": false
     }
     "#;
     let pe_halt = s3_download("kernel", Some(tags)).unwrap();
