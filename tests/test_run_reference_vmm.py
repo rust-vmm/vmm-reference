@@ -61,8 +61,8 @@ def default_ubuntu_elf():
 
 def default_disk():
     return s3_download(
+        resource_name="ubuntu-focal-rootfs-x86_64.ext4",
         resource_type="disk",
-        resource_name="ubuntu-focal-rootfs.ext4",
         first=True
     )
 
