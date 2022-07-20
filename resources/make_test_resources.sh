@@ -47,7 +47,7 @@ if [[ $arch = "x86_64" ]]; then
     mv $TMP_DEB_DIR/linux-5.4.81/vmlinux-focal $TMP_DEB_DIR/linux-5.4.81/vmlinux-focal-halt \
     $TMP_DEB_DIR/linux-5.4.81/bzimage-focal $TMP_DEB_DIR/linux-5.4.81/bzimage-focal-halt $DEST_KERNEL_DIR
 
-    ./disk/make_rootfs.sh -d $TMP_DEB_DIR/linux-5.4.81/deb/ -w $DEST_DISK_DIR -o ubuntu-focal-rootfs.ext4
+    ./disk/make_rootfs.sh -d $TMP_DEB_DIR/linux-5.4.81/deb/ -w $DEST_DISK_DIR -o ubuntu-focal-rootfs-x86_64.ext4
 elif [[ $arch = "aarch64" ]]; then
     ./kernel/make_kernel_busybox_image.sh -f pe -k pe-hello-busybox -w $TMP_KERNEL_DIR -j $NPROC
     ./kernel/make_kernel_busybox_image.sh -f pe -k pe-hello-busybox -w $TMP_KERNEL_DIR -j $NPROC -h
@@ -56,4 +56,14 @@ elif [[ $arch = "aarch64" ]]; then
     mv $TMP_KERNEL_DIR/linux-5.4.81/pe-hello-busybox $TMP_KERNEL_DIR/linux-5.4.81/pe-hello-busybox-halt $DEST_KERNEL_DIR
     mkdir -p $DEST_INITRD_DIR
     mv $TMP_KERNEL_DIR/linux-5.4.81/initramfs.cpio $DEST_INITRD_DIR/aarch64-initramfs.cpio
+
+    # making debian based image
+    ./kernel/make_kernel_image_deb.sh -f pe -k pe-focal -w $TMP_DEB_DIR -j $NPROC
+    ./kernel/make_kernel_image_deb.sh -f pe -k pe-focal -w $TMP_DEB_DIR -j $NPROC -h
+
+    #  move them to correct folder
+    mv $TMP_DEB_DIR/linux-5.4.81/pe-focal $TMP_DEB_DIR/linux-5.4.81/pe-focal-halt $DEST_KERNEL_DIR
+
+    ./disk/make_rootfs.sh -d $TMP_DEB_DIR/linux-5.4.81/deb/ -w $DEST_DISK_DIR -o ubuntu-focal-rootfs-aarch64.ext4
+
 fi
