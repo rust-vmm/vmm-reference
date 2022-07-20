@@ -8,6 +8,7 @@
 
 set -e
 
+arch=$(uname -m)
 SOURCE=$(readlink -f "$0")
 TEST_RESOURCE_DIR="$(dirname "$SOURCE")"
 
@@ -18,7 +19,12 @@ source "$TEST_RESOURCE_DIR/make_kernel.sh"
 
 KERNEL_VERSION="5.4.81"
 
-KERNEL_CFG="microvm-kernel-5.4-x86_64.config"
+if [[ $arch = "x86_64" ]]; then
+	KERNEL_CFG="microvm-kernel-5.4-x86_64.config"
+elif [[ $arch = "aarch64" ]]; then
+	KERNEL_CFG="microvm-kernel-5.4-aarch64.config"
+
+fi
 
 # Reset index for cmdline arguments for the following `getopts`.
 OPTIND=1
@@ -103,11 +109,19 @@ if [ -n "$MAKEDEB" ]; then
     cp "$kernel_dir"/../*.deb "$kernel_dir/deb"
 else
     echo "Downloading deb packages..."
-    DEB_URL="http://security.ubuntu.com/ubuntu/pool/main/l/linux-hwe-5.4"
-    DEBS=(
-        "linux-modules-5.4.0-42-generic_5.4.0-42.46~18.04.1_amd64.deb"
-        "linux-image-unsigned-5.4.0-42-generic_5.4.0-42.46~18.04.1_amd64.deb"
-    )
+    if [[ $arch = "x86_64" ]]; then
+        DEB_URL="http://security.ubuntu.com/ubuntu/pool/main/l/linux-hwe-5.4"
+        DEBS=(
+            "linux-modules-5.4.0-42-generic_5.4.0-42.46~18.04.1_amd64.deb"
+            "linux-image-unsigned-5.4.0-42-generic_5.4.0-42.46~18.04.1_amd64.deb"
+        )
+    elif [[ $arch = "aarch64" ]]; then
+        DEB_URL="http://ports.ubuntu.com/pool/main/l/linux-hwe-5.4"
+        DEBS=(
+            "linux-modules-5.4.0-42-generic_5.4.0-42.46~18.04.1_arm64.deb"
+            "linux-image-unsigned-5.4.0-42-generic_5.4.0-42.46~18.04.1_arm64.deb"
+        )
+    fi
     for deb in "${DEBS[@]}"; do
         wget -nc -P "$kernel_dir/deb" "$DEB_URL/$deb"
     done
