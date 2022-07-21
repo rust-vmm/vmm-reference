@@ -39,13 +39,10 @@ if [[ $arch = "x86_64" ]]; then
     $DEST_KERNEL_DIR
 
     ./kernel/make_kernel_image_deb.sh -f elf -k vmlinux-focal -w $TMP_DEB_DIR -j $NPROC
-    ./kernel/make_kernel_image_deb.sh -f elf -k vmlinux-focal -w $TMP_DEB_DIR -j $NPROC -h
     ./kernel/make_kernel_image_deb.sh -f bzimage -k bzimage-focal -w $TMP_DEB_DIR -j $NPROC
-    ./kernel/make_kernel_image_deb.sh -f bzimage -k bzimage-focal -w $TMP_DEB_DIR -j $NPROC -h
 
     # Same applies to the Ubuntu images.
-    mv $TMP_DEB_DIR/linux-5.4.81/vmlinux-focal $TMP_DEB_DIR/linux-5.4.81/vmlinux-focal-halt \
-    $TMP_DEB_DIR/linux-5.4.81/bzimage-focal $TMP_DEB_DIR/linux-5.4.81/bzimage-focal-halt $DEST_KERNEL_DIR
+    mv $TMP_DEB_DIR/linux-5.4.81/vmlinux-focal $TMP_DEB_DIR/linux-5.4.81/bzimage-focal $DEST_KERNEL_DIR
 
     ./disk/make_rootfs.sh -d $TMP_DEB_DIR/linux-5.4.81/deb/ -w $DEST_DISK_DIR -o ubuntu-focal-rootfs-x86_64.ext4
 elif [[ $arch = "aarch64" ]]; then
@@ -59,10 +56,9 @@ elif [[ $arch = "aarch64" ]]; then
 
     # making debian based image
     ./kernel/make_kernel_image_deb.sh -f pe -k pe-focal -w $TMP_DEB_DIR -j $NPROC
-    ./kernel/make_kernel_image_deb.sh -f pe -k pe-focal -w $TMP_DEB_DIR -j $NPROC -h
 
     #  move them to correct folder
-    mv $TMP_DEB_DIR/linux-5.4.81/pe-focal $TMP_DEB_DIR/linux-5.4.81/pe-focal-halt $DEST_KERNEL_DIR
+    mv $TMP_DEB_DIR/linux-5.4.81/pe-focal $DEST_KERNEL_DIR
 
     ./disk/make_rootfs.sh -d $TMP_DEB_DIR/linux-5.4.81/deb/ -w $DEST_DISK_DIR -o ubuntu-focal-rootfs-aarch64.ext4
 

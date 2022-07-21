@@ -333,40 +333,10 @@
     },
     {
       "resource_type": "kernel",
-      "resource_name": "bzimage-focal-halt",
-      "relative_path": "kernel/",
-      "image_format": "bzimage",
-      "halt_after_boot": false,
-      "with_disk": true,
-      "platform_type": "x86_64",
-      "distro": "Ubuntu"
-    },
-    {
-      "resource_type": "kernel",
-      "resource_name": "vmlinux-focal-halt",
-      "relative_path": "kernel/",
-      "image_format": "elf",
-      "halt_after_boot": false,
-      "with_disk": true,
-      "platform_type": "x86_64",
-      "distro": "Ubuntu"
-    },
-    {
-      "resource_type": "kernel",
       "resource_name": "pe-focal",
       "relative_path": "kernel/",
       "image_format": "pe",
       "halt_after_boot": false,
-      "with_disk": true,
-      "platform_type": "aarch64",
-      "distro": "Ubuntu"
-    },
-    {
-      "resource_type": "kernel",
-      "resource_name": "pe-focal-halt",
-      "relative_path": "kernel/",
-      "image_format": "pe",
-      "halt_after_boot": true,
       "with_disk": true,
       "platform_type": "aarch64",
       "distro": "Ubuntu"
