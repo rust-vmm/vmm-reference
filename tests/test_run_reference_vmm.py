@@ -229,6 +229,7 @@ def run_cmd_inside_vm(cmd, vmm_process, prompt, timeout=5):
 
     then = time.time()
     giveup_after = timeout
+    all_output = []
     while True:
         try:
             data = os.read(vmm_process.stdout.fileno(), 4096)
@@ -238,8 +239,11 @@ def run_cmd_inside_vm(cmd, vmm_process, prompt, timeout=5):
                 # FIXME: WE get the prompt twice in the output at the end,
                 # So removing it. No idea why twice?
                 # First one is 'cmd'
-                return output_lines[1:-2]
-
+                
+                all_output.extend(output_lines[1:-2])
+                return all_output
+            else:
+                all_output.extend(output_lines)
         except BlockingIOError as _:
             time.sleep(1)
             now = time.time()
@@ -264,7 +268,6 @@ def expect_vcpus(vmm_process, expected_vcpus):
     # /proc/cpuinfo displays info about each vCPU
     cmd = 'cat /proc/cpuinfo'
     output = run_cmd_inside_vm(cmd.encode(), vmm_process, prompt.encode(), timeout=5)
-    
     actual_vcpus = 0
     for line in output:
         if "processor" in line.decode():
