@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use event_manager::{EventManager, EventOps, Events, MutEventSubscriber, SubscriberOps};
+use irq_allocator::IrqAllocator;
 use kvm_bindings::KVM_API_VERSION;
 use kvm_ioctls::{
     Cap::{self, Ioeventfd, Irqchip, Irqfd, UserMemory},
@@ -74,6 +75,7 @@ use vm_allocator::{AddressAllocator, AllocPolicy, RangeInclusive};
 
 mod boot;
 mod config;
+mod irq_allocator;
 
 /// First address past 32 bits is where the MMIO gap ends.
 #[cfg(target_arch = "x86_64")]
@@ -167,6 +169,8 @@ pub enum Error {
     #[cfg(target_arch = "aarch64")]
     /// Cannot setup the FDT for booting.
     SetupFdt(arch::Error),
+    /// IrqAllocator error
+    IrqAllocatorError(irq_allocator::Error),
 }
 
 impl std::convert::From<vm::Error> for Error {
@@ -178,6 +182,12 @@ impl std::convert::From<vm::Error> for Error {
 impl From<vm_allocator::Error> for crate::Error {
     fn from(error: vm_allocator::Error) -> Self {
         crate::Error::Memory(MemoryError::AddressAllocatorError(error))
+    }
+}
+
+impl From<irq_allocator::Error> for crate::Error {
+    fn from(error: irq_allocator::Error) -> Self {
+        crate::Error::IrqAllocatorError(error)
     }
 }
 
@@ -193,6 +203,7 @@ pub struct Vmm {
     kernel_cfg: KernelConfig,
     guest_memory: GuestMemoryMmap,
     address_allocator: AddressAllocator,
+    irq_allocator: IrqAllocator,
     // The `device_mgr` is an Arc<Mutex> so that it can be shared between
     // the Vcpu threads, and modified when new devices are added.
     device_mgr: Arc<Mutex<IoManager>>,
@@ -299,10 +310,13 @@ impl TryFrom<VMMConfig> for Vmm {
         #[cfg(target_arch = "aarch64")]
         let fdt_builder = FdtBuilder::new();
 
+        let irq_allocator = IrqAllocator::new(4, vm.irq_num())?;
+
         let mut vmm = Vmm {
             vm,
             guest_memory,
             address_allocator,
+            irq_allocator,
             device_mgr,
             event_mgr: event_manager,
             kernel_cfg: config.kernel_config,
@@ -584,11 +598,11 @@ impl Vmm {
             DEFAULT_ADDRESSS_ALIGNEMNT,
             DEFAULT_ALLOC_POLICY,
         )?;
-
+        let irq = self.irq_allocator.next_irq()?;
         let mmio_range = mmio_from_range(&range);
         let mmio_cfg = MmioConfig {
             range: mmio_range,
-            gsi: 5,
+            gsi: irq,
         };
 
         let mut guard = self.device_mgr.lock().unwrap();
@@ -613,7 +627,7 @@ impl Vmm {
         let block = Block::new(&mut env, &args).map_err(Error::Block)?;
         #[cfg(target_arch = "aarch64")]
         self.fdt_builder
-            .add_virtio_device(range.start(), range.len(), 5);
+            .add_virtio_device(range.start(), range.len(), irq);
         self.block_devices.push(block);
 
         Ok(())
@@ -627,9 +641,10 @@ impl Vmm {
             DEFAULT_ALLOC_POLICY,
         )?;
         let mmio_range = mmio_from_range(&range);
+        let irq = self.irq_allocator.next_irq()?;
         let mmio_cfg = MmioConfig {
             range: mmio_range,
-            gsi: 6,
+            gsi: irq,
         };
 
         let mut guard = self.device_mgr.lock().unwrap();
@@ -652,7 +667,7 @@ impl Vmm {
         self.net_devices.push(net);
         #[cfg(target_arch = "aarch64")]
         self.fdt_builder
-            .add_virtio_device(range.start(), range.len(), 6);
+            .add_virtio_device(range.start(), range.len(), irq);
         Ok(())
     }
 
@@ -827,10 +842,12 @@ mod tests {
         .unwrap();
         #[cfg(target_arch = "aarch64")]
         let fdt_builder = FdtBuilder::new();
+        let irq_allocator = IrqAllocator::new(4, vm.irq_num()).unwrap();
         Vmm {
             vm,
             guest_memory,
             address_allocator,
+            irq_allocator,
             device_mgr,
             event_mgr: EventManager::new().unwrap(),
             kernel_cfg: vmm_config.kernel_config,
