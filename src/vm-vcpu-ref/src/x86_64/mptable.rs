@@ -73,6 +73,8 @@ pub enum Error {
     WriteMpcLintsrc,
     /// Failure to write MP table header.
     WriteMpcTable,
+    /// IRQ num overflow.
+    IRQOverflowed,
 }
 
 /// Specialized `Result` type for operations on the MP Table.
@@ -129,11 +131,11 @@ fn mpf_intel_compute_checksum(v: &mpspec::mpf_intel) -> u8 {
 ///
 /// ```rust
 /// use vm_memory::{GuestAddress, GuestMemoryMmap};
-/// use vm_vcpu_ref::x86_64::mptable::{MpTable, Result};
+/// use vm_vcpu_ref::x86_64::mptable::{MpTable, Result, IRQ_MAX};
 ///
 /// fn write_mptable() -> Result<()> {
 ///     let num_cpus = 4;
-///     let mptable = MpTable::new(num_cpus)?;
+///     let mptable = MpTable::new(num_cpus, IRQ_MAX)?;
 ///     let mem: GuestMemoryMmap =
 ///         GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 1024 << 20)]).unwrap();
 ///     mptable.write(&mem)
@@ -148,15 +150,12 @@ pub struct MpTable {
 
 impl MpTable {
     /// Creates a new MP Table that can hold `cpu_num`.
-    pub fn new(cpu_num: u8) -> Result<MpTable> {
+    pub fn new(cpu_num: u8, max_irq: u8) -> Result<MpTable> {
         if cpu_num > MAX_SUPPORTED_CPUS {
             return Err(Error::TooManyCpus);
         }
-
-        Ok(MpTable {
-            irq_num: IRQ_MAX + 1,
-            cpu_num,
-        })
+        let irq_num = max_irq.checked_add(1).ok_or(Error::IRQOverflowed)?;
+        Ok(MpTable { irq_num, cpu_num })
     }
 
     // Returns the size of this MP table based on its configuration.
@@ -365,21 +364,21 @@ mod tests {
     fn test_bounds_check() {
         // Test mptable fits in guest memory.
         let num_cpus = 4;
-        let mptable = MpTable::new(num_cpus).unwrap();
+        let mptable = MpTable::new(num_cpus, IRQ_MAX).unwrap();
         let mem: GuestMemoryMmap =
             GuestMemoryMmap::from_ranges(&[(GuestAddress(MPTABLE_START), mptable.size())]).unwrap();
         mptable.write(&mem).unwrap();
 
         // Test mptable does not fit in guest memory.
         let num_cpus = 5;
-        let mptable = MpTable::new(num_cpus).unwrap();
+        let mptable = MpTable::new(num_cpus, IRQ_MAX).unwrap();
         assert_eq!(mptable.write(&mem).unwrap_err(), Error::NotEnoughMemory);
     }
 
     #[test]
     fn test_mpf_intel_checksum() {
         let num_cpus = 1;
-        let mptable = MpTable::new(num_cpus).unwrap();
+        let mptable = MpTable::new(num_cpus, IRQ_MAX).unwrap();
         let mem: GuestMemoryMmap =
             GuestMemoryMmap::from_ranges(&[(GuestAddress(MPTABLE_START), mptable.size())]).unwrap();
 
@@ -396,7 +395,7 @@ mod tests {
     #[test]
     fn test_mpc_table_checksum() {
         let num_cpus = 4;
-        let mptable = MpTable::new(num_cpus).unwrap();
+        let mptable = MpTable::new(num_cpus, IRQ_MAX).unwrap();
         let mem: GuestMemoryMmap =
             GuestMemoryMmap::from_ranges(&[(GuestAddress(MPTABLE_START), mptable.size())]).unwrap();
 
@@ -431,7 +430,7 @@ mod tests {
             GuestMemoryMmap::from_ranges(&[(GuestAddress(MPTABLE_START), 1024 << 20)]).unwrap();
 
         for i in 0..MAX_SUPPORTED_CPUS {
-            MpTable::new(i).unwrap().write(&mem).unwrap();
+            MpTable::new(i, IRQ_MAX).unwrap().write(&mem).unwrap();
 
             let mpf_intel: MpfIntel = mem.read_obj(GuestAddress(MPTABLE_START)).unwrap();
             let mpc_offset = GuestAddress(u64::from(mpf_intel.0.physptr));
@@ -462,7 +461,17 @@ mod tests {
     fn test_cpu_entry_count_max() {
         let cpus = MAX_SUPPORTED_CPUS + 1;
 
-        let result = MpTable::new(cpus).unwrap_err();
+        let result = MpTable::new(cpus, IRQ_MAX).unwrap_err();
         assert_eq!(result, Error::TooManyCpus);
+    }
+    #[test]
+    fn test_irq_num() {
+        let mptable = MpTable::new(MAX_SUPPORTED_CPUS, IRQ_MAX).unwrap();
+        assert_eq!(mptable.irq_num, IRQ_MAX + 1)
+    }
+    #[test]
+    fn test_max_irq_overflow() {
+        let result = MpTable::new(MAX_SUPPORTED_CPUS, u8::MAX);
+        assert_eq!(result.unwrap_err(), Error::IRQOverflowed)
     }
 }

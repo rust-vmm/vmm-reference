@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use event_manager::{EventManager, EventOps, Events, MutEventSubscriber, SubscriberOps};
+use irq_allocator::IrqAllocator;
 use kvm_bindings::KVM_API_VERSION;
 use kvm_ioctls::{
     Cap::{self, Ioeventfd, Irqchip, Irqfd, UserMemory},
@@ -72,8 +73,11 @@ use arch::{FdtBuilder, AARCH64_FDT_MAX_SIZE, AARCH64_MMIO_BASE, AARCH64_PHYS_MEM
 
 use vm_allocator::{AddressAllocator, AllocPolicy, RangeInclusive};
 
+use vm_vcpu::vm::MAX_IRQ;
+
 mod boot;
 mod config;
+mod irq_allocator;
 
 /// First address past 32 bits is where the MMIO gap ends.
 #[cfg(target_arch = "x86_64")]
@@ -112,6 +116,10 @@ pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=t panic=1 pci=off";
 pub const DEFAULT_ADDRESSS_ALIGNEMNT: u64 = 4;
 /// Default allocation policy for address allocator.
 pub const DEFAULT_ALLOC_POLICY: AllocPolicy = AllocPolicy::FirstMatch;
+
+/// IRQ line 4 is typically used for serial port 1.
+// See more IRQ assignments & info: https://tldp.org/HOWTO/Serial-HOWTO-8.html
+const SERIAL_IRQ: u32 = 4;
 
 /// VMM memory related errors.
 #[derive(Debug)]
@@ -167,6 +175,8 @@ pub enum Error {
     #[cfg(target_arch = "aarch64")]
     /// Cannot setup the FDT for booting.
     SetupFdt(arch::Error),
+    /// IrqAllocator error
+    IrqAllocator(irq_allocator::Error),
 }
 
 impl std::convert::From<vm::Error> for Error {
@@ -178,6 +188,12 @@ impl std::convert::From<vm::Error> for Error {
 impl From<vm_allocator::Error> for crate::Error {
     fn from(error: vm_allocator::Error) -> Self {
         crate::Error::Memory(MemoryError::AddressAllocatorError(error))
+    }
+}
+
+impl From<irq_allocator::Error> for crate::Error {
+    fn from(error: irq_allocator::Error) -> Self {
+        crate::Error::IrqAllocator(error)
     }
 }
 
@@ -193,6 +209,7 @@ pub struct Vmm {
     kernel_cfg: KernelConfig,
     guest_memory: GuestMemoryMmap,
     address_allocator: AddressAllocator,
+    irq_allocator: IrqAllocator,
     // The `device_mgr` is an Arc<Mutex> so that it can be shared between
     // the Vcpu threads, and modified when new devices are added.
     device_mgr: Arc<Mutex<IoManager>>,
@@ -282,8 +299,7 @@ impl TryFrom<VMMConfig> for Vmm {
         let device_mgr = Arc::new(Mutex::new(IoManager::new()));
 
         // Create the KvmVm.
-        let vm_config = VmConfig::new(&kvm, config.vcpu_config.num)?;
-
+        let vm_config = VmConfig::new(&kvm, config.vcpu_config.num, MAX_IRQ)?;
         let wrapped_exit_handler = WrappedExitHandler::new()?;
         let vm = KvmVm::new(
             &kvm,
@@ -299,10 +315,13 @@ impl TryFrom<VMMConfig> for Vmm {
         #[cfg(target_arch = "aarch64")]
         let fdt_builder = FdtBuilder::new();
 
+        let irq_allocator = IrqAllocator::new(SERIAL_IRQ, vm.max_irq())?;
+
         let mut vmm = Vmm {
             vm,
             guest_memory,
             address_allocator,
+            irq_allocator,
             device_mgr,
             event_mgr: event_manager,
             kernel_cfg: config.kernel_config,
@@ -486,9 +505,8 @@ impl Vmm {
             stdout(),
         ))));
 
-        // Register its interrupt fd with KVM. IRQ line 4 is typically used for serial port 1.
-        // See more IRQ assignments & info: https://tldp.org/HOWTO/Serial-HOWTO-8.html
-        self.vm.register_irqfd(&interrupt_evt, 4)?;
+        // Register its interrupt fd with KVM.
+        self.vm.register_irqfd(&interrupt_evt, SERIAL_IRQ)?;
 
         self.kernel_cfg
             .cmdline
@@ -584,11 +602,11 @@ impl Vmm {
             DEFAULT_ADDRESSS_ALIGNEMNT,
             DEFAULT_ALLOC_POLICY,
         )?;
-
+        let irq = self.irq_allocator.next_irq()?;
         let mmio_range = mmio_from_range(&range);
         let mmio_cfg = MmioConfig {
             range: mmio_range,
-            gsi: 5,
+            gsi: irq,
         };
 
         let mut guard = self.device_mgr.lock().unwrap();
@@ -613,7 +631,7 @@ impl Vmm {
         let block = Block::new(&mut env, &args).map_err(Error::Block)?;
         #[cfg(target_arch = "aarch64")]
         self.fdt_builder
-            .add_virtio_device(range.start(), range.len(), 5);
+            .add_virtio_device(range.start(), range.len(), irq);
         self.block_devices.push(block);
 
         Ok(())
@@ -627,9 +645,10 @@ impl Vmm {
             DEFAULT_ALLOC_POLICY,
         )?;
         let mmio_range = mmio_from_range(&range);
+        let irq = self.irq_allocator.next_irq()?;
         let mmio_cfg = MmioConfig {
             range: mmio_range,
-            gsi: 6,
+            gsi: irq,
         };
 
         let mut guard = self.device_mgr.lock().unwrap();
@@ -652,7 +671,7 @@ impl Vmm {
         self.net_devices.push(net);
         #[cfg(target_arch = "aarch64")]
         self.fdt_builder
-            .add_virtio_device(range.start(), range.len(), 6);
+            .add_virtio_device(range.start(), range.len(), irq);
         Ok(())
     }
 
@@ -725,20 +744,20 @@ fn mmio_from_range(range: &RangeInclusive) -> MmioRange {
 }
 #[cfg(test)]
 mod tests {
-    use std::io::ErrorKind;
-    #[cfg(target_arch = "x86_64")]
-    use std::path::Path;
-    use std::path::PathBuf;
-
     #[cfg(target_arch = "x86_64")]
     use linux_loader::elf::Elf64_Ehdr;
     #[cfg(target_arch = "x86_64")]
     use linux_loader::loader::{self, bootparam::setup_header, elf::PvhBootCapability};
+    use std::io::ErrorKind;
+    #[cfg(target_arch = "x86_64")]
+    use std::path::Path;
+    use std::path::PathBuf;
     #[cfg(target_arch = "x86_64")]
     use vm_memory::{
         bytes::{ByteValued, Bytes},
         Address, GuestAddress, GuestMemory,
     };
+
     use vmm_sys_util::{tempdir::TempDir, tempfile::TempFile};
 
     use super::*;
@@ -813,7 +832,7 @@ mod tests {
 
         let address_allocator = Vmm::create_address_allocator(&vmm_config.memory_config).unwrap();
         // Create the KvmVm.
-        let vm_config = VmConfig::new(&kvm, vmm_config.vcpu_config.num).unwrap();
+        let vm_config = VmConfig::new(&kvm, vmm_config.vcpu_config.num, MAX_IRQ).unwrap();
 
         let device_mgr = Arc::new(Mutex::new(IoManager::new()));
         let exit_handler = default_exit_handler();
@@ -827,10 +846,12 @@ mod tests {
         .unwrap();
         #[cfg(target_arch = "aarch64")]
         let fdt_builder = FdtBuilder::new();
+        let irq_allocator = IrqAllocator::new(SERIAL_IRQ, vm.max_irq()).unwrap();
         Vmm {
             vm,
             guest_memory,
             address_allocator,
+            irq_allocator,
             device_mgr,
             event_mgr: EventManager::new().unwrap(),
             kernel_cfg: vmm_config.kernel_config,
