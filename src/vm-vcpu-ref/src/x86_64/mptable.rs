@@ -159,6 +159,11 @@ impl MpTable {
         })
     }
 
+    /// Returns the number of irqs
+    pub fn irq_num(&self) -> u32 {
+        self.irq_num
+    }
+
     // Returns the size of this MP table based on its configuration.
     fn size(&self) -> usize {
         mem::size_of::<MpfIntel>()

@@ -79,6 +79,7 @@ pub struct KvmVm<EH: ExitHandler + Send> {
     exit_handler: EH,
     vcpu_barrier: Arc<Barrier>,
     vcpu_run_state: Arc<VcpuRunState>,
+    irq_num: Option<u32>,
 
     #[cfg(target_arch = "aarch64")]
     gic: Option<Gic>,
@@ -208,7 +209,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
             vcpu_handles: Vec::new(),
             exit_handler,
             vcpu_run_state,
-
+            irq_num: None,
             #[cfg(target_arch = "aarch64")]
             gic: None,
         };
@@ -229,7 +230,11 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
         let mut vm = Self::create_vm(kvm, vm_config, exit_handler, guest_memory)?;
 
         #[cfg(target_arch = "x86_64")]
-        MpTable::new(vm.config.num_vcpus)?.write(guest_memory)?;
+        {
+            let mp_table = MpTable::new(vm.config.num_vcpus)?;
+            mp_table.write(guest_memory)?;
+            self.irq_num = Some(mp_table.irq_num())
+        }
 
         #[cfg(target_arch = "x86_64")]
         vm.setup_irq_controller()?;
@@ -314,6 +319,13 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
         self.gic.as_ref().expect("GIC is not set")
     }
 
+    /// Returns the irq number independent of arch.
+    pub fn irq_num(&self) -> u32 {
+        // This method panics if the `irq_num` field,
+        // which is Option<irq_num> is not properly set.
+        self.irq_num.expect("IRQ num is not set")
+    }
+
     // Create the kvm memory regions based on the configuration passed as `guest_memory`.
     fn configure_memory_regions<M: GuestMemory>(&self, guest_memory: &M, kvm: &Kvm) -> Result<()> {
         if guest_memory.num_regions() > kvm.get_nr_memslots() {
@@ -380,6 +392,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
             },
             &self.vm_fd(),
         )?;
+        self.irq_num = Some(gic.irq_num());
         self.gic = Some(gic);
         Ok(())
     }
@@ -670,7 +683,7 @@ mod tests {
             fd: Arc::new(kvm.create_vm().unwrap()),
             exit_handler: WrappedExitHandler::default(),
             vcpu_run_state: Arc::new(VcpuRunState::default()),
-
+            irq_num: None,
             #[cfg(target_arch = "aarch64")]
             gic: None,
         };
