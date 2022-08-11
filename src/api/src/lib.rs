@@ -32,6 +32,12 @@ impl Cli {
                     .help("vCPU configuration.\n\tFormat: \"num=<u8>\""),
             )
             .arg(
+                Arg::with_name("irq")
+                    .long("irq")
+                    .takes_value(true)
+                    .help("Max irq number.\n\tFormat: \"num=<u32>\""),
+            )
+            .arg(
                 Arg::with_name("kernel")
                     .long("kernel")
                     .required(true)
@@ -67,6 +73,7 @@ impl Cli {
             .memory_config(matches.value_of("memory"))
             .kernel_config(matches.value_of("kernel"))
             .vcpu_config(matches.value_of("vcpu"))
+            .irq_config(matches.value_of("irq"))
             .net_config(matches.value_of("net"))
             .block_config(matches.value_of("block"))
             .build()
@@ -82,7 +89,7 @@ mod tests {
 
     use linux_loader::cmdline::Cmdline;
 
-    use vmm::{KernelConfig, MemoryConfig, VcpuConfig, DEFAULT_KERNEL_LOAD_ADDR};
+    use vmm::{IrqConfig, KernelConfig, MemoryConfig, VcpuConfig, DEFAULT_KERNEL_LOAD_ADDR};
 
     #[test]
     fn test_launch() {
@@ -222,6 +229,8 @@ mod tests {
                 "size_mib=128",
                 "--vcpu",
                 "num=1",
+                "--irq",
+                "num=10",
                 "--kernel",
                 "path=/foo/bar,cmdline=\"foo=bar bar=foo\",kernel_load_addr=42",
             ])
@@ -236,6 +245,7 @@ mod tests {
                 vcpu_config: VcpuConfig { num: 1 },
                 block_config: None,
                 net_config: None,
+                irq_config: IrqConfig { max_irq: 10 }
             }
         );
 
@@ -252,6 +262,7 @@ mod tests {
                 vcpu_config: VcpuConfig { num: 1 },
                 block_config: None,
                 net_config: None,
+                irq_config: IrqConfig { max_irq: 64 }
             }
         );
     }

@@ -27,19 +27,23 @@ use vm_vcpu_ref::aarch64::interrupts::{self, Gic, GicConfig, GicState};
 #[cfg(target_arch = "x86_64")]
 use vm_vcpu_ref::x86_64::mptable::{self, MpTable};
 
+#[cfg(target_arch = "aarch64")]
+const MAX_IRQ: u32 = interrupts::MIN_NR_IRQS;
 /// Defines the configuration of this VM.
 #[derive(Clone)]
 pub struct VmConfig {
     pub num_vcpus: u8,
     pub vcpus_config: VcpuConfigList,
+    pub max_irq: u32,
 }
 
 impl VmConfig {
     /// Creates a default `VmConfig` for `num_vcpus`.
-    pub fn new(kvm: &Kvm, num_vcpus: u8) -> Result<Self> {
+    pub fn new(kvm: &Kvm, num_vcpus: u8, max_irq: u32) -> Result<Self> {
         Ok(VmConfig {
             num_vcpus,
             vcpus_config: VcpuConfigList::new(kvm, num_vcpus).map_err(Error::CreateVmConfig)?,
+            max_irq,
         })
     }
 }
@@ -79,8 +83,6 @@ pub struct KvmVm<EH: ExitHandler + Send> {
     exit_handler: EH,
     vcpu_barrier: Arc<Barrier>,
     vcpu_run_state: Arc<VcpuRunState>,
-    irq_num: Option<u32>,
-
     #[cfg(target_arch = "aarch64")]
     gic: Option<Gic>,
 }
@@ -209,7 +211,6 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
             vcpu_handles: Vec::new(),
             exit_handler,
             vcpu_run_state,
-            irq_num: None,
             #[cfg(target_arch = "aarch64")]
             gic: None,
         };
@@ -319,11 +320,9 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
         self.gic.as_ref().expect("GIC is not set")
     }
 
-    /// Returns the irq number independent of arch.
-    pub fn irq_num(&self) -> u32 {
-        // This method panics if the `irq_num` field,
-        // which is Option<irq_num> is not properly set.
-        self.irq_num.expect("IRQ num is not set")
+    /// Returns the max irq number independent of arch.
+    pub fn max_irq(&self) -> u32 {
+        self.config.max_irq
     }
 
     // Create the kvm memory regions based on the configuration passed as `guest_memory`.
@@ -388,11 +387,11 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
         let gic = Gic::new(
             GicConfig {
                 num_cpus: self.config.num_vcpus,
+                num_irqs: self.config.max_irq,
                 ..Default::default()
             },
             &self.vm_fd(),
         )?;
-        self.irq_num = Some(gic.irq_num());
         self.gic = Some(gic);
         Ok(())
     }
@@ -625,7 +624,7 @@ mod tests {
         guest_memory: &GuestMemoryMmap,
         num_vcpus: u8,
     ) -> Result<KvmVm<WrappedExitHandler>> {
-        let vm_config = VmConfig::new(kvm, num_vcpus).unwrap();
+        let vm_config = VmConfig::new(kvm, num_vcpus, MAX_IRQ).unwrap();
         let io_manager = Arc::new(Mutex::new(IoManager::new()));
         let exit_handler = WrappedExitHandler::default();
         let vm = KvmVm::new(kvm, vm_config, guest_memory, exit_handler, io_manager)?;
@@ -665,7 +664,6 @@ mod tests {
             ranges.push((GuestAddress(i * 100), 100))
         }
         let guest_memory = GuestMemoryMmap::from_ranges(&ranges).unwrap();
-
         let res = default_vm(&kvm, &guest_memory, 1);
         assert!(matches!(res, Err(Error::NotEnoughMemorySlots)));
     }
@@ -674,7 +672,7 @@ mod tests {
     fn test_failed_irqchip_setup() {
         let kvm = Kvm::new().unwrap();
         let num_vcpus = 1;
-        let vm_state = VmConfig::new(&kvm, num_vcpus).unwrap();
+        let vm_state = VmConfig::new(&kvm, num_vcpus, MAX_IRQ).unwrap();
         let mut vm = KvmVm {
             vcpus: Vec::new(),
             vcpu_handles: Vec::new(),
@@ -683,7 +681,6 @@ mod tests {
             fd: Arc::new(kvm.create_vm().unwrap()),
             exit_handler: WrappedExitHandler::default(),
             vcpu_run_state: Arc::new(VcpuRunState::default()),
-            irq_num: None,
             #[cfg(target_arch = "aarch64")]
             gic: None,
         };

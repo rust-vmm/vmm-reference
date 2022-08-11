@@ -132,7 +132,39 @@ impl TryFrom<&str> for VcpuConfig {
         Ok(VcpuConfig { num: num.into() })
     }
 }
+/// IrqConfig
+#[derive(Clone, Debug, PartialEq)]
+pub struct IrqConfig {
+    /// Max value of irq.
+    pub max_irq: u32,
+}
 
+impl Default for IrqConfig {
+    fn default() -> Self {
+        //TODO: make arch independednt
+        IrqConfig { max_irq: 64 }
+    }
+}
+
+impl TryFrom<&str> for IrqConfig {
+    type Error = ConversionError;
+
+    fn try_from(vcpu_cfg_str: &str) -> result::Result<Self, Self::Error> {
+        // Supported options: `num=<u8>`
+        let mut arg_parser = CfgArgParser::new(vcpu_cfg_str);
+        let max_irq = arg_parser
+            .value_of("num")
+            .map_err(ConversionError::new_vcpus)?
+            //TODO: check here
+            .unwrap_or_else(|| num::NonZeroU32::new(1).unwrap());
+        arg_parser
+            .all_consumed()
+            .map_err(ConversionError::new_vcpus)?;
+        Ok(IrqConfig {
+            max_irq: max_irq.into(),
+        })
+    }
+}
 /// Guest kernel configurations.
 #[derive(Clone, Debug, PartialEq)]
 pub struct KernelConfig {
@@ -271,6 +303,8 @@ pub struct VMMConfig {
     pub net_config: Option<NetConfig>,
     /// Block device configuration.
     pub block_config: Option<BlockConfig>,
+    /// Max IRQ number.
+    pub irq_config: IrqConfig,
 }
 
 #[cfg(test)]

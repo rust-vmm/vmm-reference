@@ -293,8 +293,7 @@ impl TryFrom<VMMConfig> for Vmm {
         let device_mgr = Arc::new(Mutex::new(IoManager::new()));
 
         // Create the KvmVm.
-        let vm_config = VmConfig::new(&kvm, config.vcpu_config.num)?;
-
+        let vm_config = VmConfig::new(&kvm, config.vcpu_config.num, config.irq_config.max_irq)?;
         let wrapped_exit_handler = WrappedExitHandler::new()?;
         let vm = KvmVm::new(
             &kvm,
@@ -310,7 +309,7 @@ impl TryFrom<VMMConfig> for Vmm {
         #[cfg(target_arch = "aarch64")]
         let fdt_builder = FdtBuilder::new();
 
-        let irq_allocator = IrqAllocator::new(4, vm.irq_num())?;
+        let irq_allocator = IrqAllocator::new(4, vm.max_irq())?;
 
         let mut vmm = Vmm {
             vm,
@@ -740,20 +739,21 @@ fn mmio_from_range(range: &RangeInclusive) -> MmioRange {
 }
 #[cfg(test)]
 mod tests {
-    use std::io::ErrorKind;
-    #[cfg(target_arch = "x86_64")]
-    use std::path::Path;
-    use std::path::PathBuf;
-
     #[cfg(target_arch = "x86_64")]
     use linux_loader::elf::Elf64_Ehdr;
     #[cfg(target_arch = "x86_64")]
     use linux_loader::loader::{self, bootparam::setup_header, elf::PvhBootCapability};
+    use std::io::ErrorKind;
+    #[cfg(target_arch = "x86_64")]
+    use std::path::Path;
+    use std::path::PathBuf;
     #[cfg(target_arch = "x86_64")]
     use vm_memory::{
         bytes::{ByteValued, Bytes},
         Address, GuestAddress, GuestMemory,
     };
+    #[cfg(target_arch = "aarch64")]
+    use vm_vcpu_ref::aarch64::interrupts::MIN_NR_IRQS;
     use vmm_sys_util::{tempdir::TempDir, tempfile::TempFile};
 
     use super::*;
@@ -761,6 +761,8 @@ mod tests {
 
     const MEM_SIZE_MIB: u32 = 1024;
     const NUM_VCPUS: u8 = 1;
+    #[cfg(target_arch = "aarch64")]
+    const MAX_IRQ: u32 = MIN_NR_IRQS;
 
     #[cfg(target_arch = "x86_64")]
     fn default_bzimage_path() -> PathBuf {
@@ -810,6 +812,7 @@ mod tests {
             vcpu_config: VcpuConfig { num: NUM_VCPUS },
             block_config: None,
             net_config: None,
+            irq_config: IrqConfig { max_irq: MAX_IRQ },
         }
     }
 
@@ -828,7 +831,12 @@ mod tests {
 
         let address_allocator = Vmm::create_address_allocator(&vmm_config.memory_config).unwrap();
         // Create the KvmVm.
-        let vm_config = VmConfig::new(&kvm, vmm_config.vcpu_config.num).unwrap();
+        let vm_config = VmConfig::new(
+            &kvm,
+            vmm_config.vcpu_config.num,
+            vmm_config.irq_config.max_irq,
+        )
+        .unwrap();
 
         let device_mgr = Arc::new(Mutex::new(IoManager::new()));
         let exit_handler = default_exit_handler();
@@ -842,7 +850,7 @@ mod tests {
         .unwrap();
         #[cfg(target_arch = "aarch64")]
         let fdt_builder = FdtBuilder::new();
-        let irq_allocator = IrqAllocator::new(4, vm.irq_num()).unwrap();
+        let irq_allocator = IrqAllocator::new(4, vm.max_irq()).unwrap();
         Vmm {
             vm,
             guest_memory,
