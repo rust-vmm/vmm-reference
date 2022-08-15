@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use utils::resource_download::s3_download;
 use vmm::{
-    IrqConfig, KernelConfig, MemoryConfig, VMMConfig, VcpuConfig, Vmm, DEFAULT_KERNEL_LOAD_ADDR,
+    IrqConfig, KernelConfig, MemoryConfig, VMMConfig, VcpuConfig, Vmm, DEFAULT_KERNEL_LOAD_ADDR, MAX_IRQ,
 };
 
 fn default_memory_config() -> MemoryConfig {
@@ -25,8 +25,7 @@ fn default_vcpu_config() -> VcpuConfig {
 }
 
 fn default_irq_config() -> IrqConfig {
-    //TODO:make this arch independent
-    IrqConfig { max_irq: 64 }
+    IrqConfig { max_irq: MAX_IRQ.into() }
 }
 
 fn run_vmm(kernel_path: PathBuf) {

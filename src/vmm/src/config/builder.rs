@@ -204,7 +204,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::{IrqConfig, DEFAULT_KERNEL_LOAD_ADDR};
+    use crate::{IrqConfig, DEFAULT_KERNEL_LOAD_ADDR, MAX_IRQ};
 
     #[test]
     fn test_builder_default_err() {
@@ -359,8 +359,7 @@ mod tests {
                 block_config: Some(BlockConfig {
                     path: PathBuf::from("/dev/loop0")
                 }),
-                //TODO: make it arch independent
-                irq_config: IrqConfig { max_irq: 64 }
+                irq_config: IrqConfig { max_irq: MAX_IRQ.into() }
             }
         );
     }

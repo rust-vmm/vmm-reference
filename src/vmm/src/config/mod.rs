@@ -19,6 +19,13 @@ mod builder;
 
 const KERNEL_CMDLINE_CAPACITY: usize = 4096;
 
+ 
+/// MAX IRQ value rexported.
+#[cfg(target_arch="x86_64")]
+pub const MAX_IRQ:u8 = vm_vcpu::vm::MAX_IRQ;
+#[cfg(target_arch="aarch64")]
+pub const MAX_IRQ:u32 = vm_vcpu::vm::MAX_IRQ;
+
 /// Errors encountered converting the `*Config` objects.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConversionError {
@@ -141,8 +148,7 @@ pub struct IrqConfig {
 
 impl Default for IrqConfig {
     fn default() -> Self {
-        //TODO: make arch independednt
-        IrqConfig { max_irq: 64 }
+        IrqConfig { max_irq: MAX_IRQ.into() }
     }
 }
 
