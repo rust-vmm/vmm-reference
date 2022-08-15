@@ -129,11 +129,11 @@ fn mpf_intel_compute_checksum(v: &mpspec::mpf_intel) -> u8 {
 ///
 /// ```rust
 /// use vm_memory::{GuestAddress, GuestMemoryMmap};
-/// use vm_vcpu_ref::x86_64::mptable::{MpTable, Result};
+/// use vm_vcpu_ref::x86_64::mptable::{MpTable, Result,IRQ_MAX};
 ///
 /// fn write_mptable() -> Result<()> {
 ///     let num_cpus = 4;
-///     let mptable = MpTable::new(num_cpus)?;
+///     let mptable = MpTable::new(num_cpus , IRQ_MAX)?;
 ///     let mem: GuestMemoryMmap =
 ///         GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 1024 << 20)]).unwrap();
 ///     mptable.write(&mem)
