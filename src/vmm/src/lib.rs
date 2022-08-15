@@ -813,7 +813,9 @@ mod tests {
             vcpu_config: VcpuConfig { num: NUM_VCPUS },
             block_config: None,
             net_config: None,
-            irq_config: IrqConfig { max_irq: vm::MAX_IRQ.into() },
+            irq_config: IrqConfig {
+                max_irq: vm::MAX_IRQ.into(),
+            },
         }
     }
 

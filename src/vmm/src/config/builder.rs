@@ -359,7 +359,9 @@ mod tests {
                 block_config: Some(BlockConfig {
                     path: PathBuf::from("/dev/loop0")
                 }),
-                irq_config: IrqConfig { max_irq: MAX_IRQ.into() }
+                irq_config: IrqConfig {
+                    max_irq: MAX_IRQ.into()
+                }
             }
         );
     }

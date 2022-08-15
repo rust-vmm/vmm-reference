@@ -30,8 +30,8 @@ use vm_vcpu_ref::x86_64::mptable::{self, MpTable};
 
 #[cfg(target_arch = "aarch64")]
 pub const MAX_IRQ: u32 = interrupts::MIN_NR_IRQS;
-#[cfg(target_arch="x86_64")]
-pub const MAX_IRQ:u8 = mptable::IRQ_MAX;
+#[cfg(target_arch = "x86_64")]
+pub const MAX_IRQ: u8 = mptable::IRQ_MAX;
 
 /// Defines the configuration of this VM.
 #[derive(Clone)]
@@ -238,7 +238,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
 
         #[cfg(target_arch = "x86_64")]
         {
-            let max_irq:u8 = vm.config.max_irq.try_into().expect("max irq should be u8");
+            let max_irq: u8 = vm.config.max_irq.try_into().expect("max irq should be u8");
             MpTable::new(vm.config.num_vcpus, max_irq)?.write(guest_memory)?;
         }
 
