@@ -84,5 +84,9 @@ mod test {
         assert_eq!(irq_alloc.next_irq(), Ok(7));
 
         assert_eq!(irq_alloc.next_irq(), Err(Error::MaxIrq));
+
+        let mut irq_alloc = IrqAllocator::new(u32::MAX-1, u32::MAX).unwrap();
+        assert_eq!(irq_alloc.next_irq() ,Ok(u32::MAX) );
+        assert!(irq_alloc.next_irq().is_err())
     }
 }
