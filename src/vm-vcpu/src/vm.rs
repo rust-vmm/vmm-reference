@@ -2,6 +2,7 @@
 // Copyright 2017 The Chromium OS Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
+use std::convert::TryInto;
 use std::io::{self, ErrorKind};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread::{self, JoinHandle};
@@ -26,6 +27,11 @@ use crate::vcpu::{self, KvmVcpu, VcpuConfigList, VcpuRunState, VcpuState};
 use vm_vcpu_ref::aarch64::interrupts::{self, Gic, GicConfig, GicState};
 #[cfg(target_arch = "x86_64")]
 use vm_vcpu_ref::x86_64::mptable::{self, MpTable};
+
+#[cfg(target_arch = "aarch64")]
+pub const MAX_IRQ: u32 = interrupts::MIN_NR_IRQS;
+#[cfg(target_arch="x86_64")]
+pub const MAX_IRQ:u8 = mptable::IRQ_MAX;
 
 /// Defines the configuration of this VM.
 #[derive(Clone)]
@@ -231,7 +237,10 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
         let mut vm = Self::create_vm(kvm, vm_config, exit_handler, guest_memory)?;
 
         #[cfg(target_arch = "x86_64")]
-        MpTable::new(vm.config.num_vcpus, vm.config.max_irq).write(guest_memory)?;
+        {
+            let max_irq:u8 = vm.config.max_irq.try_into().expect("max irq should be u8");
+            MpTable::new(vm.config.num_vcpus, max_irq)?.write(guest_memory)?;
+        }
 
         #[cfg(target_arch = "x86_64")]
         vm.setup_irq_controller()?;
@@ -593,9 +602,6 @@ mod tests {
     use kvm_ioctls::Kvm;
     use vm_memory::{Bytes, GuestAddress};
 
-    #[cfg(target_arch = "aarch64")]
-    const MAX_IRQ: u32 = interrupts::MIN_NR_IRQS;
-
     type GuestMemoryMmap = vm_memory::GuestMemoryMmap<()>;
 
     #[derive(Clone, Default)]
@@ -623,7 +629,7 @@ mod tests {
         guest_memory: &GuestMemoryMmap,
         num_vcpus: u8,
     ) -> Result<KvmVm<WrappedExitHandler>> {
-        let vm_config = VmConfig::new(kvm, num_vcpus, MAX_IRQ).unwrap();
+        let vm_config = VmConfig::new(kvm, num_vcpus, MAX_IRQ.into()).unwrap();
         let io_manager = Arc::new(Mutex::new(IoManager::new()));
         let exit_handler = WrappedExitHandler::default();
         let vm = KvmVm::new(kvm, vm_config, guest_memory, exit_handler, io_manager)?;
@@ -672,7 +678,7 @@ mod tests {
     fn test_failed_irqchip_setup() {
         let kvm = Kvm::new().unwrap();
         let num_vcpus = 1;
-        let vm_state = VmConfig::new(&kvm, num_vcpus, MAX_IRQ).unwrap();
+        let vm_state = VmConfig::new(&kvm, num_vcpus, MAX_IRQ.into()).unwrap();
         let mut vm = KvmVm {
             vcpus: Vec::new(),
             vcpu_handles: Vec::new(),

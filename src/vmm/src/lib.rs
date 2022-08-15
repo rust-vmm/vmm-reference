@@ -764,8 +764,6 @@ mod tests {
 
     const MEM_SIZE_MIB: u32 = 1024;
     const NUM_VCPUS: u8 = 1;
-    #[cfg(target_arch = "aarch64")]
-    const MAX_IRQ: u32 = MIN_NR_IRQS;
 
     #[cfg(target_arch = "x86_64")]
     fn default_bzimage_path() -> PathBuf {
@@ -815,7 +813,7 @@ mod tests {
             vcpu_config: VcpuConfig { num: NUM_VCPUS },
             block_config: None,
             net_config: None,
-            irq_config: IrqConfig { max_irq: MAX_IRQ },
+            irq_config: IrqConfig { max_irq: vm::MAX_IRQ.into() },
         }
     }
 
