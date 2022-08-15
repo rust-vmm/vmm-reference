@@ -115,6 +115,10 @@ pub const DEFAULT_ADDRESSS_ALIGNEMNT: u64 = 4;
 /// Default allocation policy for address allocator.
 pub const DEFAULT_ALLOC_POLICY: AllocPolicy = AllocPolicy::FirstMatch;
 
+/// IRQ line 4 is typically used for serial port 1.
+// See more IRQ assignments & info: https://tldp.org/HOWTO/Serial-HOWTO-8.html
+const SERIAL_IRQ: u32 = 4;
+
 /// VMM memory related errors.
 #[derive(Debug)]
 pub enum MemoryError {
@@ -309,7 +313,7 @@ impl TryFrom<VMMConfig> for Vmm {
         #[cfg(target_arch = "aarch64")]
         let fdt_builder = FdtBuilder::new();
 
-        let irq_allocator = IrqAllocator::new(4, vm.max_irq())?;
+        let irq_allocator = IrqAllocator::new(SERIAL_IRQ, vm.max_irq())?;
 
         let mut vmm = Vmm {
             vm,
@@ -499,9 +503,8 @@ impl Vmm {
             stdout(),
         ))));
 
-        // Register its interrupt fd with KVM. IRQ line 4 is typically used for serial port 1.
-        // See more IRQ assignments & info: https://tldp.org/HOWTO/Serial-HOWTO-8.html
-        self.vm.register_irqfd(&interrupt_evt, 4)?;
+        // Register its interrupt fd with KVM.
+        self.vm.register_irqfd(&interrupt_evt, SERIAL_IRQ)?;
 
         self.kernel_cfg
             .cmdline
@@ -850,7 +853,7 @@ mod tests {
         .unwrap();
         #[cfg(target_arch = "aarch64")]
         let fdt_builder = FdtBuilder::new();
-        let irq_allocator = IrqAllocator::new(4, vm.max_irq()).unwrap();
+        let irq_allocator = IrqAllocator::new(SERIAL_IRQ, vm.max_irq()).unwrap();
         Vmm {
             vm,
             guest_memory,

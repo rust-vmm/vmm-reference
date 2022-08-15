@@ -27,8 +27,6 @@ use vm_vcpu_ref::aarch64::interrupts::{self, Gic, GicConfig, GicState};
 #[cfg(target_arch = "x86_64")]
 use vm_vcpu_ref::x86_64::mptable::{self, MpTable};
 
-#[cfg(target_arch = "aarch64")]
-const MAX_IRQ: u32 = interrupts::MIN_NR_IRQS;
 /// Defines the configuration of this VM.
 #[derive(Clone)]
 pub struct VmConfig {
@@ -83,6 +81,7 @@ pub struct KvmVm<EH: ExitHandler + Send> {
     exit_handler: EH,
     vcpu_barrier: Arc<Barrier>,
     vcpu_run_state: Arc<VcpuRunState>,
+
     #[cfg(target_arch = "aarch64")]
     gic: Option<Gic>,
 }
@@ -211,6 +210,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
             vcpu_handles: Vec::new(),
             exit_handler,
             vcpu_run_state,
+
             #[cfg(target_arch = "aarch64")]
             gic: None,
         };
@@ -231,11 +231,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
         let mut vm = Self::create_vm(kvm, vm_config, exit_handler, guest_memory)?;
 
         #[cfg(target_arch = "x86_64")]
-        {
-            let mp_table = MpTable::new(vm.config.num_vcpus)?;
-            mp_table.write(guest_memory)?;
-            self.irq_num = Some(mp_table.irq_num())
-        }
+        MpTable::new(vm.config.num_vcpus, vm.config.max_irq).write(guest_memory)?;
 
         #[cfg(target_arch = "x86_64")]
         vm.setup_irq_controller()?;
@@ -597,6 +593,9 @@ mod tests {
     use kvm_ioctls::Kvm;
     use vm_memory::{Bytes, GuestAddress};
 
+    #[cfg(target_arch = "aarch64")]
+    const MAX_IRQ: u32 = interrupts::MIN_NR_IRQS;
+
     type GuestMemoryMmap = vm_memory::GuestMemoryMmap<()>;
 
     #[derive(Clone, Default)]
@@ -664,6 +663,7 @@ mod tests {
             ranges.push((GuestAddress(i * 100), 100))
         }
         let guest_memory = GuestMemoryMmap::from_ranges(&ranges).unwrap();
+
         let res = default_vm(&kvm, &guest_memory, 1);
         assert!(matches!(res, Err(Error::NotEnoughMemorySlots)));
     }

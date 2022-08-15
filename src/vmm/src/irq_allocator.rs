@@ -11,31 +11,34 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct IrqAllocator {
     // Tracks the last allocated irq
     last_used_irq: u32,
-    max: u32,
+    last_irq: u32,
 }
 
 impl IrqAllocator {
-    pub fn new(last_used_irq: u32, max: u32) -> Result<Self> {
-        if last_used_irq >= max {
+    pub fn new(last_used_irq: u32, last_irq: u32) -> Result<Self> {
+        if last_used_irq >= last_irq {
             return Err(Error::InvalidValue);
         }
-        Ok(IrqAllocator { last_used_irq, max })
+        Ok(IrqAllocator {
+            last_used_irq,
+            last_irq,
+        })
     }
 
     pub fn next_irq(&mut self) -> Result<u32> {
-        match self.last_used_irq.checked_add(1) {
-            Some(irq) => {
-                if irq > self.max {
-                    return Err(Error::MaxIrq);
+        // The condition for overflow will never be reached because
+        // last_used_irq is always less than last_irq. So we can't have
+        // u32::MAX as last_used_irq and last_irq value, which would make it overlfow.
+        self.last_used_irq
+            .checked_add(1)
+            .ok_or(Error::IRQOverflowed)
+            .and_then(|irq| {
+                if irq > self.last_irq {
+                    Err(Error::MaxIrq)
+                } else {
+                    Ok(irq)
                 }
-                self.last_used_irq = irq;
-                Ok(irq)
-            }
-            // This condition will never be reached because
-            // last_used_irq is always less than max. So we can't have
-            // u32::MAX as last_used_irq and max value.
-            None => Err(Error::IRQOverflowed),
-        }
+            })
     }
 }
 #[derive(Debug, PartialEq)]
@@ -48,10 +51,10 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let err = match self {
-            Error::MaxIrq => "Max IRQ limit reached",
+            Error::MaxIrq => "last_irq IRQ limit reached",
             Error::IRQOverflowed => "IRQ overflowed",
             Error::InvalidValue => {
-                "Check the value of last_used and max. las_used should be less than max"
+                "Check the value of last_used and last_irq. las_used should be less than last_irq"
             }
         };
         write!(f, "{}", err) // user-facing output
@@ -65,7 +68,7 @@ mod test {
     fn test_new() {
         let irq_alloc = IrqAllocator::new(4, 10).unwrap();
         assert_eq!(irq_alloc.last_used_irq, 4);
-        assert_eq!(irq_alloc.max, 10);
+        assert_eq!(irq_alloc.last_irq, 10);
         let irq_alloc = IrqAllocator::new(4, 4).unwrap_err();
         assert_eq!(irq_alloc, Error::InvalidValue);
         let irq_alloc = IrqAllocator::new(4, 3).unwrap_err();

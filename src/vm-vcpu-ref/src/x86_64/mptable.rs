@@ -148,13 +148,13 @@ pub struct MpTable {
 
 impl MpTable {
     /// Creates a new MP Table that can hold `cpu_num`.
-    pub fn new(cpu_num: u8) -> Result<MpTable> {
+    pub fn new(cpu_num: u8, max_irq: u8) -> Result<MpTable> {
         if cpu_num > MAX_SUPPORTED_CPUS {
             return Err(Error::TooManyCpus);
         }
 
         Ok(MpTable {
-            irq_num: IRQ_MAX + 1,
+            irq_num: max_irq + 1,
             cpu_num,
         })
     }
