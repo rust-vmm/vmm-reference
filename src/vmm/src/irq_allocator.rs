@@ -36,6 +36,7 @@ impl IrqAllocator {
                 if irq > self.last_irq {
                     Err(Error::MaxIrq)
                 } else {
+                    self.last_used_irq = irq;
                     Ok(irq)
                 }
             })
