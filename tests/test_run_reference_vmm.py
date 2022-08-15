@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import tempfile
+import platform
 
 import time
 from subprocess import PIPE
@@ -17,6 +18,7 @@ from tools.s3 import s3_download
 # No. of seconds after which to give up for the test
 TEST_TIMEOUT = 30
 
+arch = platform.machine()
 
 def process_exists(pid):
     try:
@@ -58,24 +60,43 @@ def default_ubuntu_elf():
         first=True
     )
 
+def default_ubuntu_pe():
+    return s3_download(
+        resource_name="pe-focal",
+        resource_type="kernel",
+        first=True
+    )
+
+def default_busybox_pe():
+    return s3_download(
+        resource_name="pe-hello-busybox",
+        resource_type="kernel",
+        first=True
+    )
 
 def default_disk():
     return s3_download(
-        resource_name="ubuntu-focal-rootfs-x86_64.ext4",
+        resource_name=f"ubuntu-focal-rootfs-{arch}.ext4",
         resource_type="disk",
         first=True
     )
 
+if arch == "aarch64":
+    KERNELS_INITRAMFS = [default_busybox_pe()]
 
-KERNELS_INITRAMFS = [
-    default_busybox_elf(),
-    default_busybox_bzimage()
-]
+    UBUNTU_KERNEL_DISK_PAIRS = [
+        (default_ubuntu_pe() , default_disk())
+    ]
+else:
+    KERNELS_INITRAMFS = [
+        default_busybox_elf(),
+        default_busybox_bzimage()
+    ]
 
-UBUNTU_KERNEL_DISK_PAIRS = [
-    (default_ubuntu_elf(), default_disk()),
-    (default_ubuntu_bzimage(), default_disk()),
-]
+    UBUNTU_KERNEL_DISK_PAIRS = [
+        (default_ubuntu_elf(), default_disk()),
+        (default_ubuntu_bzimage(), default_disk()),
+    ]
 
 
 """
@@ -101,13 +122,16 @@ def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=102
         "--kernel"
     ]
     if default_cmdline:
-        kernel_config = "path={},kernel_load_addr={}".format(
-            kernel_path, kernel_load_addr
+        kernel_config = "path={}".format(
+            kernel_path
         )
     else:
-        kernel_config = "cmdline={},path={},kernel_load_addr={}".format(
-            cmdline, kernel_path, kernel_load_addr
+        kernel_config = "cmdline={},path={}".format(
+            cmdline, kernel_path
         )
+    if arch == "x86_64":
+        kernel_config += ",kernel_load_addr={}".format(kernel_load_addr)
+    
     vmm_cmd.append(kernel_config)
     
     tmp_file_path = None
@@ -205,6 +229,7 @@ def run_cmd_inside_vm(cmd, vmm_process, prompt, timeout=5):
 
     then = time.time()
     giveup_after = timeout
+    all_output = []
     while True:
         try:
             data = os.read(vmm_process.stdout.fileno(), 4096)
@@ -214,8 +239,11 @@ def run_cmd_inside_vm(cmd, vmm_process, prompt, timeout=5):
                 # FIXME: WE get the prompt twice in the output at the end,
                 # So removing it. No idea why twice?
                 # First one is 'cmd'
-                return output_lines[1:-2]
-
+                
+                all_output.extend(output_lines[1:-2])
+                return all_output
+            else:
+                all_output.extend(output_lines)
         except BlockingIOError as _:
             time.sleep(1)
             now = time.time()
@@ -232,13 +260,18 @@ def expect_vcpus(vmm_process, expected_vcpus):
     # dependent on it, so it's just fine to call it again, less than ideal, but not
     # wrong.
     setup_stdout_nonblocking(vmm_process)
-
+    # We check for the prompt at the start so that the inital stdout of the process
+    # gets cleared up, which is printed while the machine is booted.
+    prompt = '/ #'
+    expect_string(vmm_process, prompt)
+    
     # /proc/cpuinfo displays info about each vCPU
-    vmm_process.stdin.write(b'cat /proc/cpuinfo\n')
-    vmm_process.stdin.flush()
-
-    siblings_line = expect_string(vmm_process, "siblings")
-    actual_vcpus = int(siblings_line.split(":")[1].strip())
+    cmd = 'cat /proc/cpuinfo'
+    output = run_cmd_inside_vm(cmd.encode(), vmm_process, prompt.encode(), timeout=5)
+    actual_vcpus = 0
+    for line in output:
+        if "processor" in line.decode():
+            actual_vcpus +=1
 
     assert actual_vcpus == expected_vcpus, \
         "Expected {}, found {} vCPUs".format(expected_vcpus, actual_vcpus)
