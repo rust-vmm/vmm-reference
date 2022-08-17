@@ -161,7 +161,7 @@ impl MpTable {
 
     /// Returns the number of irqs
     pub fn irq_num(&self) -> u32 {
-        self.irq_num.into()
+        self.irq_num as u32
     }
 
     // Returns the size of this MP table based on its configuration.
@@ -469,5 +469,10 @@ mod tests {
 
         let result = MpTable::new(cpus, IRQ_MAX).unwrap_err();
         assert_eq!(result, Error::TooManyCpus);
+    }
+    #[test]
+    fn test_irq_num(){
+        let mptable = MpTable::new(MAX_SUPPORTED_CPUS , IRQ_MAX).unwrap();
+         assert_eq!(mptable.irq_num() , 24)
     }
 }
