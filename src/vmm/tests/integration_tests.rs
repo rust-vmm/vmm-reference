@@ -4,10 +4,7 @@ use std::convert::TryFrom;
 use std::path::PathBuf;
 
 use utils::resource_download::s3_download;
-use vmm::{
-    IrqConfig, KernelConfig, MemoryConfig, VMMConfig, VcpuConfig, Vmm, DEFAULT_KERNEL_LOAD_ADDR,
-    MAX_IRQ,
-};
+use vmm::{KernelConfig, MemoryConfig, VMMConfig, VcpuConfig, Vmm, DEFAULT_KERNEL_LOAD_ADDR};
 
 fn default_memory_config() -> MemoryConfig {
     MemoryConfig { size_mib: 1024 }
@@ -25,12 +22,6 @@ fn default_vcpu_config() -> VcpuConfig {
     VcpuConfig { num: 1 }
 }
 
-fn default_irq_config() -> IrqConfig {
-    IrqConfig {
-        max_irq: MAX_IRQ.into(),
-    }
-}
-
 fn run_vmm(kernel_path: PathBuf) {
     let vmm_config = VMMConfig {
         kernel_config: default_kernel_config(kernel_path),
@@ -38,7 +29,6 @@ fn run_vmm(kernel_path: PathBuf) {
         vcpu_config: default_vcpu_config(),
         block_config: None,
         net_config: None,
-        irq_config: default_irq_config(),
     };
 
     let mut vmm = Vmm::try_from(vmm_config).unwrap();

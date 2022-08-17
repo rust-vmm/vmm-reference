@@ -297,7 +297,7 @@ impl TryFrom<VMMConfig> for Vmm {
         let device_mgr = Arc::new(Mutex::new(IoManager::new()));
 
         // Create the KvmVm.
-        let vm_config = VmConfig::new(&kvm, config.vcpu_config.num, config.irq_config.max_irq)?;
+        let vm_config = VmConfig::new(&kvm, config.vcpu_config.num, MAX_IRQ)?;
         let wrapped_exit_handler = WrappedExitHandler::new()?;
         let vm = KvmVm::new(
             &kvm,
@@ -755,8 +755,7 @@ mod tests {
         bytes::{ByteValued, Bytes},
         Address, GuestAddress, GuestMemory,
     };
-    #[cfg(target_arch = "aarch64")]
-    use vm_vcpu_ref::aarch64::interrupts::MIN_NR_IRQS;
+
     use vmm_sys_util::{tempdir::TempDir, tempfile::TempFile};
 
     use super::*;
@@ -813,9 +812,6 @@ mod tests {
             vcpu_config: VcpuConfig { num: NUM_VCPUS },
             block_config: None,
             net_config: None,
-            irq_config: IrqConfig {
-                max_irq: vm::MAX_IRQ.into(),
-            },
         }
     }
 
@@ -834,12 +830,7 @@ mod tests {
 
         let address_allocator = Vmm::create_address_allocator(&vmm_config.memory_config).unwrap();
         // Create the KvmVm.
-        let vm_config = VmConfig::new(
-            &kvm,
-            vmm_config.vcpu_config.num,
-            vmm_config.irq_config.max_irq,
-        )
-        .unwrap();
+        let vm_config = VmConfig::new(&kvm, vmm_config.vcpu_config.num, MAX_IRQ).unwrap();
 
         let device_mgr = Arc::new(Mutex::new(IoManager::new()));
         let exit_handler = default_exit_handler();

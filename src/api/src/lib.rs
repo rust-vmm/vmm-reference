@@ -82,9 +82,7 @@ mod tests {
 
     use linux_loader::cmdline::Cmdline;
 
-    use vmm::{
-        IrqConfig, KernelConfig, MemoryConfig, VcpuConfig, DEFAULT_KERNEL_LOAD_ADDR, MAX_IRQ,
-    };
+    use vmm::{KernelConfig, MemoryConfig, VcpuConfig, DEFAULT_KERNEL_LOAD_ADDR};
 
     #[test]
     fn test_launch() {
@@ -238,9 +236,6 @@ mod tests {
                 vcpu_config: VcpuConfig { num: 1 },
                 block_config: None,
                 net_config: None,
-                irq_config: IrqConfig {
-                    max_irq: MAX_IRQ.into()
-                }
             }
         );
 
@@ -257,9 +252,6 @@ mod tests {
                 vcpu_config: VcpuConfig { num: 1 },
                 block_config: None,
                 net_config: None,
-                irq_config: IrqConfig {
-                    max_irq: MAX_IRQ.into()
-                }
             }
         );
     }

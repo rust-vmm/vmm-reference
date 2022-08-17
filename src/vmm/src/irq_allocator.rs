@@ -1,5 +1,12 @@
 use std::fmt;
 
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    InvalidValue,
+    MaxIrq,
+    IRQOverflowed,
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// An irq allocator which gives next available irq.
@@ -41,12 +48,6 @@ impl IrqAllocator {
                 }
             })
     }
-}
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    InvalidValue,
-    MaxIrq,
-    IRQOverflowed,
 }
 
 impl fmt::Display for Error {
