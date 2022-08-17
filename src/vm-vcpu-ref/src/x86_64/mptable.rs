@@ -471,8 +471,8 @@ mod tests {
         assert_eq!(result, Error::TooManyCpus);
     }
     #[test]
-    fn test_irq_num(){
-        let mptable = MpTable::new(MAX_SUPPORTED_CPUS , IRQ_MAX).unwrap();
-         assert_eq!(mptable.irq_num() , 24)
+    fn test_irq_num() {
+        let mptable = MpTable::new(MAX_SUPPORTED_CPUS, IRQ_MAX).unwrap();
+        assert_eq!(mptable.irq_num(), 24)
     }
 }
