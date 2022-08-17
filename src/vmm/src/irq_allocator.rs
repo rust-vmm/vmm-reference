@@ -1,5 +1,12 @@
 use std::fmt;
 
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    InvalidValue,
+    MaxIrq,
+    IRQOverflowed,
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// An irq allocator which gives next available irq.
@@ -42,12 +49,6 @@ impl IrqAllocator {
             })
     }
 }
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    InvalidValue,
-    MaxIrq,
-    IRQOverflowed,
-}
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -85,8 +86,8 @@ mod test {
 
         assert_eq!(irq_alloc.next_irq(), Err(Error::MaxIrq));
 
-        let mut irq_alloc = IrqAllocator::new(u32::MAX-1, u32::MAX).unwrap();
-        assert_eq!(irq_alloc.next_irq() ,Ok(u32::MAX) );
+        let mut irq_alloc = IrqAllocator::new(u32::MAX - 1, u32::MAX).unwrap();
+        assert_eq!(irq_alloc.next_irq(), Ok(u32::MAX));
         assert!(irq_alloc.next_irq().is_err())
     }
 }

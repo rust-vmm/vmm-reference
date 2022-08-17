@@ -19,12 +19,12 @@ mod builder;
 
 const KERNEL_CMDLINE_CAPACITY: usize = 4096;
 
- 
 /// MAX IRQ value rexported.
-#[cfg(target_arch="x86_64")]
-pub const MAX_IRQ:u8 = vm_vcpu::vm::MAX_IRQ;
-#[cfg(target_arch="aarch64")]
-pub const MAX_IRQ:u32 = vm_vcpu::vm::MAX_IRQ;
+#[cfg(target_arch = "x86_64")]
+pub const MAX_IRQ: u32 = vm_vcpu::vm::MAX_IRQ as u32;
+#[cfg(target_arch = "aarch64")]
+/// MAX IRQ value rexported.
+pub const MAX_IRQ: u32 = vm_vcpu::vm::MAX_IRQ;
 
 /// Errors encountered converting the `*Config` objects.
 #[derive(Clone, Debug, PartialEq)]
@@ -139,38 +139,7 @@ impl TryFrom<&str> for VcpuConfig {
         Ok(VcpuConfig { num: num.into() })
     }
 }
-/// IrqConfig
-#[derive(Clone, Debug, PartialEq)]
-pub struct IrqConfig {
-    /// Max value of irq.
-    pub max_irq: u32,
-}
 
-impl Default for IrqConfig {
-    fn default() -> Self {
-        IrqConfig { max_irq: MAX_IRQ.into() }
-    }
-}
-
-impl TryFrom<&str> for IrqConfig {
-    type Error = ConversionError;
-
-    fn try_from(vcpu_cfg_str: &str) -> result::Result<Self, Self::Error> {
-        // Supported options: `num=<u8>`
-        let mut arg_parser = CfgArgParser::new(vcpu_cfg_str);
-        let max_irq = arg_parser
-            .value_of("num")
-            .map_err(ConversionError::new_vcpus)?
-            //TODO: check here
-            .unwrap_or_else(|| num::NonZeroU32::new(1).unwrap());
-        arg_parser
-            .all_consumed()
-            .map_err(ConversionError::new_vcpus)?;
-        Ok(IrqConfig {
-            max_irq: max_irq.into(),
-        })
-    }
-}
 /// Guest kernel configurations.
 #[derive(Clone, Debug, PartialEq)]
 pub struct KernelConfig {
@@ -309,8 +278,6 @@ pub struct VMMConfig {
     pub net_config: Option<NetConfig>,
     /// Block device configuration.
     pub block_config: Option<BlockConfig>,
-    /// Max IRQ number.
-    pub irq_config: IrqConfig,
 }
 
 #[cfg(test)]

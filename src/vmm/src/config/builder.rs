@@ -4,8 +4,6 @@
 //! Config builder
 use std::convert::TryFrom;
 
-use crate::IrqConfig;
-
 use super::{
     BlockConfig, ConversionError, KernelConfig, MemoryConfig, NetConfig, VMMConfig, VcpuConfig,
 };
@@ -107,25 +105,7 @@ impl Builder {
             None => self,
         }
     }
-    /// Configure Builder with Max irq value for the VMM.
-    ///
-    /// # Example
-    ///
-    /// You can see example of how to use this function in [`Example` section from
-    /// `build`](#method.build)
-    pub fn irq_config<T>(self, max_irq: Option<T>) -> Self
-    where
-        IrqConfig: TryFrom<T>,
-        <IrqConfig as TryFrom<T>>::Error: Into<ConversionError>,
-    {
-        match max_irq {
-            Some(v) => self.and_then(|mut config| {
-                config.irq_config = TryFrom::try_from(v).map_err(Into::into)?;
-                Ok(config)
-            }),
-            None => self,
-        }
-    }
+    
     /// Configure Builder with Kernel Configuration for the VMM.
     ///
     /// Note: Path argument of the Kernel Configuration is a required argument.
@@ -204,7 +184,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::{IrqConfig, DEFAULT_KERNEL_LOAD_ADDR, MAX_IRQ};
+    use crate::DEFAULT_KERNEL_LOAD_ADDR;
 
     #[test]
     fn test_builder_default_err() {
@@ -358,8 +338,7 @@ mod tests {
                 }),
                 block_config: Some(BlockConfig {
                     path: PathBuf::from("/dev/loop0")
-                }),
-                irq_config: IrqConfig { max_irq: MAX_IRQ.into() }
+                })
             }
         );
     }
