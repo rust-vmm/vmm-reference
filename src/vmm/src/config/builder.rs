@@ -105,7 +105,7 @@ impl Builder {
             None => self,
         }
     }
-    
+
     /// Configure Builder with Kernel Configuration for the VMM.
     ///
     /// Note: Path argument of the Kernel Configuration is a required argument.

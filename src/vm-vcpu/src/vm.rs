@@ -2,6 +2,8 @@
 // Copyright 2017 The Chromium OS Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
+#[cfg(target_arch = "x86_64")]
+use std::convert::TryInto;
 use std::io::{self, ErrorKind};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread::{self, JoinHandle};
@@ -155,6 +157,7 @@ pub enum Error {
     /// Failed to save the state of vCPUs.
     #[error("Failed to save the state of vCPUs: {0}")]
     SaveVcpuState(vcpu::Error),
+    #[cfg(target_arch = "x86_64")]
     /// Max value can only be u8::MAX
     #[error("Maximum value of max_irq can be: {0}")]
     IRQMaxValue(u8),
