@@ -73,6 +73,8 @@ pub enum Error {
     WriteMpcLintsrc,
     /// Failure to write MP table header.
     WriteMpcTable,
+    /// IRQ num overflow.
+    IRQOverflowed,
 }
 
 /// Specialized `Result` type for operations on the MP Table.
@@ -152,16 +154,8 @@ impl MpTable {
         if cpu_num > MAX_SUPPORTED_CPUS {
             return Err(Error::TooManyCpus);
         }
-
-        Ok(MpTable {
-            irq_num: max_irq + 1,
-            cpu_num,
-        })
-    }
-
-    /// Returns the number of irqs
-    pub fn irq_num(&self) -> u32 {
-        self.irq_num as u32
+        let irq_num = max_irq.checked_add(1).ok_or(Error::IRQOverflowed)?;
+        Ok(MpTable { irq_num, cpu_num })
     }
 
     // Returns the size of this MP table based on its configuration.
@@ -473,6 +467,6 @@ mod tests {
     #[test]
     fn test_irq_num() {
         let mptable = MpTable::new(MAX_SUPPORTED_CPUS, IRQ_MAX).unwrap();
-        assert_eq!(mptable.irq_num(), 24)
+        assert_eq!(mptable.max_irq, 24)
     }
 }

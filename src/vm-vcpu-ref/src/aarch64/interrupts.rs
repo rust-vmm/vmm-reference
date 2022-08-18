@@ -312,11 +312,6 @@ impl Gic {
         self.version
     }
 
-    /// Returns the number of irqs
-    pub fn irq_num(&self) -> u32 {
-        self.num_irqs
-    }
-
     /// Save the state of this GIC.
     pub fn save_state(&self, vcpu_mpidrs: Vec<u64>) -> Result<GicState> {
         let fd = self.device_fd();

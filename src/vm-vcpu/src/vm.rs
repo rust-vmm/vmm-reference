@@ -158,9 +158,9 @@ pub enum Error {
     #[error("Failed to save the state of vCPUs: {0}")]
     SaveVcpuState(vcpu::Error),
     #[cfg(target_arch = "x86_64")]
-    /// Max value can only be u8::MAX
-    #[error("Maximum value of max_irq can be: {0}")]
-    IRQMaxValue(u8),
+    /// Invalid max IRQ value.
+    #[error("Invalid maximum number of IRQ: {0}")]
+    IRQMaxValue(u32),
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -247,7 +247,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
                 .config
                 .max_irq
                 .try_into()
-                .map_err(|_| Error::IRQMaxValue(u8::MAX))?;
+                .map_err(|_| Error::IRQMaxValue(vm_config.max_irq))?;
             MpTable::new(vm.config.num_vcpus, max_irq)?.write(guest_memory)?;
         }
         #[cfg(target_arch = "x86_64")]
