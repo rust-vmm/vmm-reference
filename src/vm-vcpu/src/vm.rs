@@ -247,7 +247,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
                 .config
                 .max_irq
                 .try_into()
-                .map_err(|_| Error::IRQMaxValue(vm_config.max_irq))?;
+                .map_err(|_| Error::IRQMaxValue(vm.config.max_irq))?;
             MpTable::new(vm.config.num_vcpus, max_irq)?.write(guest_memory)?;
         }
         #[cfg(target_arch = "x86_64")]
