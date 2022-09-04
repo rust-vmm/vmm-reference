@@ -107,7 +107,7 @@ and run locally.
 """
 
 
-def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=1024 ,default_cmdline=False):
+def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=1024 ,default_cmdline=False , tap_device=None):
     # Kernel config
     cmdline = "console=ttyS0 i8042.nokbd reboot=t panic=1 pci=off"
 
@@ -144,6 +144,9 @@ def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=102
         subprocess.run(cp_cmd, shell=True, check=True)
         vmm_cmd.append("--block")
         vmm_cmd.append("path={}".format(tmp_file_path))
+    if tap_device is not None:
+        vmm_cmd.append("--net")
+        vmm_cmd.append("tap={}".format(tap_device))
 
     vmm_process = subprocess.Popen(vmm_cmd, stdout=PIPE, stdin=PIPE)
 
@@ -423,3 +426,88 @@ def test_reference_vmm_mem(kernel):
         expect_mem(vmm_process, expected_mem_mib)
 
         shutdown(vmm_process)
+
+
+@pytest.mark.parametrize("kernel,disk", UBUNTU_KERNEL_DISK_PAIRS)
+def test_reference_vmm_with_net_device(kernel , disk):
+    """Start the reference VMM and verify the tap device."""
+
+    prompt = "root@ubuntu-rust-vmm:~#"
+    # These are defults values for net
+    # device.
+    tap_device = "tap0"
+    guest_ip = "172.16.0.2"
+    host_ip = "172.16.0.1"
+    mask = 24
+    guest_ip_with_mask = f"{guest_ip}/{mask}"
+    try:
+        setup_host()
+
+        vmm_process, _ = start_vmm_process(kernel, disk_path=disk ,tap_device=tap_device)
+
+        setup_guest(vmm_process , prompt)
+        
+        # ping the host from guest to verify that the network interface works
+        ping_cmd = f"ping -c 2 {host_ip}"
+        output = run_cmd_inside_vm(ping_cmd.encode(),vmm_process,prompt.encode(),timeout=10)
+        
+        output = b''.join(output).decode()
+        result = output.find("2 received")
+        assert result != -1
+    
+    except:
+        raise
+    
+    finally:
+        shutdown(vmm_process)
+        clean_tap()
+    
+
+def setup_guest(vmm_process , prompt , guest_ip_with_mask="172.16.0.2/24" , host_ip="172.16.0.1"):
+    """Configure the guest vm with the tap device"""
+    expect_string(vmm_process,prompt)
+    # This is a little hack to write the command in chunks
+    # because there is a character limit. `i_` represents
+    # an incomplete command.
+    i_add_addr1_cmd = "i_ip addr add "
+    i_add_addr2_cmd = f"i_{guest_ip_with_mask} "
+    add_addr3_cmd = "dev eth0"
+    interface_up_cmd = "ip link set eth0 up"
+    i_add_route1_cmd = "i_ip route add default "
+    i_add_route2_cmd = f"i_via {host_ip} "
+    add_route3_cmd = "dev eth0"
+    show_interface_cmd = "ip a"
+    
+    all_cmds = [i_add_addr1_cmd ,i_add_addr2_cmd, add_addr3_cmd , interface_up_cmd , i_add_route1_cmd, i_add_route2_cmd ,add_route3_cmd]
+
+    for cmd in all_cmds:        
+        in_between = cmd[:2] == "i_"
+        if in_between:
+            cmd = cmd[2:]
+            cmd = cmd.encode()
+        else:
+            cmd = cmd.encode().strip() + b'\r\n'
+        vmm_process.stdin.write(cmd)
+        vmm_process.stdin.flush()
+        time.sleep(1)
+    
+    # just to flush out any data on stdout
+    os.read(vmm_process.stdout.fileno(), 4096)
+
+    # verifying that guest interface is setup properly
+    output = run_cmd_inside_vm(show_interface_cmd.encode() , vmm_process ,prompt.encode() , timeout=10 )    
+    output = b''.join(output).decode()
+    assert output.find(f"inet {guest_ip_with_mask} scope global eth0") != -1
+
+def setup_host(tap_device="tap0" , host_ip_with_mask="172.16.0.1/24"):
+    """Configure the host device with a tap deivce"""
+
+    setup_cmd = """ip tuntap add {tap_device} mode tap &&
+                ip addr add {host_ip} dev {tap_device} &&
+                ip link set tap0 up""".format(host_ip=host_ip_with_mask , tap_device=tap_device)
+    subprocess.run(setup_cmd ,shell=True,check=True)
+
+def clean_tap(tap_device="tap0"):
+    """Cleans the host device tap device"""
+    delete_cmd = "ip tuntap del {} mode tap".format(tap_device)
+    subprocess.run(delete_cmd,shell=True,check=True)
