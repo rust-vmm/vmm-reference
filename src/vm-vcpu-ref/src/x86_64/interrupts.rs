@@ -31,7 +31,7 @@ pub const APIC_LVT0_REG_OFFSET: usize = 0x350;
 pub const APIC_LVT1_REG_OFFSET: usize = 0x360;
 
 /// Specifies the type of interrupt to be sent to the processor.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 // We user upper case acronyms so that we can stick to the names as they're
 // defined in the Intel Manual.
 #[allow(clippy::upper_case_acronyms)]
@@ -49,7 +49,7 @@ pub enum DeliveryMode {
 }
 
 /// Errors associated with operations related to interrupts.
-#[derive(Debug, PartialEq, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
     /// The register offset is invalid.
     #[error("The register offset is invalid.")]

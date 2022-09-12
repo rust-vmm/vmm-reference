@@ -28,7 +28,7 @@ const EBDA_START: u64 = 0x0009_fc00;
 // See https://github.com/rust-vmm/linux-loader/issues/51
 const E820_RAM: u32 = 1;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 /// Errors pertaining to boot parameter setup.
 pub enum Error {
     /// Invalid E820 configuration.

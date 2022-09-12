@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     DownloadError(String),
 }

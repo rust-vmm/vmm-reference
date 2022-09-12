@@ -55,7 +55,7 @@ const ICC_CTLR_EL1_PRIBITS_SHIFT: u64 = 8;
 const ICC_CTLR_EL1_PRIBITS_MASK: u64 = 7 << ICC_CTLR_EL1_PRIBITS_SHIFT;
 
 /// Structure for serializing the state of the GIC ICC regs
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct GicSysRegsState {
     main_icc_regs: Vec<GicRegState<u64>>,
     ap_icc_regs: Vec<Option<GicRegState<u64>>>,
