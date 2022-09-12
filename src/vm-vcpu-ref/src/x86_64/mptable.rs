@@ -48,7 +48,7 @@ const MPTABLE_START: u64 = 0x9fc00;
 /// Last usable IRQ ID for virtio device interrupts on x86_64.
 pub const IRQ_MAX: u8 = 23;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 /// Errors associated with creating and operating with the MP Table.
 pub enum Error {
     /// There was too little guest memory to store the entire MP table.

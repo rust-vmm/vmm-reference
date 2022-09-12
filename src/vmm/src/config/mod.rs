@@ -20,7 +20,7 @@ mod builder;
 const KERNEL_CMDLINE_CAPACITY: usize = 4096;
 
 /// Errors encountered converting the `*Config` objects.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConversionError {
     /// Failed to parse the string representation for the kernel.
     ParseKernel(String),
@@ -73,7 +73,7 @@ impl fmt::Display for ConversionError {
 }
 
 /// Guest memory configurations.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemoryConfig {
     /// Guest memory size in MiB.
     pub size_mib: u32,
@@ -104,7 +104,7 @@ impl TryFrom<&str> for MemoryConfig {
 }
 
 /// vCPU configurations.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VcpuConfig {
     /// Number of vCPUs.
     pub num: u8,
@@ -207,7 +207,7 @@ impl TryFrom<&str> for KernelConfig {
     }
 }
 /// Network device configuration.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NetConfig {
     /// Name of tap device.
     pub tap_name: String,
@@ -233,7 +233,7 @@ impl TryFrom<&str> for NetConfig {
 }
 
 /// Block device configuration
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BlockConfig {
     /// Path to the block device backend.
     pub path: PathBuf,
