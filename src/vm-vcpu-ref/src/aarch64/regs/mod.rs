@@ -17,7 +17,7 @@ mod icc;
 mod redist;
 
 /// Generic GIC register state,
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GicRegState<T> {
     pub(crate) chunks: Vec<T>,
 }
@@ -167,7 +167,7 @@ fn kvm_device_attr<RegChunk>(
 }
 
 /// Structure representing a simple register.
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 struct SimpleReg {
     /// The offset from the component address. The register is memory mapped here.
     offset: u64,

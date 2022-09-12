@@ -33,7 +33,7 @@ const AARCH64_GIC_CPUI_BASE: u64 = AARCH64_GIC_DIST_BASE - AARCH64_GIC_CPUI_SIZE
 const AARCH64_GIC_REDIST_SIZE: u64 = 0x20000;
 
 /// Specifies the version of the GIC device
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum GicVersion {
     // The following casts are safe because the device type has small values (i.e. 5 and 7)
     /// GICv2 identifier.

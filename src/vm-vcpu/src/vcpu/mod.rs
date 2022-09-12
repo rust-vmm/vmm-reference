@@ -326,6 +326,9 @@ impl KvmVcpu {
     thread_local!(static TLS_VCPU_PTR: RefCell<Option<*const KvmVcpu>> = RefCell::new(None));
 
     /// Create a new vCPU.
+    // This is needed so we can initialize the vcpu the same way on x86_64 and aarch64, but
+    // have it as mutable on aarch64.
+    #[allow(clippy::needless_late_init)]
     pub fn new<M: GuestMemory>(
         vm_fd: &VmFd,
         device_mgr: Arc<Mutex<IoManager>>,

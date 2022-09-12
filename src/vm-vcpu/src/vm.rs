@@ -187,7 +187,7 @@ pub trait ExitHandler: Clone {
 }
 
 /// Represents the current state of the VM.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VmRunState {
     Running,
     Suspending,
@@ -492,7 +492,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
                 .name(format!("vcpu_{}", id))
                 .spawn(move || {
                     // TODO: Check the result of both vcpu run & kick.
-                    let _ = vcpu.run(vcpu_run_addr).unwrap();
+                    vcpu.run(vcpu_run_addr).unwrap();
                     let _ = vcpu_exit_handler.kick();
                     vcpu.run_state.set_and_notify(VmRunState::Exiting);
                 })
