@@ -7,6 +7,7 @@ import os
 import subprocess
 import tempfile
 import platform
+import sys
 
 import time
 from subprocess import PIPE
@@ -107,7 +108,7 @@ and run locally.
 """
 
 
-def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=1024 ,default_cmdline=False):
+def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=1024 ,default_cmdline=False , tap_device=None):
     # Kernel config
     cmdline = "console=ttyS0 i8042.nokbd reboot=t panic=1 pci=off"
 
@@ -144,6 +145,9 @@ def start_vmm_process(kernel_path, disk_path=None, num_vcpus=1, mem_size_mib=102
         subprocess.run(cp_cmd, shell=True, check=True)
         vmm_cmd.append("--block")
         vmm_cmd.append("path={}".format(tmp_file_path))
+    if tap_device is not None:
+        vmm_cmd.append("--net")
+        vmm_cmd.append("tap={}".format(tap_device))
 
     vmm_process = subprocess.Popen(vmm_cmd, stdout=PIPE, stdin=PIPE)
 
@@ -222,7 +226,24 @@ def run_cmd_inside_vm(cmd, vmm_process, prompt, timeout=5):
 
        Note: `cmd` and `prompt` should be a `bytes` object and not `str`.
     """
-    cmd = cmd.strip() + b'\r\n'
+    cmd = cmd.strip()
+    
+    # The max capacity of the buffer for serial console is 64.(https://github.com/rust-vmm/vm-superio/blob/282bae92878936086606715412494fa81151efba/crates/vm-superio/src/serial.rs#L34)
+    # So we split the command at 63 bytes. 1 extra is reserved for \r at the end.
+    # empty string is of size 33. sys.getsizeof(b'') = 33.
+    # 63-33 = 30. So we add at max 30 [0-29] chars inside the command buffer.
+    break_at = 30
+    size = sys.getsizeof(cmd)
+    while size >= 64:
+        cmd_i = cmd[:break_at]
+
+        vmm_process.stdin.write(cmd_i)
+        vmm_process.stdin.flush()
+        time.sleep(1)
+        cmd = cmd[break_at:]
+        size = sys.getsizeof(cmd)
+
+    cmd = cmd + b'\r\n'
 
     vmm_process.stdin.write(cmd)
     vmm_process.stdin.flush()
@@ -423,3 +444,80 @@ def test_reference_vmm_mem(kernel):
         expect_mem(vmm_process, expected_mem_mib)
 
         shutdown(vmm_process)
+
+
+@pytest.mark.parametrize("kernel,disk", UBUNTU_KERNEL_DISK_PAIRS)
+def test_reference_vmm_with_net_device(kernel , disk):
+    """Start the reference VMM and verify the tap device."""
+
+    prompt = "root@ubuntu-rust-vmm:~#"
+    # These are defults values for net devices.
+    tap_device = "tap0"
+    guest_ip = "172.16.0.2"
+    host_ip = "172.16.0.1"
+    mask = 24
+    guest_ip_with_mask = f"{guest_ip}/{mask}"
+
+    setup_host()
+
+    try:
+        vmm_process, temp_file_path = start_vmm_process(kernel, disk_path=disk ,tap_device=tap_device)
+
+        setup_guest(vmm_process , prompt)
+        
+        # ping the host from guest to verify that the network interface works
+        ping_cmd = f"ping -c 2 {host_ip}"
+        output = run_cmd_inside_vm(ping_cmd.encode(),vmm_process,prompt.encode(),timeout=10)
+        
+        output = b''.join(output).decode()
+        result = output.find("2 received")
+        assert result != -1
+    
+    except:
+        raise
+    
+    finally:
+        shutdown(vmm_process)
+        if temp_file_path:
+            os.remove(temp_file_path)
+
+        # we will always clear the tap device no matter if the
+        # test passes or fails.
+        clean_tap()
+    
+
+def setup_guest(vmm_process , prompt , guest_ip_with_mask="172.16.0.2/24" , host_ip="172.16.0.1"):
+    """Configure the guest vm with the tap device"""
+    
+    # To clear the inital stdout which was printed while 
+    # booting the vmm.
+    expect_string(vmm_process,prompt)
+    
+    add_addr_cmd = f"ip addr add {guest_ip_with_mask} dev eth0"
+    interface_up_cmd = "ip link set eth0 up"
+    add_route_cmd = f"ip route add default via {host_ip} dev eth0"
+    show_interface_cmd = "ip a"
+    
+    all_cmds = [add_addr_cmd , interface_up_cmd , add_route_cmd]
+
+    for cmd in all_cmds:        
+        _ = run_cmd_inside_vm(cmd.encode() , vmm_process , prompt.encode())
+ 
+    # verifying that guest interface is setup properly
+    output = run_cmd_inside_vm(show_interface_cmd.encode() , vmm_process ,prompt.encode() , timeout=10 )    
+    output = b''.join(output).decode()
+    
+    assert output.find(f"inet {guest_ip_with_mask} scope global eth0") != -1
+
+def setup_host(tap_device="tap0" , host_ip_with_mask="172.16.0.1/24"):
+    """Configure the host device with a tap deivce"""
+
+    setup_cmd = """ip tuntap add {tap_device} mode tap &&
+                ip addr add {host_ip} dev {tap_device} &&
+                ip link set tap0 up""".format(host_ip=host_ip_with_mask , tap_device=tap_device)
+    subprocess.run(setup_cmd ,shell=True,check=True)
+
+def clean_tap(tap_device="tap0"):
+    """Cleans the host device tap device"""
+    delete_cmd = "ip tuntap del {} mode tap".format(tap_device)
+    subprocess.run(delete_cmd,shell=True,check=True)
