@@ -18,6 +18,7 @@ macro_rules! arm64_core_reg {
 macro_rules! offset__of {
     ($str:ty, $($field:ident)+) => ({
         let tmp: std::mem::MaybeUninit<$str> = std::mem::MaybeUninit::uninit();
+        // SAFETY:
         // Safe because we are not using the value of tmp.
         let tmp = unsafe { tmp.assume_init() };
         let base = &tmp as *const _ as usize;
