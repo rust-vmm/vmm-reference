@@ -51,6 +51,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Descriptors" of the Intel Manual Volume 3a.
 pub struct SegmentDescriptor(pub u64);
 
+// SAFETY:
 // Safe because SegmentDescriptor is just a wrapper over u64.
 unsafe impl ByteValued for SegmentDescriptor {}
 

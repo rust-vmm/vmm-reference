@@ -355,6 +355,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
                 flags: 0,
             };
 
+            // SAFETY:
             // Safe because:
             // * userspace_addr is a valid address for a memory region, obtained by calling
             //   get_host_address() on a valid region's start address;

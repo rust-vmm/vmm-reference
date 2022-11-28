@@ -9,7 +9,8 @@
     non_camel_case_types,
     non_upper_case_globals,
     unused,
-    clippy::redundant_static_lifetimes
+    clippy::redundant_static_lifetimes,
+    clippy::undocumented_unsafe_blocks
 )]
 #![cfg_attr(test, allow(clippy::zero_ptr))]
 #![cfg_attr(test, allow(deref_nullptr))]
