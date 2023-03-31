@@ -56,7 +56,7 @@ name = "arch"
 version = "0.1.0"
 dependencies = [
  "vm-fdt",
- "vm-memory 0.7.0",
+ "vm-memory 0.10.0",
 ]
 
 [[package]]
@@ -125,8 +125,8 @@ name = "devices"
 version = "0.1.0"
 dependencies = [
  "event-manager",
- "kvm-bindings 0.6.0",
- "kvm-ioctls 0.13.0",
+ "kvm-bindings",
+ "kvm-ioctls",
  "libc",
  "linux-loader",
  "log",
@@ -202,15 +202,6 @@ dependencies = [
 
 [[package]]
 name = "kvm-bindings"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a78c049190826fff959994b7c1d8a2930d0a348f1b8f3aa4f9bb34cd5d7f2952"
-dependencies = [
- "vmm-sys-util 0.8.0",
-]
-
-[[package]]
-name = "kvm-bindings"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "efe70e65a5b092161d17f5005b66e5eefe7a94a70c332e755036fc4af78c4e79"
@@ -220,22 +211,11 @@ dependencies = [
 
 [[package]]
 name = "kvm-ioctls"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97422ba48d7ffb66fd4d18130f72ab66f9bbbf791fb7a87b9291cdcfec437593"
-dependencies = [
- "kvm-bindings 0.5.0",
- "libc",
- "vmm-sys-util 0.8.0",
-]
-
-[[package]]
-name = "kvm-ioctls"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8f8dc9c1896e5f144ec5d07169bc29f39a047686d29585a91f30489abfaeb6b"
 dependencies = [
- "kvm-bindings 0.6.0",
+ "kvm-bindings",
  "libc",
  "vmm-sys-util 0.11.1",
 ]
@@ -440,13 +420,13 @@ name = "vm-vcpu"
 version = "0.1.0"
 dependencies = [
  "arch",
- "kvm-bindings 0.5.0",
- "kvm-ioctls 0.11.0",
+ "kvm-bindings",
+ "kvm-ioctls",
  "libc",
  "thiserror",
  "utils",
  "vm-device",
- "vm-memory 0.7.0",
+ "vm-memory 0.10.0",
  "vm-vcpu-ref",
  "vmm-sys-util 0.8.0",
 ]
@@ -455,12 +435,12 @@ dependencies = [
 name = "vm-vcpu-ref"
 version = "0.1.0"
 dependencies = [
- "kvm-bindings 0.5.0",
- "kvm-ioctls 0.11.0",
+ "kvm-bindings",
+ "kvm-ioctls",
  "libc",
  "thiserror",
- "vm-memory 0.7.0",
- "vmm-sys-util 0.8.0",
+ "vm-memory 0.10.0",
+ "vmm-sys-util 0.11.1",
 ]
 
 [[package]]
@@ -470,8 +450,8 @@ dependencies = [
  "arch",
  "devices",
  "event-manager",
- "kvm-bindings 0.6.0",
- "kvm-ioctls 0.13.0",
+ "kvm-bindings",
+ "kvm-ioctls",
  "libc",
  "linux-loader",
  "utils",
