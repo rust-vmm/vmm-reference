@@ -14,7 +14,7 @@ use std::os::raw::{c_char, c_int, c_uint, c_ulong};
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
 use vmm_sys_util::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
-use vmm_sys_util::{ioctl_expr, ioctl_ioc_nr, ioctl_iow_nr};
+use vmm_sys_util::{ioctl_ioc_nr, ioctl_iow_nr};
 
 use super::bindings::ifreq;
 
