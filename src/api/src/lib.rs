@@ -211,7 +211,7 @@ mod tests {
         ])
         .is_err());
 
-        let mut foo_cmdline = Cmdline::new(4096);
+        let mut foo_cmdline = Cmdline::new(4096).unwrap();
         foo_cmdline.insert_str("\"foo=bar bar=foo\"").unwrap();
 
         // OK.

@@ -191,7 +191,7 @@ mod tests {
         assert_eq!(block.device_type(), BLOCK_DEVICE_ID);
 
         assert_eq!(
-            mock.kernel_cmdline.as_str(),
+            mock.kernel_cmdline.as_string().unwrap(),
             format!(
                 "virtio_mmio.device=4K@0x{:x}:{} root=/dev/vda ro",
                 mock.mmio_cfg.range.base().0,

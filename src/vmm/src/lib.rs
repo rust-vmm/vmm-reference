@@ -458,12 +458,13 @@ impl Vmm {
 
         // Add the kernel command line to the boot parameters.
         bootparams.hdr.cmd_line_ptr = CMDLINE_START as u32;
-        bootparams.hdr.cmdline_size = self.kernel_cfg.cmdline.as_str().len() as u32 + 1;
+        bootparams.hdr.cmdline_size =
+            String::try_from(&self.kernel_cfg.cmdline).unwrap().len() as u32 + 1;
 
         // Load the kernel command line into guest memory.
-        let mut cmdline = Cmdline::new(4096);
+        let mut cmdline = Cmdline::new(4096).unwrap();
         cmdline
-            .insert_str(self.kernel_cfg.cmdline.as_str())
+            .insert_str(String::try_from(&self.kernel_cfg.cmdline).unwrap())
             .map_err(Error::Cmdline)?;
 
         load_cmdline(
@@ -724,7 +725,7 @@ impl Vmm {
         let cmdline = &self.kernel_cfg.cmdline;
         let fdt = self
             .fdt_builder
-            .with_cmdline(cmdline.as_str().to_string())
+            .with_cmdline(String::try_from(&cmdline).unwrap())
             .with_num_vcpus(self.num_vcpus.try_into().unwrap())
             .with_mem_size(mem_size)
             .create_fdt()
@@ -750,6 +751,7 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     use std::path::Path;
     use std::path::PathBuf;
+    use std::fs::write;
     #[cfg(target_arch = "x86_64")]
     use vm_memory::{
         bytes::ByteValued,
@@ -956,7 +958,8 @@ mod tests {
             matches!(vmm.load_kernel().unwrap_err(), Error::IO(e) if e.kind() == ErrorKind::NotFound)
         );
 
-        // Test case: kernel image is invalid.
+        // Test case: kernel image is invalid. This test has two flavors. In the first
+        // we try to load an empty file, in the second a file which has all zeros.
         let mut vmm_config = default_vmm_config();
         let temp_file = TempFile::new().unwrap();
         vmm_config.kernel_config.path = PathBuf::from(temp_file.as_path());
@@ -966,10 +969,27 @@ mod tests {
         #[cfg(target_arch = "x86_64")]
         assert!(matches!(
             err,
+            Error::KernelLoad(loader::Error::Elf(loader::elf::Error::ReadElfHeader))
+        ));
+        #[cfg(target_arch = "aarch64")]
+        assert!(matches!(
+            err,
+            Error::KernelLoad(loader::Error::Pe(loader::pe::Error::ReadImageHeader))
+        ));
+
+        let temp_file_path = PathBuf::from(temp_file.as_path());
+        let buffer: Vec<u8> = vec![0_u8; 1024];
+        write(temp_file_path, buffer).unwrap();
+        let err = vmm.load_kernel().unwrap_err();
+
+        #[cfg(target_arch = "x86_64")]
+        assert!(matches!(
+            err,
             Error::KernelLoad(loader::Error::Bzimage(
                 loader::bzimage::Error::InvalidBzImage
             ))
         ));
+
         #[cfg(target_arch = "aarch64")]
         assert!(matches!(
             err,
@@ -1011,15 +1031,18 @@ mod tests {
         let mut vmm_config = default_vmm_config();
         vmm_config.kernel_config.path = default_elf_path();
         let mut vmm = mock_vmm(vmm_config);
-        assert_eq!(vmm.kernel_cfg.cmdline.as_str(), DEFAULT_KERNEL_CMDLINE);
+        assert_eq!(
+            String::try_from(&vmm.kernel_cfg.cmdline).unwrap(),
+            DEFAULT_KERNEL_CMDLINE
+        );
         vmm.add_serial_console().unwrap();
         #[cfg(target_arch = "x86_64")]
-        assert!(vmm.kernel_cfg.cmdline.as_str().contains("console=ttyS0"));
+        assert!(String::try_from(&vmm.kernel_cfg.cmdline)
+            .unwrap()
+            .contains("console=ttyS0"));
         #[cfg(target_arch = "aarch64")]
-        assert!(vmm
-            .kernel_cfg
-            .cmdline
-            .as_str()
+        assert!(String::try_from(&vmm.kernel_cfg.cmdline)
+            .unwrap()
             .contains("earlycon=uart,mmio"));
     }
 
@@ -1118,7 +1141,9 @@ mod tests {
         assert_eq!(vmm.block_devices.len(), 1);
         #[cfg(target_arch = "aarch64")]
         assert_eq!(vmm.fdt_builder.virtio_device_len(), 1);
-        assert!(vmm.kernel_cfg.cmdline.as_str().contains("virtio"));
+        assert!(String::try_from(&vmm.kernel_cfg.cmdline)
+            .unwrap()
+            .contains("virtio"));
 
         let invalid_block_config = BlockConfig {
             // Let's create the tempfile directly here so that it gets out of scope immediately
@@ -1151,7 +1176,9 @@ mod tests {
             assert_eq!(vmm.net_devices.len(), 1);
             #[cfg(target_arch = "aarch64")]
             assert_eq!(vmm.fdt_builder.virtio_device_len(), 1);
-            assert!(vmm.kernel_cfg.cmdline.as_str().contains("virtio"));
+            assert!(String::try_from(&vmm.kernel_cfg.cmdline)
+                .unwrap()
+                .contains("virtio"));
         }
     }
 
@@ -1172,7 +1199,7 @@ mod tests {
             let cmdline = &vmm.kernel_cfg.cmdline;
             let fdt = vmm
                 .fdt_builder
-                .with_cmdline(cmdline.as_str().to_string())
+                .with_cmdline(String::try_from(&cmdline).unwrap())
                 .with_num_vcpus(vmm.num_vcpus.try_into().unwrap())
                 .with_mem_size(mem_size)
                 .with_serial_console(0x40000000, 0x1000)

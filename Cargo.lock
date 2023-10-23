@@ -149,8 +149,8 @@ checksum = "8916b1f6ca17130ec6568feccee27c156ad12037880833a3b842a823236502e7"
 
 [[package]]
 name = "linux-loader"
-version = "0.4.0"
-source = "git+https://github.com/rust-vmm/linux-loader.git?rev=9a9f071#9a9f071219a8c74dcd703aec40ba0249e3a5993b"
+version = "0.10.0"
+source = "git+https://github.com/vitamin-v-software/linux-loader.git?rev=76aefef#76aefefc41c9a55217768bc0c89a55178db65b47"
 dependencies = [
  "vm-memory",
 ]

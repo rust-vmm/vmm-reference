@@ -21,5 +21,6 @@ lto = true
 panic = "abort"
 
 [patch.crates-io]
-# TODO: Using this patch until a version > 4.0 gets published.
-linux-loader = { git = "https://github.com/rust-vmm/linux-loader.git", rev = "9a9f071" }
+# TODO: Update with https://github.com/rust-vmm/linux-loader.git hash of commit
+# "add as_string() to the Cmdline crate"
+linux-loader = { git = "https://github.com/vitamin-v-software/linux-loader.git", rev = "76aefef" }

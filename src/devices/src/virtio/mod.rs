@@ -332,7 +332,7 @@ pub(crate) mod tests {
                 mmio_mgr: IoManager::new(),
                 mmio_cfg,
                 // `4096` seems large enough for testing.
-                kernel_cmdline: Cmdline::new(4096),
+                kernel_cmdline: Cmdline::new(4096).unwrap(),
             }
         }
         pub fn env(&mut self) -> Env<MockMem, &mut IoManager> {
@@ -387,7 +387,7 @@ pub(crate) mod tests {
         assert_eq!(bus_range.size(), range.size());
 
         assert_eq!(
-            mock.kernel_cmdline.as_str(),
+            mock.kernel_cmdline.as_string().unwrap(),
             format!(
                 "virtio_mmio.device=4K@0x{:x}:{}",
                 range.base().0,
@@ -396,7 +396,11 @@ pub(crate) mod tests {
         );
 
         mock.env().insert_cmdline_str("ending_string").unwrap();
-        assert!(mock.kernel_cmdline.as_str().ends_with("ending_string"));
+        assert!(mock
+            .kernel_cmdline
+            .as_string()
+            .unwrap()
+            .ends_with("ending_string"));
     }
 
     #[test]
