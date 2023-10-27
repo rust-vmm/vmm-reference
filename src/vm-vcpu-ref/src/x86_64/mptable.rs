@@ -5,7 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::io;
 use std::mem;
 use std::result;
 use std::slice;
@@ -190,7 +189,8 @@ impl MpTable {
         let mut checksum: u8 = 0;
         let max_ioapic_id = self.cpu_num + 1;
 
-        mem.read_from(base_mp, &mut io::repeat(0), mp_size)
+        let zero_slice: Vec<u8> = (0..mp_size).map(|_| 0u8).collect();
+        mem.write_slice(zero_slice.as_slice(), base_mp)
             .map_err(|_| Error::Clear)?;
 
         {
@@ -405,23 +405,14 @@ mod tests {
         let mpc_offset = GuestAddress(u64::from(mpf_intel.0.physptr));
         let mpc_table: MpcTable = mem.read_obj(mpc_offset).unwrap();
 
-        struct Sum(u8);
-        impl io::Write for Sum {
-            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-                for v in buf.iter() {
-                    self.0 = self.0.wrapping_add(*v);
-                }
-                Ok(buf.len())
-            }
-            fn flush(&mut self) -> io::Result<()> {
-                Ok(())
-            }
-        }
-
-        let mut sum = Sum(0);
-        mem.write_to(mpc_offset, &mut sum, mpc_table.0.length as usize)
+        let mut mpc_table: Vec<u8> = (0..mpc_table.0.length).map(|_| 0u8).collect();
+        mem.read_slice(mpc_table.as_mut_slice(), mpc_offset)
             .unwrap();
-        assert_eq!(sum.0, 0);
+        let mut csum: u8 = 0;
+        mpc_table
+            .iter()
+            .for_each(|byte| csum = csum.wrapping_add(*byte));
+        assert_eq!(csum, 0);
     }
 
     #[test]
