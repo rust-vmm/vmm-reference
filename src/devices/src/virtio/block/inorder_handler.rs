@@ -7,8 +7,10 @@ use std::result;
 use log::warn;
 use virtio_blk::request::Request;
 use virtio_blk::stdio_executor::{self, StdIoBackend};
-use virtio_queue::{DescriptorChain, Queue};
-use vm_memory::{self, GuestAddressSpace};
+use virtio_queue::{DescriptorChain, Queue, QueueOwnedT, QueueT};
+use vm_memory::{self, GuestAddressSpace, GuestMemoryMmap};
+
+use std::sync::Arc;
 
 use crate::virtio::SignalUsedQueue;
 
@@ -42,18 +44,20 @@ impl From<stdio_executor::ProcessReqError> for Error {
 // object), but the aim is to have a way of working with generic backends and turn this into
 // a more flexible building block. The name comes from processing and returning descriptor
 // chains back to the device in the same order they are received.
-pub struct InOrderQueueHandler<M: GuestAddressSpace, S: SignalUsedQueue> {
+pub struct InOrderQueueHandler<S: SignalUsedQueue> {
     pub driver_notify: S,
-    pub queue: Queue<M>,
+    pub queue: Queue,
     pub disk: StdIoBackend<File>,
 }
 
-impl<M, S> InOrderQueueHandler<M, S>
+impl<S> InOrderQueueHandler<S>
 where
-    M: GuestAddressSpace,
     S: SignalUsedQueue,
 {
-    fn process_chain(&mut self, mut chain: DescriptorChain<M::T>) -> result::Result<(), Error> {
+    fn process_chain<M: GuestAddressSpace>(
+        &mut self,
+        mut chain: DescriptorChain<M::T>,
+    ) -> result::Result<(), Error> {
         let used_len = match Request::parse(&mut chain) {
             Ok(request) => self.disk.process_request(chain.memory(), &request)?,
             Err(e) => {
@@ -62,26 +66,28 @@ where
             }
         };
 
-        self.queue.add_used(chain.head_index(), used_len)?;
+        self.queue
+            .add_used(chain.memory(), chain.head_index(), used_len)?;
 
-        if self.queue.needs_notification()? {
+        if self.queue.needs_notification(chain.memory())? {
             self.driver_notify.signal_used_queue(0);
         }
 
         Ok(())
     }
 
-    pub fn process_queue(&mut self) -> result::Result<(), Error> {
+    pub fn process_queue(&mut self, mem: Arc<GuestMemoryMmap>) -> result::Result<(), Error> {
         // To see why this is done in a loop, please look at the `Queue::enable_notification`
         // comments in `virtio_queue`.
-        loop {
-            self.queue.disable_notification()?;
 
-            while let Some(chain) = self.queue.iter()?.next() {
-                self.process_chain(chain)?;
+        loop {
+            self.queue.disable_notification(mem.as_ref())?;
+
+            while let Some(chain) = self.queue.iter(mem.as_ref())?.next() {
+                self.process_chain::<&GuestMemoryMmap>(chain)?;
             }
 
-            if !self.queue.enable_notification()? {
+            if !self.queue.enable_notification(mem.as_ref())? {
                 break;
             }
         }

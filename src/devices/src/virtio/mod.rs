@@ -8,7 +8,7 @@ pub mod net;
 
 use std::convert::TryFrom;
 use std::io;
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -19,6 +19,7 @@ use event_manager::{
 use kvm_ioctls::{IoEventAddress, VmFd};
 use linux_loader::cmdline::Cmdline;
 use virtio_device::VirtioConfig;
+use virtio_queue::{Queue, QueueT};
 use vm_device::bus::{self, MmioAddress, MmioRange};
 use vm_device::device_manager::MmioManager;
 use vm_device::DeviceMmio;
@@ -154,16 +155,17 @@ where
 }
 
 // Holds configuration objects which are common to all current devices.
-pub struct CommonConfig<M: GuestAddressSpace> {
-    pub virtio: VirtioConfig<M>,
+pub struct CommonConfig<M: GuestAddressSpace + Clone + Send + 'static> {
+    pub mem: M,
+    pub virtio: VirtioConfig<Queue>,
     pub mmio: MmioConfig,
     pub endpoint: RemoteEndpoint<Subscriber>,
     pub vm_fd: Arc<VmFd>,
     pub irqfd: Arc<EventFd>,
 }
 
-impl<M: GuestAddressSpace> CommonConfig<M> {
-    pub fn new<B>(virtio_cfg: VirtioConfig<M>, env: &Env<M, B>) -> Result<Self> {
+impl<M: GuestAddressSpace + Clone + Send + 'static> CommonConfig<M> {
+    pub fn new<B>(virtio_cfg: VirtioConfig<Queue>, env: &Env<M, B>) -> Result<Self> {
         let irqfd = Arc::new(EventFd::new(EFD_NONBLOCK).map_err(Error::EventFd)?);
 
         env.vm_fd
@@ -171,6 +173,7 @@ impl<M: GuestAddressSpace> CommonConfig<M> {
             .map_err(Error::RegisterIrqfd)?;
 
         Ok(CommonConfig {
+            mem: env.mem.clone(),
             virtio: virtio_cfg,
             mmio: env.mmio_cfg,
             endpoint: env.event_mgr.remote_endpoint(),
@@ -183,9 +186,15 @@ impl<M: GuestAddressSpace> CommonConfig<M> {
     // a `Vec` that contains `EventFd`s registered as ioeventfds, which are used to convey queue
     // notifications coming from the driver.
     pub fn prepare_activate(&self) -> Result<Vec<EventFd>> {
-        if !self.virtio.queues_valid() {
-            return Err(Error::QueuesNotValid);
-        }
+        let m = self.mem.memory();
+        let guest_mem = <<M as GuestAddressSpace>::T>::deref(&m);
+
+        self.virtio
+            .queues
+            .iter()
+            .all(|q| <Queue as QueueT>::is_valid(q, guest_mem))
+            .then_some(())
+            .ok_or(Error::QueuesNotValid)?;
 
         if self.virtio.device_activated {
             return Err(Error::AlreadyActivated);
@@ -284,7 +293,6 @@ pub(crate) mod tests {
         kvm_create_device, kvm_device_attr, kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V3,
         KVM_DEV_ARM_VGIC_CTRL_INIT, KVM_DEV_ARM_VGIC_GRP_CTRL,
     };
-    use virtio_queue::Queue;
     pub type MockMem = Arc<GuestMemoryMmap>;
 
     // Can be used in other modules to test functionality that requires a `CommonArgs` struct as
@@ -397,7 +405,7 @@ pub(crate) mod tests {
         let env = mock.env();
 
         let device_features = 0;
-        let queues = vec![Queue::new(env.mem.clone(), 256)];
+        let queues = vec![Queue::new(256).unwrap()];
         let config_space = Vec::new();
         let virtio_cfg = VirtioConfig::new(device_features, queues, config_space);
 
@@ -407,8 +415,8 @@ pub(crate) mod tests {
         assert!(matches!(cfg.prepare_activate(), Err(Error::QueuesNotValid)));
 
         // Let's pretend the queue has been configured such that the `is_valid` check passes.
-        cfg.virtio.queues[0].state.ready = true;
-        cfg.virtio.queues[0].state.size = 256;
+        cfg.virtio.queues[0].set_ready(true);
+        cfg.virtio.queues[0].set_size(256);
 
         // This will fail because the "driver" didn't acknowledge `VIRTIO_F_VERSION_1`.
         assert!(matches!(cfg.prepare_activate(), Err(Error::BadFeatures(0))));

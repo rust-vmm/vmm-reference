@@ -13,9 +13,9 @@ keywords = ["virt", "kvm", "vm"]
 thiserror = "1.0.30"
 kvm-ioctls = "0.13.0"
 kvm-bindings = { version = "0.6.0", features = ["fam-wrappers"] }
-vm-memory = "0.7.0"
+vm-memory = "0.13.1"
 libc = "0.2.76"
 
 [dev-dependencies]
-vm-memory = { version = "0.7.0", features = ["backend-mmap"] }
+vm-memory = { version = "0.13.1", features = ["backend-mmap"] }
 vmm-sys-util = "0.11.2"

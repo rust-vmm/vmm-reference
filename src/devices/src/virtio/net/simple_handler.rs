@@ -1,17 +1,19 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
+use std::cell::RefCell;
 use std::cmp;
 use std::io::{self, Read, Write};
 use std::result;
 
 use log::warn;
-use virtio_queue::{DescriptorChain, Queue};
-use vm_memory::{Bytes, GuestAddressSpace};
+use virtio_queue::{DescriptorChain, Queue, QueueOwnedT, QueueT};
+use vm_memory::{Bytes, GuestMemoryMmap};
 
 use crate::virtio::net::tap::Tap;
 use crate::virtio::net::{RXQ_INDEX, TXQ_INDEX};
 use crate::virtio::SignalUsedQueue;
+use std::sync::Arc;
 
 // According to the standard: "If the VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_TSO6 or
 // VIRTIO_NET_F_GUEST_UFO features are used, the maximum incoming packet will be to 65550
@@ -38,27 +40,35 @@ impl From<virtio_queue::Error> for Error {
 // A simple handler implementation for a RX/TX queue pair, which does not make assumptions about
 // the way queue notification is implemented. The backend is not yet generic (we always assume a
 // `Tap` object), but we're looking at improving that going forward.
-// TODO: Find a better name.
-pub struct SimpleHandler<M: GuestAddressSpace, S: SignalUsedQueue> {
+pub struct SimpleHandler<S: SignalUsedQueue> {
+    pub mem: Arc<GuestMemoryMmap>,
     pub driver_notify: S,
-    pub rxq: Queue<M>,
+    pub rxq: Queue,
     pub rxbuf_current: usize,
     pub rxbuf: [u8; MAX_BUFFER_SIZE],
-    pub txq: Queue<M>,
-    pub txbuf: [u8; MAX_BUFFER_SIZE],
-    pub tap: Tap,
+    pub txq: Queue,
+    pub txbuf: RefCell<[u8; MAX_BUFFER_SIZE]>,
+    pub tap: RefCell<Tap>,
 }
 
-impl<M: GuestAddressSpace, S: SignalUsedQueue> SimpleHandler<M, S> {
-    pub fn new(driver_notify: S, rxq: Queue<M>, txq: Queue<M>, tap: Tap) -> Self {
+impl<S: SignalUsedQueue> SimpleHandler<S> {
+    pub fn new(
+        mem: Arc<GuestMemoryMmap>,
+        driver_notify: S,
+        rxq: Queue,
+        txq: Queue,
+        tap: Tap,
+    ) -> Self {
         SimpleHandler {
+            mem,
             driver_notify,
             rxq,
             rxbuf_current: 0,
             rxbuf: [0u8; MAX_BUFFER_SIZE],
             txq,
-            txbuf: [0u8; MAX_BUFFER_SIZE],
-            tap,
+            //inner: RefCell::new(SimpleHandlerInner { txbuf: [0u8; MAX_BUFFER_SIZE], tap }),
+            txbuf: RefCell::new([0u8; MAX_BUFFER_SIZE]),
+            tap: RefCell::new(tap),
         }
     }
 
@@ -69,7 +79,7 @@ impl<M: GuestAddressSpace, S: SignalUsedQueue> SimpleHandler<M, S> {
     fn write_frame_to_guest(&mut self) -> result::Result<bool, Error> {
         let num_bytes = self.rxbuf_current;
 
-        let mut chain = match self.rxq.iter()?.next() {
+        let mut chain = match self.rxq.iter(self.mem.as_ref())?.next() {
             Some(c) => c,
             _ => return Ok(false),
         };
@@ -98,7 +108,8 @@ impl<M: GuestAddressSpace, S: SignalUsedQueue> SimpleHandler<M, S> {
             warn!("rx frame too large");
         }
 
-        self.rxq.add_used(chain.head_index(), count as u32)?;
+        self.rxq
+            .add_used(self.mem.as_ref(), chain.head_index(), count as u32)?;
 
         self.rxbuf_current = 0;
 
@@ -108,7 +119,7 @@ impl<M: GuestAddressSpace, S: SignalUsedQueue> SimpleHandler<M, S> {
     pub fn process_tap(&mut self) -> result::Result<(), Error> {
         loop {
             if self.rxbuf_current == 0 {
-                match self.tap.read(&mut self.rxbuf) {
+                match self.tap.borrow_mut().read(&mut self.rxbuf) {
                     Ok(n) => self.rxbuf_current = n,
                     Err(_) => {
                         // TODO: Do something (logs, metrics, etc.) in response to an error when
@@ -119,12 +130,12 @@ impl<M: GuestAddressSpace, S: SignalUsedQueue> SimpleHandler<M, S> {
                 }
             }
 
-            if !self.write_frame_to_guest()? && !self.rxq.enable_notification()? {
+            if !self.write_frame_to_guest()? && !self.rxq.enable_notification(self.mem.as_ref())? {
                 break;
             }
         }
 
-        if self.rxq.needs_notification()? {
+        if self.rxq.needs_notification(self.mem.as_ref())? {
             self.driver_notify.signal_used_queue(RXQ_INDEX);
         }
 
@@ -132,13 +143,13 @@ impl<M: GuestAddressSpace, S: SignalUsedQueue> SimpleHandler<M, S> {
     }
 
     fn send_frame_from_chain(
-        &mut self,
-        chain: &mut DescriptorChain<M::T>,
+        &self,
+        chain: &mut DescriptorChain<&GuestMemoryMmap>,
     ) -> result::Result<u32, Error> {
         let mut count = 0;
 
         while let Some(desc) = chain.next() {
-            let left = self.txbuf.len() - count;
+            let left = self.txbuf.borrow().len() - count;
             let len = desc.len() as usize;
 
             if len > left {
@@ -148,39 +159,46 @@ impl<M: GuestAddressSpace, S: SignalUsedQueue> SimpleHandler<M, S> {
 
             chain
                 .memory()
-                .read_slice(&mut self.txbuf[count..count + len], desc.addr())
+                .read_slice(
+                    &mut self.txbuf.borrow_mut()[count..count + len],
+                    desc.addr(),
+                )
                 .map_err(Error::GuestMemory)?;
 
             count += len;
         }
 
-        self.tap.write(&self.txbuf[..count]).map_err(Error::Tap)?;
+        self.tap
+            .borrow_mut()
+            .write(&self.txbuf.borrow()[..count])
+            .map_err(Error::Tap)?;
 
         Ok(count as u32)
     }
 
     pub fn process_txq(&mut self) -> result::Result<(), Error> {
         loop {
-            self.txq.disable_notification()?;
+            self.txq.disable_notification(self.mem.as_ref())?;
 
-            while let Some(mut chain) = self.txq.iter()?.next() {
+            while let Some(mut chain) = self.txq.iter(self.mem.as_ref())?.next() {
                 self.send_frame_from_chain(&mut chain)?;
 
-                self.txq.add_used(chain.head_index(), 0)?;
+                self.txq
+                    .add_used(self.mem.as_ref(), chain.head_index(), 0)?;
 
-                if self.txq.needs_notification()? {
+                if self.txq.needs_notification(self.mem.as_ref())? {
                     self.driver_notify.signal_used_queue(TXQ_INDEX);
                 }
             }
 
-            if !self.txq.enable_notification()? {
+            if !self.txq.enable_notification(self.mem.as_ref())? {
                 return Ok(());
             }
         }
     }
 
     pub fn process_rxq(&mut self) -> result::Result<(), Error> {
-        self.rxq.disable_notification()?;
+        self.rxq.disable_notification(self.mem.as_ref())?;
         self.process_tap()
     }
 }

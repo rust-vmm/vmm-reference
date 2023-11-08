@@ -3,7 +3,8 @@
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use log::error;
-use vm_memory::GuestAddressSpace;
+use std::sync::Arc;
+use vm_memory::GuestMemoryMmap;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
 
@@ -16,12 +17,13 @@ const IOEVENT_DATA: u32 = 0;
 // signalling implementation based on `EventFd`s, and then also implements `MutEventSubscriber`
 // to interact with the event manager. `ioeventfd` is the `EventFd` connected to queue
 // notifications coming from the driver.
-pub(crate) struct QueueHandler<M: GuestAddressSpace> {
-    pub inner: InOrderQueueHandler<M, SingleFdSignalQueue>,
+pub(crate) struct QueueHandler {
+    pub mem: Arc<GuestMemoryMmap>,
+    pub inner: InOrderQueueHandler<SingleFdSignalQueue>,
     pub ioeventfd: EventFd,
 }
 
-impl<M: GuestAddressSpace> MutEventSubscriber for QueueHandler<M> {
+impl MutEventSubscriber for QueueHandler {
     fn process(&mut self, events: Events, ops: &mut EventOps) {
         let mut error = true;
 
@@ -33,7 +35,7 @@ impl<M: GuestAddressSpace> MutEventSubscriber for QueueHandler<M> {
             error!("unexpected events data {}", events.data());
         } else if self.ioeventfd.read().is_err() {
             error!("ioeventfd read error")
-        } else if let Err(e) = self.inner.process_queue() {
+        } else if let Err(e) = self.inner.process_queue(self.mem.clone()) {
             error!("error processing block queue {:?}", e);
         } else {
             error = false;

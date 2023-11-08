@@ -207,7 +207,7 @@ type Net = net::Net<Arc<GuestMemoryMmap>>;
 pub struct Vmm {
     vm: KvmVm<WrappedExitHandler>,
     kernel_cfg: KernelConfig,
-    guest_memory: GuestMemoryMmap,
+    guest_memory: Arc<GuestMemoryMmap>,
     address_allocator: AddressAllocator,
     irq_allocator: IrqAllocator,
     // The `device_mgr` is an Arc<Mutex> so that it can be shared between
@@ -319,7 +319,7 @@ impl TryFrom<VMMConfig> for Vmm {
 
         let mut vmm = Vmm {
             vm,
-            guest_memory,
+            guest_memory: Arc::new(guest_memory),
             address_allocator,
             irq_allocator,
             device_mgr,
@@ -428,14 +428,14 @@ impl Vmm {
 
         // Load the kernel into guest memory.
         let kernel_load = match Elf::load(
-            &self.guest_memory,
+            self.guest_memory.as_ref(),
             None,
             &mut kernel_image,
             Some(GuestAddress(self.kernel_cfg.load_addr)),
         ) {
             Ok(result) => result,
             Err(loader::Error::Elf(elf::Error::InvalidElfMagicNumber)) => BzImage::load(
-                &self.guest_memory,
+                self.guest_memory.as_ref(),
                 None,
                 &mut kernel_image,
                 Some(GuestAddress(self.kernel_cfg.load_addr)),
@@ -467,7 +467,7 @@ impl Vmm {
             .map_err(Error::Cmdline)?;
 
         load_cmdline(
-            &self.guest_memory,
+            self.guest_memory.as_ref(),
             GuestAddress(CMDLINE_START),
             // Safe because we know the command line string doesn't contain any 0 bytes.
             &cmdline,
@@ -488,7 +488,7 @@ impl Vmm {
     fn load_kernel(&mut self) -> Result<KernelLoaderResult> {
         let mut kernel_image = File::open(&self.kernel_cfg.path).map_err(Error::IO)?;
         linux_loader::loader::pe::PE::load(
-            &self.guest_memory,
+            self.guest_memory.as_ref(),
             Some(GuestAddress(self.kernel_cfg.load_addr)),
             &mut kernel_image,
             None,
@@ -596,7 +596,6 @@ impl Vmm {
     // can do it after figuring out how to better separate concerns and make the VMM agnostic of
     // the actual device types.
     fn add_block_device(&mut self, cfg: &BlockConfig) -> Result<()> {
-        let mem = Arc::new(self.guest_memory.clone());
         let range = self.address_allocator.allocate(
             0x1000,
             DEFAULT_ADDRESSS_ALIGNEMNT,
@@ -612,7 +611,7 @@ impl Vmm {
         let mut guard = self.device_mgr.lock().unwrap();
 
         let mut env = Env {
-            mem,
+            mem: self.guest_memory.clone(),
             vm_fd: self.vm.vm_fd(),
             event_mgr: &mut self.event_mgr,
             mmio_mgr: guard.deref_mut(),
@@ -628,7 +627,7 @@ impl Vmm {
         };
 
         // We can also hold this somewhere if we need to keep the handle for later.
-        let block = Block::new(&mut env, &args).map_err(Error::Block)?;
+        let block = Block::new(self.guest_memory.clone(), &mut env, &args).map_err(Error::Block)?;
         #[cfg(target_arch = "aarch64")]
         self.fdt_builder
             .add_virtio_device(range.start(), range.len(), irq);
@@ -638,7 +637,6 @@ impl Vmm {
     }
 
     fn add_net_device(&mut self, cfg: &NetConfig) -> Result<()> {
-        let mem = Arc::new(self.guest_memory.clone());
         let range = self.address_allocator.allocate(
             0x1000,
             DEFAULT_ADDRESSS_ALIGNEMNT,
@@ -654,7 +652,7 @@ impl Vmm {
         let mut guard = self.device_mgr.lock().unwrap();
 
         let mut env = Env {
-            mem,
+            mem: self.guest_memory.clone(),
             vm_fd: self.vm.vm_fd(),
             event_mgr: &mut self.event_mgr,
             mmio_mgr: guard.deref_mut(),
@@ -667,7 +665,7 @@ impl Vmm {
         };
 
         // We can also hold this somewhere if we need to keep the handle for later.
-        let net = Net::new(&mut env, &args).map_err(Error::Net)?;
+        let net = Net::new(self.guest_memory.clone(), &mut env, &args).map_err(Error::Net)?;
         self.net_devices.push(net);
         #[cfg(target_arch = "aarch64")]
         self.fdt_builder
@@ -731,7 +729,7 @@ impl Vmm {
             .with_mem_size(mem_size)
             .create_fdt()
             .map_err(Error::SetupFdt)?;
-        fdt.write_to_mem(&self.guest_memory, fdt_offset)
+        fdt.write_to_mem(self.guest_memory.as_ref(), fdt_offset)
             .map_err(Error::SetupFdt)?;
         Ok(())
     }
@@ -754,7 +752,7 @@ mod tests {
     use std::path::PathBuf;
     #[cfg(target_arch = "x86_64")]
     use vm_memory::{
-        bytes::{ByteValued, Bytes},
+        bytes::ByteValued,
         Address, GuestAddress, GuestMemory,
     };
 
@@ -849,7 +847,7 @@ mod tests {
         let irq_allocator = IrqAllocator::new(SERIAL_IRQ, vm.max_irq()).unwrap();
         Vmm {
             vm,
-            guest_memory,
+            guest_memory: Arc::new(guest_memory),
             address_allocator,
             irq_allocator,
             device_mgr,
@@ -868,11 +866,13 @@ mod tests {
     // Return the address where an ELF file should be loaded, as specified in its header.
     #[cfg(target_arch = "x86_64")]
     fn elf_load_addr(elf_path: &Path) -> GuestAddress {
+        use vm_memory::ReadVolatile;
+
         let mut elf_file = File::open(elf_path).unwrap();
         let mut ehdr = Elf64_Ehdr::default();
-        ehdr.as_bytes()
-            .read_from(0, &mut elf_file, std::mem::size_of::<Elf64_Ehdr>())
-            .unwrap();
+
+        elf_file.read_volatile(&mut ehdr.as_bytes()).unwrap();
+
         GuestAddress(ehdr.e_entry)
     }
 
@@ -1179,7 +1179,7 @@ mod tests {
                 .with_rtc(0x40001000, 0x1000)
                 .create_fdt()
                 .unwrap();
-            assert!(fdt.write_to_mem(&vmm.guest_memory, fdt_offset).is_err());
+            assert!(fdt.write_to_mem(vmm.guest_memory.as_ref(), fdt_offset).is_err());
         }
     }
     #[test]
