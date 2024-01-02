@@ -89,7 +89,7 @@ dependencies = [
  "vm-device",
  "vm-memory",
  "vm-superio",
- "vmm-sys-util",
+ "vmm-sys-util 0.8.0",
 ]
 
 [[package]]
@@ -99,7 +99,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "377fa591135fbe23396a18e2655a6d5481bf7c5823cdfa3cc81b01a229cbe640"
 dependencies = [
  "libc",
- "vmm-sys-util",
+ "vmm-sys-util 0.12.0",
 ]
 
 [[package]]
@@ -133,7 +133,7 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a78c049190826fff959994b7c1d8a2930d0a348f1b8f3aa4f9bb34cd5d7f2952"
 dependencies = [
- "vmm-sys-util",
+ "vmm-sys-util 0.12.0",
 ]
 
 [[package]]
@@ -144,7 +144,7 @@ checksum = "97422ba48d7ffb66fd4d18130f72ab66f9bbbf791fb7a87b9291cdcfec437593"
 dependencies = [
  "kvm-bindings",
  "libc",
- "vmm-sys-util",
+ "vmm-sys-util 0.12.0",
 ]
 
 [[package]]
@@ -265,7 +265,7 @@ dependencies = [
  "virtio-device",
  "virtio-queue",
  "vm-memory",
- "vmm-sys-util",
+ "vmm-sys-util 0.12.0",
 ]
 
 [[package]]
@@ -285,7 +285,7 @@ source = "git+https://github.com/rust-vmm/vm-virtio.git#d8ef45f57b46baa99e80e555
 dependencies = [
  "log",
  "vm-memory",
- "vmm-sys-util",
+ "vmm-sys-util 0.12.0",
 ]
 
 [[package]]
@@ -339,7 +339,7 @@ dependencies = [
  "vm-device",
  "vm-memory",
  "vm-vcpu-ref",
- "vmm-sys-util",
+ "vmm-sys-util 0.12.0",
 ]
 
 [[package]]
@@ -351,7 +351,7 @@ dependencies = [
  "libc",
  "thiserror",
  "vm-memory",
- "vmm-sys-util",
+ "vmm-sys-util 0.12.0",
 ]
 
 [[package]]
@@ -372,7 +372,7 @@ dependencies = [
  "vm-superio",
  "vm-vcpu",
  "vm-vcpu-ref",
- "vmm-sys-util",
+ "vmm-sys-util 0.8.0",
 ]
 
 [[package]]
@@ -388,6 +388,16 @@ name = "vmm-sys-util"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "01cf11afbc4ebc0d5c7a7748a77d19e2042677fc15faa2f4ccccb27c18a60605"
+dependencies = [
+ "bitflags",
+ "libc",
+]
+
+[[package]]
+name = "vmm-sys-util"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d95e3e9913565d364e3e5b20827f6705fce127ed69a98c0903bce446e48ba1d"
 dependencies = [
  "bitflags",
  "libc",
