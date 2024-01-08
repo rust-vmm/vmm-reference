@@ -747,16 +747,13 @@ mod tests {
     use linux_loader::elf::Elf64_Ehdr;
     #[cfg(target_arch = "x86_64")]
     use linux_loader::loader::{self, bootparam::setup_header, elf::PvhBootCapability};
+    use std::fs::write;
     use std::io::ErrorKind;
     #[cfg(target_arch = "x86_64")]
     use std::path::Path;
     use std::path::PathBuf;
-    use std::fs::write;
     #[cfg(target_arch = "x86_64")]
-    use vm_memory::{
-        bytes::ByteValued,
-        Address, GuestAddress, GuestMemory,
-    };
+    use vm_memory::{bytes::ByteValued, Address, GuestAddress, GuestMemory};
 
     use vmm_sys_util::{tempdir::TempDir, tempfile::TempFile};
 
@@ -1206,7 +1203,9 @@ mod tests {
                 .with_rtc(0x40001000, 0x1000)
                 .create_fdt()
                 .unwrap();
-            assert!(fdt.write_to_mem(vmm.guest_memory.as_ref(), fdt_offset).is_err());
+            assert!(fdt
+                .write_to_mem(vmm.guest_memory.as_ref(), fdt_offset)
+                .is_err());
         }
     }
     #[test]
