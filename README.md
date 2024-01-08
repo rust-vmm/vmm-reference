@@ -72,9 +72,7 @@ configurations. Advanced users can, of course, plug in their own front-end.
 * `block` - block device configuration
     * `path` - `String`, path to the root filesystem
 * `net` - network device configuration
-    * `tap` - `String`, tap name, only the API support is added for now,
-                        an actual network device configuration is done in the
-                        [following PR under review](https://github.com/rust-vmm/vmm-reference/pull/49).
+    * `tap` - `String`, tap name
 
 *Note*: For now, only the path to the root block device can be configured
 via command line. The block device will implicitly be read-write and with
