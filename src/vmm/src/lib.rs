@@ -207,7 +207,7 @@ type Net = net::Net<Arc<GuestMemoryMmap>>;
 pub struct Vmm {
     vm: KvmVm<WrappedExitHandler>,
     kernel_cfg: KernelConfig,
-    guest_memory: GuestMemoryMmap,
+    guest_memory: Arc<GuestMemoryMmap>,
     address_allocator: AddressAllocator,
     irq_allocator: IrqAllocator,
     // The `device_mgr` is an Arc<Mutex> so that it can be shared between
@@ -319,7 +319,7 @@ impl TryFrom<VMMConfig> for Vmm {
 
         let mut vmm = Vmm {
             vm,
-            guest_memory,
+            guest_memory: Arc::new(guest_memory),
             address_allocator,
             irq_allocator,
             device_mgr,
@@ -428,14 +428,14 @@ impl Vmm {
 
         // Load the kernel into guest memory.
         let kernel_load = match Elf::load(
-            &self.guest_memory,
+            self.guest_memory.as_ref(),
             None,
             &mut kernel_image,
             Some(GuestAddress(self.kernel_cfg.load_addr)),
         ) {
             Ok(result) => result,
             Err(loader::Error::Elf(elf::Error::InvalidElfMagicNumber)) => BzImage::load(
-                &self.guest_memory,
+                self.guest_memory.as_ref(),
                 None,
                 &mut kernel_image,
                 Some(GuestAddress(self.kernel_cfg.load_addr)),
@@ -458,16 +458,17 @@ impl Vmm {
 
         // Add the kernel command line to the boot parameters.
         bootparams.hdr.cmd_line_ptr = CMDLINE_START as u32;
-        bootparams.hdr.cmdline_size = self.kernel_cfg.cmdline.as_str().len() as u32 + 1;
+        bootparams.hdr.cmdline_size =
+            String::try_from(&self.kernel_cfg.cmdline).unwrap().len() as u32 + 1;
 
         // Load the kernel command line into guest memory.
-        let mut cmdline = Cmdline::new(4096);
+        let mut cmdline = Cmdline::new(4096).unwrap();
         cmdline
-            .insert_str(self.kernel_cfg.cmdline.as_str())
+            .insert_str(String::try_from(&self.kernel_cfg.cmdline).unwrap())
             .map_err(Error::Cmdline)?;
 
         load_cmdline(
-            &self.guest_memory,
+            self.guest_memory.as_ref(),
             GuestAddress(CMDLINE_START),
             // Safe because we know the command line string doesn't contain any 0 bytes.
             &cmdline,
@@ -488,7 +489,7 @@ impl Vmm {
     fn load_kernel(&mut self) -> Result<KernelLoaderResult> {
         let mut kernel_image = File::open(&self.kernel_cfg.path).map_err(Error::IO)?;
         linux_loader::loader::pe::PE::load(
-            &self.guest_memory,
+            self.guest_memory.as_ref(),
             Some(GuestAddress(self.kernel_cfg.load_addr)),
             &mut kernel_image,
             None,
@@ -596,7 +597,6 @@ impl Vmm {
     // can do it after figuring out how to better separate concerns and make the VMM agnostic of
     // the actual device types.
     fn add_block_device(&mut self, cfg: &BlockConfig) -> Result<()> {
-        let mem = Arc::new(self.guest_memory.clone());
         let range = self.address_allocator.allocate(
             0x1000,
             DEFAULT_ADDRESSS_ALIGNEMNT,
@@ -612,7 +612,7 @@ impl Vmm {
         let mut guard = self.device_mgr.lock().unwrap();
 
         let mut env = Env {
-            mem,
+            mem: self.guest_memory.clone(),
             vm_fd: self.vm.vm_fd(),
             event_mgr: &mut self.event_mgr,
             mmio_mgr: guard.deref_mut(),
@@ -628,7 +628,7 @@ impl Vmm {
         };
 
         // We can also hold this somewhere if we need to keep the handle for later.
-        let block = Block::new(&mut env, &args).map_err(Error::Block)?;
+        let block = Block::new(self.guest_memory.clone(), &mut env, &args).map_err(Error::Block)?;
         #[cfg(target_arch = "aarch64")]
         self.fdt_builder
             .add_virtio_device(range.start(), range.len(), irq);
@@ -638,7 +638,6 @@ impl Vmm {
     }
 
     fn add_net_device(&mut self, cfg: &NetConfig) -> Result<()> {
-        let mem = Arc::new(self.guest_memory.clone());
         let range = self.address_allocator.allocate(
             0x1000,
             DEFAULT_ADDRESSS_ALIGNEMNT,
@@ -654,7 +653,7 @@ impl Vmm {
         let mut guard = self.device_mgr.lock().unwrap();
 
         let mut env = Env {
-            mem,
+            mem: self.guest_memory.clone(),
             vm_fd: self.vm.vm_fd(),
             event_mgr: &mut self.event_mgr,
             mmio_mgr: guard.deref_mut(),
@@ -667,7 +666,7 @@ impl Vmm {
         };
 
         // We can also hold this somewhere if we need to keep the handle for later.
-        let net = Net::new(&mut env, &args).map_err(Error::Net)?;
+        let net = Net::new(self.guest_memory.clone(), &mut env, &args).map_err(Error::Net)?;
         self.net_devices.push(net);
         #[cfg(target_arch = "aarch64")]
         self.fdt_builder
@@ -726,12 +725,12 @@ impl Vmm {
         let cmdline = &self.kernel_cfg.cmdline;
         let fdt = self
             .fdt_builder
-            .with_cmdline(cmdline.as_str().to_string())
+            .with_cmdline(String::try_from(&cmdline).unwrap())
             .with_num_vcpus(self.num_vcpus.try_into().unwrap())
             .with_mem_size(mem_size)
             .create_fdt()
             .map_err(Error::SetupFdt)?;
-        fdt.write_to_mem(&self.guest_memory, fdt_offset)
+        fdt.write_to_mem(self.guest_memory.as_ref(), fdt_offset)
             .map_err(Error::SetupFdt)?;
         Ok(())
     }
@@ -748,15 +747,13 @@ mod tests {
     use linux_loader::elf::Elf64_Ehdr;
     #[cfg(target_arch = "x86_64")]
     use linux_loader::loader::{self, bootparam::setup_header, elf::PvhBootCapability};
+    use std::fs::write;
     use std::io::ErrorKind;
     #[cfg(target_arch = "x86_64")]
     use std::path::Path;
     use std::path::PathBuf;
     #[cfg(target_arch = "x86_64")]
-    use vm_memory::{
-        bytes::{ByteValued, Bytes},
-        Address, GuestAddress, GuestMemory,
-    };
+    use vm_memory::{bytes::ByteValued, Address, GuestAddress, GuestMemory};
 
     use vmm_sys_util::{tempdir::TempDir, tempfile::TempFile};
 
@@ -849,7 +846,7 @@ mod tests {
         let irq_allocator = IrqAllocator::new(SERIAL_IRQ, vm.max_irq()).unwrap();
         Vmm {
             vm,
-            guest_memory,
+            guest_memory: Arc::new(guest_memory),
             address_allocator,
             irq_allocator,
             device_mgr,
@@ -868,11 +865,13 @@ mod tests {
     // Return the address where an ELF file should be loaded, as specified in its header.
     #[cfg(target_arch = "x86_64")]
     fn elf_load_addr(elf_path: &Path) -> GuestAddress {
+        use vm_memory::ReadVolatile;
+
         let mut elf_file = File::open(elf_path).unwrap();
         let mut ehdr = Elf64_Ehdr::default();
-        ehdr.as_bytes()
-            .read_from(0, &mut elf_file, std::mem::size_of::<Elf64_Ehdr>())
-            .unwrap();
+
+        elf_file.read_volatile(&mut ehdr.as_bytes()).unwrap();
+
         GuestAddress(ehdr.e_entry)
     }
 
@@ -956,7 +955,8 @@ mod tests {
             matches!(vmm.load_kernel().unwrap_err(), Error::IO(e) if e.kind() == ErrorKind::NotFound)
         );
 
-        // Test case: kernel image is invalid.
+        // Test case: kernel image is invalid. This test has two flavors. In the first
+        // we try to load an empty file, in the second a file which has all zeros.
         let mut vmm_config = default_vmm_config();
         let temp_file = TempFile::new().unwrap();
         vmm_config.kernel_config.path = PathBuf::from(temp_file.as_path());
@@ -966,10 +966,27 @@ mod tests {
         #[cfg(target_arch = "x86_64")]
         assert!(matches!(
             err,
+            Error::KernelLoad(loader::Error::Elf(loader::elf::Error::ReadElfHeader))
+        ));
+        #[cfg(target_arch = "aarch64")]
+        assert!(matches!(
+            err,
+            Error::KernelLoad(loader::Error::Pe(loader::pe::Error::ReadImageHeader))
+        ));
+
+        let temp_file_path = PathBuf::from(temp_file.as_path());
+        let buffer: Vec<u8> = vec![0_u8; 1024];
+        write(temp_file_path, buffer).unwrap();
+        let err = vmm.load_kernel().unwrap_err();
+
+        #[cfg(target_arch = "x86_64")]
+        assert!(matches!(
+            err,
             Error::KernelLoad(loader::Error::Bzimage(
                 loader::bzimage::Error::InvalidBzImage
             ))
         ));
+
         #[cfg(target_arch = "aarch64")]
         assert!(matches!(
             err,
@@ -1011,15 +1028,18 @@ mod tests {
         let mut vmm_config = default_vmm_config();
         vmm_config.kernel_config.path = default_elf_path();
         let mut vmm = mock_vmm(vmm_config);
-        assert_eq!(vmm.kernel_cfg.cmdline.as_str(), DEFAULT_KERNEL_CMDLINE);
+        assert_eq!(
+            String::try_from(&vmm.kernel_cfg.cmdline).unwrap(),
+            DEFAULT_KERNEL_CMDLINE
+        );
         vmm.add_serial_console().unwrap();
         #[cfg(target_arch = "x86_64")]
-        assert!(vmm.kernel_cfg.cmdline.as_str().contains("console=ttyS0"));
+        assert!(String::try_from(&vmm.kernel_cfg.cmdline)
+            .unwrap()
+            .contains("console=ttyS0"));
         #[cfg(target_arch = "aarch64")]
-        assert!(vmm
-            .kernel_cfg
-            .cmdline
-            .as_str()
+        assert!(String::try_from(&vmm.kernel_cfg.cmdline)
+            .unwrap()
             .contains("earlycon=uart,mmio"));
     }
 
@@ -1118,7 +1138,9 @@ mod tests {
         assert_eq!(vmm.block_devices.len(), 1);
         #[cfg(target_arch = "aarch64")]
         assert_eq!(vmm.fdt_builder.virtio_device_len(), 1);
-        assert!(vmm.kernel_cfg.cmdline.as_str().contains("virtio"));
+        assert!(String::try_from(&vmm.kernel_cfg.cmdline)
+            .unwrap()
+            .contains("virtio"));
 
         let invalid_block_config = BlockConfig {
             // Let's create the tempfile directly here so that it gets out of scope immediately
@@ -1151,7 +1173,9 @@ mod tests {
             assert_eq!(vmm.net_devices.len(), 1);
             #[cfg(target_arch = "aarch64")]
             assert_eq!(vmm.fdt_builder.virtio_device_len(), 1);
-            assert!(vmm.kernel_cfg.cmdline.as_str().contains("virtio"));
+            assert!(String::try_from(&vmm.kernel_cfg.cmdline)
+                .unwrap()
+                .contains("virtio"));
         }
     }
 
@@ -1172,14 +1196,16 @@ mod tests {
             let cmdline = &vmm.kernel_cfg.cmdline;
             let fdt = vmm
                 .fdt_builder
-                .with_cmdline(cmdline.as_str().to_string())
+                .with_cmdline(String::try_from(&cmdline).unwrap())
                 .with_num_vcpus(vmm.num_vcpus.try_into().unwrap())
                 .with_mem_size(mem_size)
                 .with_serial_console(0x40000000, 0x1000)
                 .with_rtc(0x40001000, 0x1000)
                 .create_fdt()
                 .unwrap();
-            assert!(fdt.write_to_mem(&vmm.guest_memory, fdt_offset).is_err());
+            assert!(fdt
+                .write_to_mem(vmm.guest_memory.as_ref(), fdt_offset)
+                .is_err());
         }
     }
     #[test]

@@ -43,12 +43,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
-name = "cfg-if"
-version = "0.1.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4785bdd1c96b2a846b2bd7cc02e86b6b3dbf14e7e53446c4f54c92a361040822"
-
-[[package]]
 name = "clap"
 version = "3.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -94,9 +88,9 @@ dependencies = [
 
 [[package]]
 name = "event-manager"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "377fa591135fbe23396a18e2655a6d5481bf7c5823cdfa3cc81b01a229cbe640"
+checksum = "2bbb5f730c95a458654dee0afb13f1ebb4fc3d7b772789d5f30713ec68fed75d"
 dependencies = [
  "libc",
  "vmm-sys-util",
@@ -129,18 +123,18 @@ dependencies = [
 
 [[package]]
 name = "kvm-bindings"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a78c049190826fff959994b7c1d8a2930d0a348f1b8f3aa4f9bb34cd5d7f2952"
+checksum = "efe70e65a5b092161d17f5005b66e5eefe7a94a70c332e755036fc4af78c4e79"
 dependencies = [
  "vmm-sys-util",
 ]
 
 [[package]]
 name = "kvm-ioctls"
-version = "0.11.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97422ba48d7ffb66fd4d18130f72ab66f9bbbf791fb7a87b9291cdcfec437593"
+checksum = "b8f8dc9c1896e5f144ec5d07169bc29f39a047686d29585a91f30489abfaeb6b"
 dependencies = [
  "kvm-bindings",
  "libc",
@@ -155,20 +149,17 @@ checksum = "8916b1f6ca17130ec6568feccee27c156ad12037880833a3b842a823236502e7"
 
 [[package]]
 name = "linux-loader"
-version = "0.4.0"
-source = "git+https://github.com/rust-vmm/linux-loader.git?rev=9a9f071#9a9f071219a8c74dcd703aec40ba0249e3a5993b"
+version = "0.10.0"
+source = "git+https://github.com/vitamin-v-software/linux-loader.git?rev=76aefef#76aefefc41c9a55217768bc0c89a55178db65b47"
 dependencies = [
  "vm-memory",
 ]
 
 [[package]]
 name = "log"
-version = "0.4.6"
+version = "0.4.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c84ec4b527950aa83a329754b01dbe3f58361d1c5efacd1f6d68c494d08a17c6"
-dependencies = [
- "cfg-if",
-]
+checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
 
 [[package]]
 name = "os_str_bytes"
@@ -178,18 +169,18 @@ checksum = "9ff7415e9ae3fff1225851df9e0d9e4e5479f947619774677a63572e55e80eff"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.34"
+version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f84e92c0f7c9d58328b85a78557813e4bd845130db68d7184635344399423b1"
+checksum = "134c189feb4956b20f6f547d2cf727d4c0fe06722b20a0eec87ed445a97f92da"
 dependencies = [
- "unicode-xid",
+ "unicode-ident",
 ]
 
 [[package]]
 name = "quote"
-version = "1.0.10"
+version = "1.0.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38bc8cc6a5f2e3655e0899c1b848643b2562f853f114bfec7be120678e3ace05"
+checksum = "5267fca4496028628a95160fc423a33e8b2e6af8a5302579e322e4b520293cae"
 dependencies = [
  "proc-macro2",
 ]
@@ -202,13 +193,13 @@ checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
 
 [[package]]
 name = "syn"
-version = "1.0.82"
+version = "2.0.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8daf5dd0bb60cbd4137b1b587d2fc0ae729bc07cf01cd70b36a1ed5ade3b9d59"
+checksum = "23e78b90f2fcf45d3e842032ce32e3f2d1545ba6636271dcbf24fa306d87be7a"
 dependencies = [
  "proc-macro2",
  "quote",
- "unicode-xid",
+ "unicode-ident",
 ]
 
 [[package]]
@@ -228,18 +219,18 @@ checksum = "b1141d4d61095b28419e22cb0bbf02755f5e54e0526f97f1e3d1d160e60885fb"
 
 [[package]]
 name = "thiserror"
-version = "1.0.30"
+version = "1.0.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "854babe52e4df1653706b98fcfc05843010039b406875930a70e4d9644e5c417"
+checksum = "f9a7210f5c9a7156bb50aa36aed4c95afb51df0df00713949448cf9e97d382d2"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.30"
+version = "1.0.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa32fd3f627f367fe16f893e2597ae3c05020f8bba2666a4e6ea73d377e5714b"
+checksum = "266b2e40bc00e5a6c09c3584011e08b06f123c00362c92b975ba9843aaaa14b8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -247,21 +238,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "unicode-xid"
-version = "0.2.2"
+name = "unicode-ident"
+version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ccb82d61f80a663efe1f787a51b16b5a51e3314d6ac365b08639f52387b33f3"
+checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
 
 [[package]]
 name = "utils"
 version = "0.1.0"
 
 [[package]]
+name = "virtio-bindings"
+version = "0.2.2"
+source = "git+https://github.com/rust-vmm/vm-virtio.git#3bbf0db2c24fe756ac3593f259d048dafc1fd3c5"
+
+[[package]]
 name = "virtio-blk"
 version = "0.1.0"
-source = "git+https://github.com/rust-vmm/vm-virtio.git#d8ef45f57b46baa99e80e555deffd3fa1ab9affc"
+source = "git+https://github.com/rust-vmm/vm-virtio.git#3bbf0db2c24fe756ac3593f259d048dafc1fd3c5"
 dependencies = [
  "log",
+ "virtio-bindings",
  "virtio-device",
  "virtio-queue",
  "vm-memory",
@@ -271,19 +268,21 @@ dependencies = [
 [[package]]
 name = "virtio-device"
 version = "0.1.0"
-source = "git+https://github.com/rust-vmm/vm-virtio.git#d8ef45f57b46baa99e80e555deffd3fa1ab9affc"
+source = "git+https://github.com/rust-vmm/vm-virtio.git#3bbf0db2c24fe756ac3593f259d048dafc1fd3c5"
 dependencies = [
  "log",
+ "virtio-bindings",
  "virtio-queue",
  "vm-memory",
 ]
 
 [[package]]
 name = "virtio-queue"
-version = "0.2.0"
-source = "git+https://github.com/rust-vmm/vm-virtio.git#d8ef45f57b46baa99e80e555deffd3fa1ab9affc"
+version = "0.10.0"
+source = "git+https://github.com/rust-vmm/vm-virtio.git#3bbf0db2c24fe756ac3593f259d048dafc1fd3c5"
 dependencies = [
  "log",
+ "virtio-bindings",
  "vm-memory",
  "vmm-sys-util",
 ]
@@ -312,11 +311,12 @@ checksum = "f43fb5a6bd1a7d423ad72802801036719b7546cf847a103f8fe4575f5b0d45a6"
 
 [[package]]
 name = "vm-memory"
-version = "0.7.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "339d4349c126fdcd87e034631d7274370cf19eb0e87b33166bcd956589fc72c5"
+checksum = "5376c9ee5ebe2103a310d8241936cfb93c946734b0479a4fa5bdf7a64abbacd8"
 dependencies = [
  "libc",
+ "thiserror",
  "winapi",
 ]
 
@@ -385,9 +385,9 @@ dependencies = [
 
 [[package]]
 name = "vmm-sys-util"
-version = "0.8.0"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01cf11afbc4ebc0d5c7a7748a77d19e2042677fc15faa2f4ccccb27c18a60605"
+checksum = "48b7b084231214f7427041e4220d77dfe726897a6d41fddee450696e66ff2a29"
 dependencies = [
  "bitflags",
  "libc",

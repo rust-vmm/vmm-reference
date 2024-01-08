@@ -412,7 +412,7 @@ impl KvmVcpu {
     fn set_state(&mut self, state: VcpuState) -> Result<()> {
         for reg in state.regs {
             self.vcpu_fd
-                .set_one_reg(reg.id, reg.addr)
+                .set_one_reg(reg.id, reg.addr as u128)
                 .map_err(Error::VcpuSetReg)?;
         }
 
@@ -458,7 +458,7 @@ impl KvmVcpu {
         data = (PSR_D_BIT | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT | PSR_MODE_EL1h).into();
         reg_id = arm64_core_reg!(pstate);
         self.vcpu_fd
-            .set_one_reg(reg_id, data)
+            .set_one_reg(reg_id, data as u128)
             .map_err(Error::VcpuSetReg)?;
 
         // Other cpus are powered off initially
@@ -470,7 +470,7 @@ impl KvmVcpu {
             // hack -- can't get this to do offsetof(regs[0]) but luckily it's at offset 0
             reg_id = arm64_core_reg!(regs);
             self.vcpu_fd
-                .set_one_reg(reg_id, data)
+                .set_one_reg(reg_id, data as u128)
                 .map_err(Error::VcpuSetReg)?;
         }
 
@@ -682,7 +682,7 @@ impl KvmVcpu {
                 let data = ip.0;
                 let reg_id = arm64_core_reg!(pc);
                 self.vcpu_fd
-                    .set_one_reg(reg_id, data)
+                    .set_one_reg(reg_id, data as u128)
                     .map_err(Error::VcpuSetReg)?;
             }
         }

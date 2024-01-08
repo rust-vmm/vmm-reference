@@ -6,11 +6,11 @@ use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 
 use virtio_device::{VirtioConfig, VirtioDeviceActions, VirtioDeviceType, VirtioMmioDevice};
-use virtio_queue::Queue;
+use virtio_queue::{Queue, QueueT};
 use vm_device::bus::MmioAddress;
 use vm_device::device_manager::MmioManager;
 use vm_device::{DeviceMmio, MutDeviceMmio};
-use vm_memory::GuestAddressSpace;
+use vm_memory::{GuestAddressSpace, GuestMemoryMmap};
 
 use crate::virtio::features::{VIRTIO_F_IN_ORDER, VIRTIO_F_RING_EVENT_IDX, VIRTIO_F_VERSION_1};
 use crate::virtio::net::features::*;
@@ -22,16 +22,24 @@ use super::queue_handler::QueueHandler;
 use super::simple_handler::SimpleHandler;
 use super::tap::Tap;
 
-pub struct Net<M: GuestAddressSpace> {
+pub struct Net<M>
+where
+    M: GuestAddressSpace + Clone + Send + Sync + 'static,
+{
+    mem: Arc<GuestMemoryMmap>,
     cfg: CommonConfig<M>,
     tap_name: String,
 }
 
 impl<M> Net<M>
 where
-    M: GuestAddressSpace + Clone + Send + 'static,
+    M: GuestAddressSpace + Clone + Send + Sync + 'static,
 {
-    pub fn new<B>(env: &mut Env<M, B>, args: &NetArgs) -> Result<Arc<Mutex<Self>>>
+    pub fn new<B>(
+        mem: Arc<GuestMemoryMmap>,
+        env: &mut Env<M, B>,
+        args: &NetArgs,
+    ) -> Result<Arc<Mutex<Self>>>
     where
         // We're using this (more convoluted) bound so we can pass both references and smart
         // pointers such as mutex guards here.
@@ -52,8 +60,8 @@ where
 
         // An rx/tx queue pair.
         let queues = vec![
-            Queue::new(env.mem.clone(), QUEUE_MAX_SIZE),
-            Queue::new(env.mem.clone(), QUEUE_MAX_SIZE),
+            Queue::new(QUEUE_MAX_SIZE).unwrap(),
+            Queue::new(QUEUE_MAX_SIZE).unwrap(),
         ];
 
         // TODO: We'll need a minimal config space to support setting an explicit MAC addr
@@ -64,6 +72,7 @@ where
         let common_cfg = CommonConfig::new(virtio_cfg, env).map_err(Error::Virtio)?;
 
         let net = Arc::new(Mutex::new(Net {
+            mem,
             cfg: common_cfg,
             tap_name: args.tap_name.clone(),
         }));
@@ -75,25 +84,27 @@ where
     }
 }
 
-impl<M: GuestAddressSpace + Clone + Send + 'static> VirtioDeviceType for Net<M> {
+impl<M: GuestAddressSpace + Clone + Send + Sync + 'static> VirtioDeviceType for Net<M> {
     fn device_type(&self) -> u32 {
         NET_DEVICE_ID
     }
 }
 
-impl<M: GuestAddressSpace + Clone + Send + 'static> Borrow<VirtioConfig<M>> for Net<M> {
-    fn borrow(&self) -> &VirtioConfig<M> {
+impl<M: GuestAddressSpace + Clone + Send + Sync + 'static> Borrow<VirtioConfig<Queue>> for Net<M> {
+    fn borrow(&self) -> &VirtioConfig<Queue> {
         &self.cfg.virtio
     }
 }
 
-impl<M: GuestAddressSpace + Clone + Send + 'static> BorrowMut<VirtioConfig<M>> for Net<M> {
-    fn borrow_mut(&mut self) -> &mut VirtioConfig<M> {
+impl<M: GuestAddressSpace + Clone + Send + Sync + 'static> BorrowMut<VirtioConfig<Queue>>
+    for Net<M>
+{
+    fn borrow_mut(&mut self) -> &mut VirtioConfig<Queue> {
         &mut self.cfg.virtio
     }
 }
 
-impl<M: GuestAddressSpace + Clone + Send + 'static> VirtioDeviceActions for Net<M> {
+impl<M: GuestAddressSpace + Clone + Send + Sync + 'static> VirtioDeviceActions for Net<M> {
     type E = Error;
 
     fn activate(&mut self) -> Result<()> {
@@ -123,7 +134,7 @@ impl<M: GuestAddressSpace + Clone + Send + 'static> VirtioDeviceActions for Net<
 
         let rxq = self.cfg.virtio.queues.remove(0);
         let txq = self.cfg.virtio.queues.remove(0);
-        let inner = SimpleHandler::new(driver_notify, rxq, txq, tap);
+        let inner = SimpleHandler::new(self.mem.clone(), driver_notify, rxq, txq, tap);
 
         let handler = Arc::new(Mutex::new(QueueHandler {
             inner,
@@ -140,9 +151,9 @@ impl<M: GuestAddressSpace + Clone + Send + 'static> VirtioDeviceActions for Net<
     }
 }
 
-impl<M: GuestAddressSpace + Clone + Send + 'static> VirtioMmioDevice<M> for Net<M> {}
+impl<M: GuestAddressSpace + Clone + Send + Sync + 'static> VirtioMmioDevice for Net<M> {}
 
-impl<M: GuestAddressSpace + Clone + Send + 'static> MutDeviceMmio for Net<M> {
+impl<M: GuestAddressSpace + Clone + Send + Sync + 'static> MutDeviceMmio for Net<M> {
     fn mmio_read(&mut self, _base: MmioAddress, offset: u64, data: &mut [u8]) {
         self.read(offset, data);
     }

@@ -147,7 +147,7 @@ pub struct KernelConfig {
 impl KernelConfig {
     /// Return the default kernel command line used by the Vmm.
     pub fn default_cmdline() -> Cmdline {
-        let mut cmdline = Cmdline::new(KERNEL_CMDLINE_CAPACITY);
+        let mut cmdline = Cmdline::new(KERNEL_CMDLINE_CAPACITY).unwrap();
 
         // It's ok to use `unwrap` because the initial capacity of `cmdline` should be
         // sufficient to accommodate the default kernel cmdline.
@@ -181,7 +181,7 @@ impl TryFrom<&str> for KernelConfig {
             .map_err(ConversionError::new_kernel)?
             .unwrap_or_else(|| DEFAULT_KERNEL_CMDLINE.to_string());
 
-        let mut cmdline = Cmdline::new(KERNEL_CMDLINE_CAPACITY);
+        let mut cmdline = Cmdline::new(KERNEL_CMDLINE_CAPACITY).unwrap();
         cmdline
             .insert_str(cmdline_str)
             .map_err(|_| ConversionError::new_kernel("Kernel cmdline capacity error"))?;
@@ -282,7 +282,7 @@ mod tests {
         // Check that additional commas in the kernel string do not cause a panic.
         let kernel_str = r#"path=/foo/bar,cmdline="foo=bar",kernel_load_addr=42,"#;
 
-        let mut foo_cmdline = Cmdline::new(128);
+        let mut foo_cmdline = Cmdline::new(128).unwrap();
         foo_cmdline.insert_str("\"foo=bar\"").unwrap();
 
         let expected_kernel_config = KernelConfig {

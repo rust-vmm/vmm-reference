@@ -1,5 +1,6 @@
 use kvm_bindings::*;
 use kvm_ioctls::VcpuFd;
+use std::convert::TryInto;
 
 use super::Error;
 
@@ -60,7 +61,10 @@ pub fn get_regs_and_mpidr(vcpu_fd: &VcpuFd) -> Result<(Vec<kvm_one_reg>, u64), E
     let mut regs = Vec::with_capacity(reg_id_list.as_slice().len());
     for &id in reg_id_list.as_slice() {
         let addr = vcpu_fd.get_one_reg(id).map_err(Error::VcpuGetReg)?;
-        regs.push(kvm_one_reg { id, addr });
+        regs.push(kvm_one_reg {
+            id,
+            addr: addr.try_into().unwrap(),
+        });
 
         if id == MPIDR_EL1 {
             mpidr = Some(addr);
@@ -72,5 +76,5 @@ pub fn get_regs_and_mpidr(vcpu_fd: &VcpuFd) -> Result<(Vec<kvm_one_reg>, u64), E
     }
 
     // unwrap() is safe because of the is_none() check above
-    Ok((regs, mpidr.unwrap()))
+    Ok((regs, mpidr.unwrap().try_into().unwrap()))
 }

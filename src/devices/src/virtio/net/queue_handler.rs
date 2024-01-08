@@ -1,9 +1,10 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 
+use std::os::fd::AsRawFd;
+
 use event_manager::{EventOps, Events, MutEventSubscriber};
 use log::error;
-use vm_memory::GuestAddressSpace;
 use vmm_sys_util::epoll::EventSet;
 use vmm_sys_util::eventfd::EventFd;
 
@@ -15,13 +16,13 @@ const TAPFD_DATA: u32 = 0;
 const RX_IOEVENT_DATA: u32 = 1;
 const TX_IOEVENT_DATA: u32 = 2;
 
-pub struct QueueHandler<M: GuestAddressSpace> {
-    pub inner: SimpleHandler<M, SingleFdSignalQueue>,
+pub struct QueueHandler {
+    pub inner: SimpleHandler<SingleFdSignalQueue>,
     pub rx_ioevent: EventFd,
     pub tx_ioevent: EventFd,
 }
 
-impl<M: GuestAddressSpace> QueueHandler<M> {
+impl QueueHandler {
     // Helper method that receives an error message to be logged and the `ops` handle
     // which is used to unregister all events.
     fn handle_error<S: AsRef<str>>(&self, s: S, ops: &mut EventOps) {
@@ -30,12 +31,12 @@ impl<M: GuestAddressSpace> QueueHandler<M> {
             .expect("Failed to remove rx ioevent");
         ops.remove(Events::empty(&self.tx_ioevent))
             .expect("Failed to remove tx ioevent");
-        ops.remove(Events::empty(&self.inner.tap))
+        ops.remove(Events::empty(&self.inner.tap.borrow().as_raw_fd()))
             .expect("Failed to remove tap event");
     }
 }
 
-impl<M: GuestAddressSpace> MutEventSubscriber for QueueHandler<M> {
+impl MutEventSubscriber for QueueHandler {
     fn process(&mut self, events: Events, ops: &mut EventOps) {
         // TODO: We can also consider panicking on the errors that cannot be generated
         // or influenced.
@@ -71,8 +72,10 @@ impl<M: GuestAddressSpace> MutEventSubscriber for QueueHandler<M> {
     }
 
     fn init(&mut self, ops: &mut EventOps) {
+        let raw_fd = &mut self.inner.tap.borrow_mut().as_raw_fd();
+
         ops.add(Events::with_data(
-            &self.inner.tap,
+            raw_fd,
             TAPFD_DATA,
             EventSet::IN | EventSet::EDGE_TRIGGERED,
         ))
