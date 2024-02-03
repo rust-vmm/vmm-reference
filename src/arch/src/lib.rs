@@ -17,6 +17,8 @@ pub const AARCH64_PHYS_MEM_START: u64 = 0x80000000;
 // This is the base address of MMIO devices.
 pub const AARCH64_MMIO_BASE: u64 = 1 << 30;
 
+pub const AARCH64_MMIO_SIZE : u64 = AARCH64_PHYS_MEM_START - AARCH64_MMIO_BASE;
+
 const AARCH64_AXI_BASE: u64 = 0x40000000;
 
 // These constants indicate the address space used by the ARM vGIC.
