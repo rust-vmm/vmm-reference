@@ -3,16 +3,8 @@
 //! Reference VMM built with rust-vmm components and minimal glue.
 #![deny(missing_docs)]
 
-use std::convert::TryFrom;
 #[cfg(target_arch = "aarch64")]
-use std::convert::TryInto;
-use std::fs::File;
-use std::io::{self, stdin, stdout};
-use std::ops::DerefMut;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-
+use arch::AARCH64_MMIO_SIZE;
 use event_manager::{EventManager, EventOps, Events, MutEventSubscriber, SubscriberOps};
 use irq_allocator::IrqAllocator;
 use kvm_bindings::KVM_API_VERSION;
@@ -27,6 +19,15 @@ use linux_loader::configurator::{
 };
 #[cfg(target_arch = "x86_64")]
 use linux_loader::{bootparam::boot_params, cmdline::Cmdline};
+use std::convert::TryFrom;
+#[cfg(target_arch = "aarch64")]
+use std::convert::TryInto;
+use std::fs::File;
+use std::io::{self, stdin, stdout};
+use std::ops::DerefMut;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use linux_loader::loader::{self, KernelLoader, KernelLoaderResult};
 #[cfg(target_arch = "x86_64")]
@@ -410,8 +411,11 @@ impl Vmm {
         vec![(GuestAddress(AARCH64_PHYS_MEM_START), mem_size)]
     }
 
-    fn create_address_allocator(memory_config: &MemoryConfig) -> Result<AddressAllocator> {
-        let mem_size = (memory_config.size_mib as u64) << 20;
+    fn create_address_allocator(_memory_config: &MemoryConfig) -> Result<AddressAllocator> {
+        #[cfg(target_arch = "aarch64")]
+        let mem_size = AARCH64_MMIO_SIZE;
+        #[cfg(target_arch = "x86_64")]
+        let mem_size = MMIO_GAP_SIZE;
         #[cfg(target_arch = "x86_64")]
         let start_addr = MMIO_GAP_START;
         #[cfg(target_arch = "aarch64")]
