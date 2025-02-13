@@ -392,7 +392,10 @@ mod tests {
             addr: &mut data as *const u32 as u64,
             ..Default::default()
         };
-        gic.device_fd().get_device_attr(&mut nr_irqs_attr).unwrap();
+        //SAFETY: we prepere the structure
+        unsafe {
+            gic.device_fd().get_device_attr(&mut nr_irqs_attr).unwrap();
+        }
         assert_eq!(data, config.num_irqs);
     }
 

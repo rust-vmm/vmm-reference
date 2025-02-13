@@ -29,6 +29,8 @@ fn run_vmm(kernel_path: PathBuf) {
         vcpu_config: default_vcpu_config(),
         block_config: None,
         net_config: None,
+        dump_dtb: None,
+        dtb: None,
     };
 
     let mut vmm = Vmm::try_from(vmm_config).unwrap();
@@ -65,7 +67,7 @@ fn test_dummy_vmm_bzimage() {
 }
 
 #[test]
-#[cfg(target_arch = "aarch64")]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
 fn test_dummy_vmm_pe() {
     let tags = r#"
     {

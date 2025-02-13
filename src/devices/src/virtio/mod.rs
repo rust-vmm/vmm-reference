@@ -8,10 +8,11 @@ pub mod net;
 
 use std::convert::TryFrom;
 use std::io;
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::intc::APlicTrigger;
 use event_manager::{
     Error as EvmgrError, EventManager, MutEventSubscriber, RemoteEndpoint, Result as EvmgrResult,
     SubscriberId,
@@ -19,10 +20,12 @@ use event_manager::{
 use kvm_ioctls::{IoEventAddress, VmFd};
 use linux_loader::cmdline::Cmdline;
 use virtio_device::VirtioConfig;
+use virtio_queue::{Queue, QueueT};
 use vm_device::bus::{self, MmioAddress, MmioRange};
 use vm_device::device_manager::MmioManager;
 use vm_device::DeviceMmio;
 use vm_memory::{GuestAddress, GuestAddressSpace};
+use vm_superio::Trigger;
 use vmm_sys_util::errno;
 use vmm_sys_util::eventfd::{EventFd, EFD_NONBLOCK};
 
@@ -65,6 +68,28 @@ pub enum Error {
     RegisterIrqfd(errno::Error),
 }
 
+// Enum that abstracts the way in which IRQs are triggered
+pub enum IrqTrigger {
+    IrqFd(Arc<EventFd>),
+    APlicTrigger(Option<APlicTrigger>),
+}
+
+impl IrqTrigger {
+    fn trigger(&self) {
+        match self {
+            IrqTrigger::IrqFd(irqfd) => {
+                irqfd
+                    .write(1)
+                    .expect("Failed write to eventfd when signaling queue");
+            }
+            IrqTrigger::APlicTrigger(aplic_trigger) => aplic_trigger
+                .clone()
+                .unwrap()
+                .trigger()
+                .expect("Failed write to aplic trigger when signaling queue"),
+        }
+    }
+}
 type Result<T> = std::result::Result<T, Error>;
 pub type Subscriber = Arc<Mutex<dyn MutEventSubscriber + Send>>;
 
@@ -117,7 +142,7 @@ pub struct Env<'a, M, B> {
     pub kernel_cmdline: &'a mut Cmdline,
 }
 
-impl<'a, M, B> Env<'a, M, B>
+impl<M, B> Env<'_, M, B>
 where
     // We're using this (more convoluted) bound so we can pass both references and smart
     // pointers such as mutex guards here.
@@ -154,23 +179,26 @@ where
 }
 
 // Holds configuration objects which are common to all current devices.
-pub struct CommonConfig<M: GuestAddressSpace> {
-    pub virtio: VirtioConfig<M>,
+pub struct CommonConfig<M: GuestAddressSpace + Clone + Send + 'static> {
+    pub mem: M,
+    pub virtio: VirtioConfig<Queue>,
     pub mmio: MmioConfig,
     pub endpoint: RemoteEndpoint<Subscriber>,
     pub vm_fd: Arc<VmFd>,
     pub irqfd: Arc<EventFd>,
 }
 
-impl<M: GuestAddressSpace> CommonConfig<M> {
-    pub fn new<B>(virtio_cfg: VirtioConfig<M>, env: &Env<M, B>) -> Result<Self> {
+impl<M: GuestAddressSpace + Clone + Send + 'static> CommonConfig<M> {
+    pub fn new<B>(virtio_cfg: VirtioConfig<Queue>, env: &Env<M, B>) -> Result<Self> {
         let irqfd = Arc::new(EventFd::new(EFD_NONBLOCK).map_err(Error::EventFd)?);
 
+        #[cfg(not(target_arch = "riscv64"))]
         env.vm_fd
             .register_irqfd(&irqfd, env.mmio_cfg.gsi)
             .map_err(Error::RegisterIrqfd)?;
 
         Ok(CommonConfig {
+            mem: env.mem.clone(),
             virtio: virtio_cfg,
             mmio: env.mmio_cfg,
             endpoint: env.event_mgr.remote_endpoint(),
@@ -183,9 +211,15 @@ impl<M: GuestAddressSpace> CommonConfig<M> {
     // a `Vec` that contains `EventFd`s registered as ioeventfds, which are used to convey queue
     // notifications coming from the driver.
     pub fn prepare_activate(&self) -> Result<Vec<EventFd>> {
-        if !self.virtio.queues_valid() {
-            return Err(Error::QueuesNotValid);
-        }
+        let m = self.mem.memory();
+        let guest_mem = <<M as GuestAddressSpace>::T>::deref(&m);
+
+        self.virtio
+            .queues
+            .iter()
+            .all(|q| <Queue as QueueT>::is_valid(q, guest_mem))
+            .then_some(())
+            .ok_or(Error::QueuesNotValid)?;
 
         if self.virtio.device_activated {
             return Err(Error::AlreadyActivated);
@@ -255,7 +289,7 @@ pub trait SignalUsedQueue {
 /// Uses a single irqfd as the basis of signalling any queue (useful for the MMIO transport,
 /// where a single interrupt is shared for everything).
 pub struct SingleFdSignalQueue {
-    pub irqfd: Arc<EventFd>,
+    pub irq_trigger: IrqTrigger,
     pub interrupt_status: Arc<AtomicU8>,
 }
 
@@ -263,9 +297,7 @@ impl SignalUsedQueue for SingleFdSignalQueue {
     fn signal_used_queue(&self, _index: u16) {
         self.interrupt_status
             .fetch_or(VIRTIO_MMIO_INT_VRING, Ordering::SeqCst);
-        self.irqfd
-            .write(1)
-            .expect("Failed write to eventfd when signalling queue");
+        self.irq_trigger.trigger();
     }
 }
 
@@ -284,7 +316,6 @@ pub(crate) mod tests {
         kvm_create_device, kvm_device_attr, kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V3,
         KVM_DEV_ARM_VGIC_CTRL_INIT, KVM_DEV_ARM_VGIC_GRP_CTRL,
     };
-    use virtio_queue::Queue;
     pub type MockMem = Arc<GuestMemoryMmap>;
 
     // Can be used in other modules to test functionality that requires a `CommonArgs` struct as
@@ -324,7 +355,7 @@ pub(crate) mod tests {
                 mmio_mgr: IoManager::new(),
                 mmio_cfg,
                 // `4096` seems large enough for testing.
-                kernel_cmdline: Cmdline::new(4096),
+                kernel_cmdline: Cmdline::new(4096).unwrap(),
             }
         }
         pub fn env(&mut self) -> Env<MockMem, &mut IoManager> {
@@ -342,7 +373,7 @@ pub(crate) mod tests {
         // the IRQ fds and thus test the virtio functionality in arm as well.
         fn create_gic(vm_fd: &VmFd) {
             let mut create_device_attr = kvm_create_device {
-                type_: kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V3 as u32,
+                type_: kvm_device_type_KVM_DEV_TYPE_ARM_VGIC_V3,
                 fd: 0,
                 flags: 0,
             };
@@ -379,7 +410,11 @@ pub(crate) mod tests {
         assert_eq!(bus_range.size(), range.size());
 
         assert_eq!(
-            mock.kernel_cmdline.as_str(),
+            mock.kernel_cmdline
+                .as_cstring()
+                .unwrap()
+                .into_string()
+                .unwrap(),
             format!(
                 "virtio_mmio.device=4K@0x{:x}:{}",
                 range.base().0,
@@ -388,7 +423,13 @@ pub(crate) mod tests {
         );
 
         mock.env().insert_cmdline_str("ending_string").unwrap();
-        assert!(mock.kernel_cmdline.as_str().ends_with("ending_string"));
+        assert!(mock
+            .kernel_cmdline
+            .as_cstring()
+            .unwrap()
+            .into_string()
+            .unwrap()
+            .ends_with("ending_string"));
     }
 
     #[test]
@@ -397,7 +438,7 @@ pub(crate) mod tests {
         let env = mock.env();
 
         let device_features = 0;
-        let queues = vec![Queue::new(env.mem.clone(), 256)];
+        let queues = vec![Queue::new(256).unwrap()];
         let config_space = Vec::new();
         let virtio_cfg = VirtioConfig::new(device_features, queues, config_space);
 
@@ -407,8 +448,8 @@ pub(crate) mod tests {
         assert!(matches!(cfg.prepare_activate(), Err(Error::QueuesNotValid)));
 
         // Let's pretend the queue has been configured such that the `is_valid` check passes.
-        cfg.virtio.queues[0].state.ready = true;
-        cfg.virtio.queues[0].state.size = 256;
+        cfg.virtio.queues[0].set_ready(true);
+        cfg.virtio.queues[0].set_size(256);
 
         // This will fail because the "driver" didn't acknowledge `VIRTIO_F_VERSION_1`.
         assert!(matches!(cfg.prepare_activate(), Err(Error::BadFeatures(0))));

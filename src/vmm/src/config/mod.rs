@@ -85,10 +85,10 @@ impl Default for MemoryConfig {
     }
 }
 
-impl TryFrom<&str> for MemoryConfig {
+impl TryFrom<&String> for MemoryConfig {
     type Error = ConversionError;
 
-    fn try_from(mem_cfg_str: &str) -> result::Result<Self, Self::Error> {
+    fn try_from(mem_cfg_str: &String) -> result::Result<Self, Self::Error> {
         // Supported options: `size=<u32>`
         let mut arg_parser = CfgArgParser::new(mem_cfg_str);
 
@@ -116,10 +116,10 @@ impl Default for VcpuConfig {
     }
 }
 
-impl TryFrom<&str> for VcpuConfig {
+impl TryFrom<&String> for VcpuConfig {
     type Error = ConversionError;
 
-    fn try_from(vcpu_cfg_str: &str) -> result::Result<Self, Self::Error> {
+    fn try_from(vcpu_cfg_str: &String) -> result::Result<Self, Self::Error> {
         // Supported options: `num=<u8>`
         let mut arg_parser = CfgArgParser::new(vcpu_cfg_str);
         let num = arg_parser
@@ -147,7 +147,7 @@ pub struct KernelConfig {
 impl KernelConfig {
     /// Return the default kernel command line used by the Vmm.
     pub fn default_cmdline() -> Cmdline {
-        let mut cmdline = Cmdline::new(KERNEL_CMDLINE_CAPACITY);
+        let mut cmdline = Cmdline::new(KERNEL_CMDLINE_CAPACITY).unwrap();
 
         // It's ok to use `unwrap` because the initial capacity of `cmdline` should be
         // sufficient to accommodate the default kernel cmdline.
@@ -167,10 +167,10 @@ impl Default for KernelConfig {
     }
 }
 
-impl TryFrom<&str> for KernelConfig {
+impl TryFrom<&String> for KernelConfig {
     type Error = ConversionError;
 
-    fn try_from(kernel_cfg_str: &str) -> result::Result<Self, Self::Error> {
+    fn try_from(kernel_cfg_str: &String) -> result::Result<Self, Self::Error> {
         // Supported options:
         // `cmdline=<"string">,path=/path/to/kernel,kernel_load_addr=<u64>`
         // Required: path
@@ -181,7 +181,7 @@ impl TryFrom<&str> for KernelConfig {
             .map_err(ConversionError::new_kernel)?
             .unwrap_or_else(|| DEFAULT_KERNEL_CMDLINE.to_string());
 
-        let mut cmdline = Cmdline::new(KERNEL_CMDLINE_CAPACITY);
+        let mut cmdline = Cmdline::new(KERNEL_CMDLINE_CAPACITY).unwrap();
         cmdline
             .insert_str(cmdline_str)
             .map_err(|_| ConversionError::new_kernel("Kernel cmdline capacity error"))?;
@@ -213,10 +213,10 @@ pub struct NetConfig {
     pub tap_name: String,
 }
 
-impl TryFrom<&str> for NetConfig {
+impl TryFrom<&String> for NetConfig {
     type Error = ConversionError;
 
-    fn try_from(net_config_str: &str) -> Result<Self, Self::Error> {
+    fn try_from(net_config_str: &String) -> Result<Self, Self::Error> {
         // Supported options: `tap=String`
         let mut arg_parser = CfgArgParser::new(net_config_str);
 
@@ -239,10 +239,10 @@ pub struct BlockConfig {
     pub path: PathBuf,
 }
 
-impl TryFrom<&str> for BlockConfig {
+impl TryFrom<&String> for BlockConfig {
     type Error = ConversionError;
 
-    fn try_from(block_cfg_str: &str) -> Result<Self, Self::Error> {
+    fn try_from(block_cfg_str: &String) -> Result<Self, Self::Error> {
         // Supported options: `path=PathBuf`
         let mut arg_parser = CfgArgParser::new(block_cfg_str);
 
@@ -255,6 +255,58 @@ impl TryFrom<&str> for BlockConfig {
             .all_consumed()
             .map_err(ConversionError::new_block)?;
         Ok(BlockConfig { path })
+    }
+}
+
+/// Dump DTB configuration
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DumpDTBConfig {
+    /// Path where to save dtb used.
+    pub path: PathBuf,
+}
+
+impl TryFrom<&String> for DumpDTBConfig {
+    type Error = ConversionError;
+
+    fn try_from(dump_dtb_cfg_str: &String) -> Result<Self, Self::Error> {
+        // Supported options: `path=PathBuf`
+        let mut arg_parser = CfgArgParser::new(dump_dtb_cfg_str);
+
+        let path = arg_parser
+            .value_of("path")
+            .map_err(ConversionError::new_block)?
+            .ok_or_else(|| ConversionError::new_block("Missing required argument: path"))?;
+
+        arg_parser
+            .all_consumed()
+            .map_err(ConversionError::new_block)?;
+        Ok(DumpDTBConfig { path })
+    }
+}
+
+/// DTB configuration
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DTBConfig {
+    /// Path to the FDT.
+    pub path: PathBuf,
+}
+
+impl TryFrom<&String> for DTBConfig {
+    type Error = ConversionError;
+
+    fn try_from(dtb_cfg_str: &String) -> Result<Self, Self::Error> {
+        // Supported options: `path=PathBuf`
+        let mut arg_parser = CfgArgParser::new(dtb_cfg_str);
+
+        let path = arg_parser
+            .value_of("path")
+            .map_err(ConversionError::new_block)?
+            .ok_or_else(|| ConversionError::new_block("Missing required argument: path"))?;
+
+        arg_parser
+            .all_consumed()
+            .map_err(ConversionError::new_block)?;
+        Ok(DTBConfig { path })
     }
 }
 
@@ -271,6 +323,10 @@ pub struct VMMConfig {
     pub net_config: Option<NetConfig>,
     /// Block device configuration.
     pub block_config: Option<BlockConfig>,
+    /// Dump DTB configuration
+    pub dump_dtb: Option<DumpDTBConfig>,
+    /// DTB configuration
+    pub dtb: Option<DTBConfig>,
 }
 
 #[cfg(test)]
@@ -280,9 +336,8 @@ mod tests {
     #[test]
     fn test_kernel_config() {
         // Check that additional commas in the kernel string do not cause a panic.
-        let kernel_str = r#"path=/foo/bar,cmdline="foo=bar",kernel_load_addr=42,"#;
-
-        let mut foo_cmdline = Cmdline::new(128);
+        let kernel_str = String::from(r#"path=/foo/bar,cmdline="foo=bar",kernel_load_addr=42,"#);
+        let mut foo_cmdline = Cmdline::new(128).unwrap();
         foo_cmdline.insert_str("\"foo=bar\"").unwrap();
 
         let expected_kernel_config = KernelConfig {
@@ -290,131 +345,115 @@ mod tests {
             load_addr: 42,
             path: PathBuf::from("/foo/bar"),
         };
-        assert_eq!(
-            KernelConfig::try_from(kernel_str).unwrap(),
-            expected_kernel_config
-        );
+        assert_eq!(&KernelConfig::try_from(&kernel_str).unwrap(), &expected_kernel_config);
 
         // Check that an empty path returns a conversion error.
-        let kernel_str = r#"path=,cmdline="foo=bar",kernel_load_addr=42,"#;
+        let kernel_str = String::from(r#"path=,cmdline="foo=bar",kernel_load_addr=42,"#);
         assert_eq!(
-            KernelConfig::try_from(kernel_str).unwrap_err(),
-            ConversionError::ParseKernel("Missing required argument: path".to_string())
+            &KernelConfig::try_from(&kernel_str).unwrap_err(),
+            &ConversionError::ParseKernel("Missing required argument: path".to_string())
         );
-        assert!(KernelConfig::try_from("path=/something,not=valid").is_err());
-        assert!(KernelConfig::try_from("path=/something,kernel_load_addr=invalid").is_err());
+        assert!(KernelConfig::try_from(&String::from("path=/something,not=valid")).is_err());
+        assert!(KernelConfig::try_from(&String::from("path=/something,kernel_load_addr=invalid")).is_err());
     }
 
     #[test]
     fn test_vcpu_config() {
         // Invalid vCPU numbers: 0, 256 (exceeds the u8 limit).
-        let vcpu_str = "num=0";
+        let vcpu_str = String::from("num=0");
         assert_eq!(
-            VcpuConfig::try_from(vcpu_str).unwrap_err(),
-            ConversionError::ParseVcpus(
-                "Param \'num\', parsing failed: number would be zero for non-zero type".to_string()
+            &VcpuConfig::try_from(&vcpu_str).unwrap_err(),
+            &ConversionError::ParseVcpus(
+                "Param 'num', parsing failed: number would be zero for non-zero type".to_string()
             )
         );
 
-        let vcpu_str = "num=256";
+        let vcpu_str = String::from("num=256");
         assert_eq!(
-            VcpuConfig::try_from(vcpu_str).unwrap_err(),
-            ConversionError::ParseVcpus(
+            &VcpuConfig::try_from(&vcpu_str).unwrap_err(),
+            &ConversionError::ParseVcpus(
                 "Param 'num', parsing failed: number too large to fit in target type".to_string()
             )
         );
 
         // Missing vCPU number in config string, use default
-        let vcpu_str = "num=";
-        assert!(VcpuConfig::try_from(vcpu_str).is_ok());
+        assert!(VcpuConfig::try_from(&String::from("num=")).is_ok());
 
         // vCPU number parsing error
-        let vcpu_str = "num=abc";
-        assert!(VcpuConfig::try_from(vcpu_str).is_err());
+        assert!(VcpuConfig::try_from(&String::from("num=abc")).is_err());
 
         // Extra argument
-        let vcpu_str = "num=1,foo=bar";
-        assert!(VcpuConfig::try_from(vcpu_str).is_err());
+        assert!(VcpuConfig::try_from(&String::from("num=1,foo=bar")).is_err());
     }
 
     #[test]
     fn test_net_config() {
-        let net_str = "tap=vmtap";
-        let net_cfg = NetConfig::try_from(net_str).unwrap();
+        let net_str = String::from("tap=vmtap");
+        let net_cfg = NetConfig::try_from(&net_str).unwrap();
         let expected_cfg = NetConfig {
             tap_name: "vmtap".to_string(),
         };
-        assert_eq!(net_cfg, expected_cfg);
+        assert_eq!(&net_cfg, &expected_cfg);
 
-        // Test case: empty string error.
-        assert!(NetConfig::try_from("").is_err());
+        // Test case: empty string error
+        assert!(NetConfig::try_from(&String::from("")).is_err());
 
-        // Test case: empty tap name error.
-        let net_str = "tap=";
-        assert!(NetConfig::try_from(net_str).is_err());
+        // Test case: empty tap name error
+        assert!(NetConfig::try_from(&String::from("tap=")).is_err());
 
         // Test case: invalid string.
-        let net_str = "blah=blah";
-        assert!(NetConfig::try_from(net_str).is_err());
+        assert!(NetConfig::try_from(&String::from("blah=blah")).is_err());
 
         // Test case: unused parameters
-        let net_str = "tap=something,blah=blah";
-        assert!(NetConfig::try_from(net_str).is_err());
+        assert!(NetConfig::try_from(&String::from("tap=something,blah=blah")).is_err());
     }
 
     #[test]
     fn test_block_config() {
-        let block_str = "path=/foo/bar";
-        let block_cfg = BlockConfig::try_from(block_str).unwrap();
+        let block_str = String::from("path=/foo/bar");
+        let block_cfg = BlockConfig::try_from(&block_str).unwrap();
         let expected_cfg = BlockConfig {
             path: PathBuf::from("/foo/bar"),
         };
-        assert_eq!(block_cfg, expected_cfg);
+        assert_eq!(&block_cfg, &expected_cfg);
 
-        // Test case: empty string error.
-        assert!(BlockConfig::try_from("").is_err());
+        // Test case: empty string error
+        assert!(BlockConfig::try_from(&String::from("")).is_err());
 
-        // Test case: empty tap name error.
-        let block_str = "path=";
-        assert!(BlockConfig::try_from(block_str).is_err());
+        // Test case: empty tap name error
+        assert!(BlockConfig::try_from(&String::from("path=")).is_err());
 
         // Test case: invalid string.
-        let block_str = "blah=blah";
-        assert!(BlockConfig::try_from(block_str).is_err());
+        assert!(BlockConfig::try_from(&String::from("blah=blah")).is_err());
 
         // Test case: unused parameters
-        let block_str = "path=/foo/bar,blah=blah";
-        assert!(BlockConfig::try_from(block_str).is_err());
+        assert!(BlockConfig::try_from(&String::from("path=/foo/bar,blah=blah")).is_err());
     }
 
     #[test]
     fn test_memory_config() {
         let default = MemoryConfig { size_mib: 256 };
-        let size_str = "size_mib=42";
-        let memory_cfg = MemoryConfig::try_from(size_str).unwrap();
+        let size_str = String::from("size_mib=42");
+        let memory_cfg = MemoryConfig::try_from(&size_str).unwrap();
         let expected_cfg = MemoryConfig { size_mib: 42 };
-        assert_eq!(memory_cfg, expected_cfg);
+        assert_eq!(&memory_cfg, &expected_cfg);
 
         // Test case: empty string should use default
-        assert_eq!(MemoryConfig::try_from("").unwrap(), default);
+        assert_eq!(&MemoryConfig::try_from(&String::from("" )).unwrap(), &default);
 
         // Test case: empty size_mib, use default
-        let memory_str = "size_mib=";
-        assert!(MemoryConfig::try_from(memory_str).is_ok());
+        assert!(MemoryConfig::try_from(&String::from("size_mib=")).is_ok());
 
         // Test case: size_mib invalid input
-        let memory_str = "size_mib=ciao";
-        assert!(MemoryConfig::try_from(memory_str).is_err());
+        assert!(MemoryConfig::try_from(&String::from("size_mib=ciao")).is_err());
 
         // Test case: invalid string.
-        let memory_str = "blah=blah";
         assert_eq!(
-            MemoryConfig::try_from(memory_str).unwrap_err(),
-            ConversionError::ParseMemory("Unknown arguments found: \'blah\'".to_string())
+            &MemoryConfig::try_from(&String::from("blah=blah")).unwrap_err(),
+            &ConversionError::ParseMemory("Unknown arguments found: 'blah'".to_string())
         );
 
         // Test case: unused parameters
-        let memory_str = "size_mib=12,blah=blah";
-        assert!(MemoryConfig::try_from(memory_str).is_err());
+        assert!(MemoryConfig::try_from(&String::from("size_mib=12,blah=blah")).is_err());
     }
 }

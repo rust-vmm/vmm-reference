@@ -1,13 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // Copyright 2017 The Chromium OS Authors. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
-
-#[cfg(target_arch = "x86_64")]
-use std::convert::TryInto;
-use std::io::{self, ErrorKind};
-use std::sync::{Arc, Barrier, Mutex};
-use std::thread::{self, JoinHandle};
-
+use crate::vcpu::VcpuState;
 use kvm_bindings::kvm_userspace_memory_region;
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::{
@@ -16,21 +10,30 @@ use kvm_bindings::{
 };
 
 use kvm_ioctls::{Kvm, VmFd};
+#[cfg(target_arch = "x86_64")]
+use std::convert::TryInto;
+use std::io::{self, ErrorKind};
+use std::sync::{Arc, Barrier, Mutex};
+use std::thread::{self, JoinHandle};
 use vm_device::device_manager::IoManager;
 use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryRegion};
 use vmm_sys_util::errno::Error as Errno;
 use vmm_sys_util::eventfd::EventFd;
 use vmm_sys_util::signal::{Killable, SIGRTMIN};
 
-use crate::vcpu::{self, KvmVcpu, VcpuConfigList, VcpuRunState, VcpuState};
+use crate::vcpu::{self, KvmVcpu, VcpuConfigList, VcpuRunState};
 
 #[cfg(target_arch = "aarch64")]
 use vm_vcpu_ref::aarch64::interrupts::{self, Gic, GicConfig, GicState};
+#[cfg(target_arch = "riscv64")]
+use vm_vcpu_ref::riscv::interrupts::{self, APlic, APlicConfig};
 #[cfg(target_arch = "x86_64")]
 use vm_vcpu_ref::x86_64::mptable::{self, MpTable};
 
 #[cfg(target_arch = "aarch64")]
 pub const MAX_IRQ: u32 = interrupts::MIN_NR_IRQS;
+#[cfg(target_arch = "riscv64")]
+pub const MAX_IRQ: u32 = 64;
 #[cfg(target_arch = "x86_64")]
 pub const MAX_IRQ: u32 = mptable::IRQ_MAX as u32;
 
@@ -73,6 +76,13 @@ pub struct VmState {
     pub gic_state: GicState,
 }
 
+#[cfg(target_arch = "riscv64")]
+#[derive(Clone)]
+pub struct VmState {
+    pub config: VmConfig,
+    pub vcpus_state: Vec<VcpuState>,
+}
+
 /// A KVM specific implementation of a Virtual Machine.
 ///
 /// Provides abstractions for working with a VM. Once a generic Vm trait will be available,
@@ -89,8 +99,8 @@ pub struct KvmVm<EH: ExitHandler + Send> {
     vcpu_barrier: Arc<Barrier>,
     vcpu_run_state: Arc<VcpuRunState>,
 
-    #[cfg(target_arch = "aarch64")]
-    gic: Option<Gic>,
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+    irqchip: Option<IrqChip>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -112,7 +122,7 @@ pub enum Error {
     #[cfg(target_arch = "x86_64")]
     SetupInterruptController(kvm_ioctls::Error),
     #[error("Failed to setup the interrupt controller: {0}")]
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
     SetupInterruptController(interrupts::Error),
     /// Failed to create the vcpu.
     #[error("Failed to create the vcpu: {0}")]
@@ -170,13 +180,36 @@ impl From<mptable::Error> for Error {
     }
 }
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
 impl From<interrupts::Error> for Error {
     fn from(inner: interrupts::Error) -> Self {
         Error::SetupInterruptController(inner)
     }
 }
 
+pub enum IrqChip {
+    #[cfg(target_arch = "aarch64")]
+    Gic(Gic),
+    #[cfg(target_arch = "riscv64")]
+    APlic(APlic),
+}
+
+impl IrqChip {
+    #[allow(dead_code)]
+    #[cfg(target_arch = "aarch64")]
+    fn get_gic(&self) -> &Gic {
+        match self {
+            IrqChip::Gic(gic) => gic,
+        }
+    }
+    #[allow(dead_code)]
+    #[cfg(target_arch = "riscv64")]
+    fn get_aplic(&self) -> &APlic {
+        match self {
+            IrqChip::APlic(aplic) => aplic,
+        }
+    }
+}
 /// Dedicated [`Result`](https://doc.rust-lang.org/std/result/) type.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -222,8 +255,8 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
             exit_handler,
             vcpu_run_state,
 
-            #[cfg(target_arch = "aarch64")]
-            gic: None,
+            #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+            irqchip: None,
         };
         vm.configure_memory_regions(guest_memory, kvm)?;
 
@@ -283,7 +316,9 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
     #[cfg(target_arch = "aarch64")]
     fn set_state(&mut self, state: VmState) -> Result<()> {
         let mpidrs = state.vcpus_state.iter().map(|state| state.mpidr).collect();
-        self.gic().restore_state(&state.gic_state, mpidrs)?;
+        self.irqchip()
+            .get_gic()
+            .restore_state(&state.gic_state, mpidrs)?;
         Ok(())
     }
 
@@ -318,6 +353,11 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
             vm.setup_irq_controller()?;
             vm.set_state(state)?;
         }
+        #[cfg(target_arch = "riscv64")]
+        {
+            vm.create_vcpus_from_state::<M>(bus, vcpus_state)?;
+            vm.setup_irq_controller()?;
+        }
         Ok(vm)
     }
 
@@ -326,11 +366,16 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
         self.fd.clone()
     }
 
-    #[cfg(target_arch = "aarch64")]
-    fn gic(&self) -> &Gic {
-        // This method panics if the `gic` field, which
-        // is Option<Gic> is not properly initialized.
-        self.gic.as_ref().expect("GIC is not set")
+    pub fn get_vcpus(&self) -> &Vec<KvmVcpu> {
+        &self.vcpus
+    }
+
+    #[allow(dead_code)]
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+    fn irqchip(&self) -> &IrqChip {
+        // This method panics if the `irqchip` field, which
+        // is Option<IrqChip> is not properly initialized.
+        self.irqchip.as_ref().expect("Irqchip is not set")
     }
 
     /// Returns the max irq number independent of arch.
@@ -349,13 +394,13 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
             let memory_region = kvm_userspace_memory_region {
                 slot: index as u32,
                 guest_phys_addr: region.start_addr().raw_value(),
-                memory_size: region.len() as u64,
+                memory_size: region.len(),
                 // It's safe to unwrap because the guest address is valid.
                 userspace_addr: guest_memory.get_host_address(region.start_addr()).unwrap() as u64,
                 flags: 0,
             };
 
-            // Safe because:
+            // SAFETY: because:
             // * userspace_addr is a valid address for a memory region, obtained by calling
             //   get_host_address() on a valid region's start address;
             // * the memory regions do not overlap - there's either a single region spanning
@@ -405,7 +450,19 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
             },
             &self.vm_fd(),
         )?;
-        self.gic = Some(gic);
+        self.irqchip = Some(IrqChip::Gic(gic));
+        Ok(())
+    }
+
+    #[cfg(target_arch = "riscv64")]
+    pub fn setup_irq_controller(&mut self) -> Result<()> {
+        let aplic = APlic::new(
+            APlicConfig {
+                num_cpus: self.config.num_vcpus,
+            },
+            &self.vm_fd(),
+        )?;
+        self.irqchip = Some(IrqChip::APlic(aplic));
         Ok(())
     }
 
@@ -434,7 +491,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
             })
             .collect::<vcpu::Result<Vec<KvmVcpu>>>()
             .map_err(Error::CreateVcpu)?;
-        #[cfg(target_arch = "aarch64")]
+        #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
         self.setup_irq_controller()?;
 
         Ok(())
@@ -478,7 +535,7 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
     /// # Arguments
     ///
     /// * `vcpu_run_addr`: address in guest memory where the vcpu run starts. This can be None
-    ///  when the IP is specified using the platform dependent registers.
+    ///   when the IP is specified using the platform dependent registers.
     pub fn run(&mut self, vcpu_run_addr: Option<GuestAddress>) -> Result<()> {
         if self.vcpus.len() != self.config.num_vcpus as usize {
             return Err(Error::RunVcpus(io::Error::from(ErrorKind::InvalidInput)));
@@ -530,12 +587,26 @@ impl<EH: 'static + ExitHandler + Send> KvmVm<EH> {
             .map_err(Error::SaveVcpuState)?;
 
         let mpidrs = vcpus_state.iter().map(|state| state.mpidr).collect();
-        let gic_state = self.gic().save_state(mpidrs)?;
+        let gic_state = self.irqchip().get_gic().save_state(mpidrs)?;
 
         Ok(VmState {
             config: self.config.clone(),
             vcpus_state,
             gic_state,
+        })
+    }
+
+    #[cfg(target_arch = "riscv64")]
+    pub fn save_state(&mut self) -> Result<VmState> {
+        let vcpus_state = self
+            .vcpus
+            .iter_mut()
+            .map(|vcpu| vcpu.save_state())
+            .collect::<vcpu::Result<Vec<VcpuState>>>()
+            .map_err(Error::SaveVcpuState)?;
+        Ok(VmState {
+            config: self.config.clone(),
+            vcpus_state,
         })
     }
 
@@ -659,7 +730,7 @@ mod tests {
     #[test]
     #[cfg(target_arch = "x86_64")]
     fn test_failed_setup_mptable() {
-        let num_vcpus = (MAX_SUPPORTED_CPUS + 1) as u8;
+        let num_vcpus = MAX_SUPPORTED_CPUS + 1;
         let kvm = Kvm::new().unwrap();
         let guest_memory = default_memory();
         let res = default_vm(&kvm, &guest_memory, num_vcpus);
@@ -710,10 +781,12 @@ mod tests {
             fd: Arc::new(kvm.create_vm().unwrap()),
             exit_handler: WrappedExitHandler::default(),
             vcpu_run_state: Arc::new(VcpuRunState::default()),
-            #[cfg(target_arch = "aarch64")]
-            gic: None,
+            #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+            irqchip: None,
         };
 
+        #[cfg(target_arch = "riscv64")]
+        vm.fd.create_vcpu(0).unwrap();
         // Setting up the irq_controller twice should return an error.
         vm.setup_irq_controller().unwrap();
         let res = vm.setup_irq_controller();
@@ -786,7 +859,7 @@ mod tests {
         assert!(KvmVm::from_state(&kvm, vm_state, &guest_memory, exit_handler, io_manager).is_ok());
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
     #[test]
     fn test_vm_save_state() {
         let num_vcpus = 4;

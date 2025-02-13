@@ -5,7 +5,8 @@
 use std::convert::TryFrom;
 
 use super::{
-    BlockConfig, ConversionError, KernelConfig, MemoryConfig, NetConfig, VMMConfig, VcpuConfig,
+    BlockConfig, ConversionError, DTBConfig, DumpDTBConfig, KernelConfig, MemoryConfig, NetConfig,
+    VMMConfig, VcpuConfig,
 };
 
 /// Builder structure for VMMConfig
@@ -40,29 +41,25 @@ impl Builder {
     ///  # use vmm::VMMConfig;
     ///
     /// let vmmconfig = VMMConfig::builder()
-    ///     .memory_config(Some("size_mib=1024"))
-    ///     .vcpu_config(Some("num=1"))
-    ///     .kernel_config(Some("path=/path/to/bzImage"))
-    ///     .net_config(Some("tap=tap0"))
-    ///     .block_config(Some("path=/dev/loop0"))
+    ///     .memory_config(Some(&String::from("size_mib=1024")))
+    ///     .vcpu_config(Some(&String::from("num=1")))
+    ///     .kernel_config(Some(&String::from("path=/path/to/bzImage")))
+    ///     .net_config(Some(&String::from("tap=tap0")))
+    ///     .block_config(Some(&String::from("path=/dev/loop0")))
     ///     .build();
     ///
     /// assert!(vmmconfig.is_ok());
     /// ```
     pub fn build(&self) -> Result<VMMConfig, ConversionError> {
         // Check if there are any errors
-        match &self.inner {
-            Ok(vc) => {
-                // Empty kernel image path.
-                if vc.kernel_config.path.to_str().unwrap().is_empty() {
-                    return Err(ConversionError::ParseKernel(
-                        "Kernel Image Path is Empty.".to_string(),
-                    ));
-                }
+        if let Ok(vc) = &self.inner {
+            // Empty kernel image path.
+            if vc.kernel_config.path.to_str().unwrap().is_empty() {
+                return Err(ConversionError::ParseKernel(
+                    "Kernel Image Path is Empty.".to_string(),
+                ));
             }
-            Err(_) => {}
         }
-
         self.inner.clone()
     }
 
@@ -168,6 +165,36 @@ impl Builder {
         }
     }
 
+    /// Configure Builder with dump DTB Configuration for the VMM.
+    pub fn dump_dtb_config<T>(self, dump_dtb: Option<T>) -> Self
+    where
+        DumpDTBConfig: TryFrom<T>,
+        <DumpDTBConfig as TryFrom<T>>::Error: Into<ConversionError>,
+    {
+        match dump_dtb {
+            Some(dd) => self.and_then(|mut config| {
+                config.dump_dtb = Some(TryFrom::try_from(dd).map_err(Into::into)?);
+                Ok(config)
+            }),
+            None => self,
+        }
+    }
+
+    /// Configure Builder with DTB Configuration for the VMM.
+    pub fn dtb_config<T>(self, dtb: Option<T>) -> Self
+    where
+        DTBConfig: TryFrom<T>,
+        <DTBConfig as TryFrom<T>>::Error: Into<ConversionError>,
+    {
+        match dtb {
+            Some(d) => self.and_then(|mut config| {
+                config.dtb = Some(TryFrom::try_from(d).map_err(Into::into)?);
+                Ok(config)
+            }),
+            None => self,
+        }
+    }
+
     fn and_then<F>(self, func: F) -> Self
     where
         F: FnOnce(VMMConfig) -> Result<VMMConfig, ConversionError>,
@@ -195,8 +222,8 @@ mod tests {
     #[test]
     fn test_builder_memory_config_success() {
         let vmm_config = Builder::default()
-            .memory_config(Some("size_mib=1024"))
-            .kernel_config(Some("path=bzImage"))
+            .memory_config(Some(&String::from("size_mib=1024")))
+            .kernel_config(Some(&String::from("path=bzImage")))
             .build();
         assert!(vmm_config.is_ok());
         assert_eq!(
@@ -208,8 +235,8 @@ mod tests {
     #[test]
     fn test_builder_memory_config_none_default() {
         let vmm_config = Builder::default()
-            .memory_config(None as Option<&str>)
-            .kernel_config(Some("path=bzImage"))
+            .memory_config(None as Option<&String>)
+            .kernel_config(Some(&String::from("path=bzImage")))
             .build();
         assert!(vmm_config.is_ok());
         assert_eq!(
@@ -221,8 +248,8 @@ mod tests {
     #[test]
     fn test_builder_vcpu_config_success() {
         let vmm_config = Builder::default()
-            .vcpu_config(Some("num=2"))
-            .kernel_config(Some("path=bzImage"))
+            .vcpu_config(Some(&String::from("num=2")))
+            .kernel_config(Some(&String::from("path=bzImage")))
             .build();
         assert!(vmm_config.is_ok());
         assert_eq!(vmm_config.unwrap().vcpu_config, VcpuConfig { num: 2 });
@@ -231,8 +258,8 @@ mod tests {
     #[test]
     fn test_builder_vcpu_config_none_default() {
         let vmm_config = Builder::default()
-            .memory_config(None as Option<&str>)
-            .kernel_config(Some("path=bzImage"))
+            .memory_config(None as Option<&String>)
+            .kernel_config(Some(&String::from("path=bzImage")))
             .build();
         assert!(vmm_config.is_ok());
         assert_eq!(vmm_config.unwrap().vcpu_config, VcpuConfig { num: 1 });
@@ -241,7 +268,7 @@ mod tests {
     #[test]
     fn test_builder_kernel_config_success_default() {
         let vmm_config = Builder::default()
-            .kernel_config(Some("path=bzImage"))
+            .kernel_config(Some(&String::from("path=bzImage")))
             .build();
         assert!(vmm_config.is_ok());
         assert_eq!(
@@ -257,7 +284,7 @@ mod tests {
     #[test]
     fn test_builder_kernel_config_none_error() {
         let vmm_config = Builder::default()
-            .kernel_config(None as Option<&str>)
+            .kernel_config(None as Option<&String>)
             .build();
 
         assert!(vmm_config.is_err());
@@ -266,8 +293,8 @@ mod tests {
     #[test]
     fn test_builder_net_config_none_default() {
         let vmm_config = Builder::default()
-            .net_config(None as Option<&str>)
-            .kernel_config(Some("path=bzImage"))
+            .net_config(None as Option<&String>)
+            .kernel_config(Some(&String::from("path=bzImage")))
             .build();
         assert!(vmm_config.is_ok());
         assert!(vmm_config.unwrap().net_config.is_none());
@@ -276,8 +303,8 @@ mod tests {
     #[test]
     fn test_builder_net_config_success() {
         let vmm_config = Builder::default()
-            .net_config(Some("tap=tap0"))
-            .kernel_config(Some("path=bzImage"))
+            .net_config(Some(&String::from("tap=tap0")))
+            .kernel_config(Some(&String::from("path=bzImage")))
             .build();
         assert!(vmm_config.is_ok());
         assert_eq!(
@@ -291,8 +318,8 @@ mod tests {
     #[test]
     fn test_builder_block_config_none_default() {
         let vmm_config = Builder::default()
-            .block_config(None as Option<&str>)
-            .kernel_config(Some("path=bzImage"))
+            .block_config(None as Option<&String>)
+            .kernel_config(Some(&String::from("path=bzImage")))
             .build();
         assert!(vmm_config.is_ok());
         assert!(vmm_config.unwrap().block_config.is_none());
@@ -301,8 +328,8 @@ mod tests {
     #[test]
     fn test_builder_block_config_success() {
         let vmm_config = Builder::default()
-            .block_config(Some("path=/dev/loop0"))
-            .kernel_config(Some("path=bzImage"))
+            .block_config(Some(&String::from("path=/dev/loop0")))
+            .kernel_config(Some(&String::from("path=bzImage")))
             .build();
         assert!(vmm_config.is_ok());
         assert_eq!(
@@ -316,11 +343,11 @@ mod tests {
     #[test]
     fn test_builder_vmm_config_success() {
         let vmm_config = Builder::default()
-            .memory_config(Some("size_mib=1024"))
-            .vcpu_config(Some("num=2"))
-            .net_config(Some("tap=tap0"))
-            .kernel_config(Some("path=bzImage"))
-            .block_config(Some("path=/dev/loop0"))
+            .memory_config(Some(&String::from("size_mib=1024")))
+            .vcpu_config(Some(&String::from("num=2")))
+            .net_config(Some(&String::from("tap=tap0")))
+            .kernel_config(Some(&String::from("path=bzImage")))
+            .block_config(Some(&String::from("path=/dev/loop0")))
             .build();
         assert!(vmm_config.is_ok());
         assert_eq!(
@@ -338,7 +365,9 @@ mod tests {
                 }),
                 block_config: Some(BlockConfig {
                     path: PathBuf::from("/dev/loop0")
-                })
+                }),
+                dump_dtb: None,
+                dtb: None,
             }
         );
     }

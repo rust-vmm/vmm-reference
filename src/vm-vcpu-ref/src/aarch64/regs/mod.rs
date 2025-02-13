@@ -142,9 +142,10 @@ where
     let mut data = Vec::with_capacity(reg.iter::<RegChunk>().count());
     for offset in reg.iter::<RegChunk>() {
         let mut val = RegChunk::default();
-        fd.get_device_attr(&mut kvm_device_attr(
-            group, offset, &mut val, mpidr, mpidr_mask,
-        ))?;
+        let mut dev_attr = kvm_device_attr(group, offset, &mut val, mpidr, mpidr_mask);
+        unsafe {
+            fd.get_device_attr(&mut dev_attr)?;
+        }
         data.push(val);
     }
 

@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
 #[cfg(target_arch = "x86_64")]
 mod i8042;
-#[cfg(target_arch = "aarch64")]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
 mod rtc;
 mod serial;
 #[cfg(target_arch = "x86_64")]
 pub use i8042::I8042Wrapper;
-#[cfg(target_arch = "aarch64")]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
 pub use rtc::RtcWrapper;
 pub use serial::Error as SerialError;
 pub use serial::SerialWrapper;

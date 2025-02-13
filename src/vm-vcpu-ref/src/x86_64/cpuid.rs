@@ -48,7 +48,7 @@ pub fn filter_cpuid(kvm: &Kvm, vcpu_id: u8, cpu_count: u8, cpuid: &mut CpuId) {
                 if kvm.check_extension(TscDeadlineTimer) {
                     entry.ecx |= 1 << ECX_TSC_DEADLINE_TIMER_SHIFT;
                 }
-                entry.ebx = ((vcpu_id as u32) << EBX_CPUID_SHIFT) as u32
+                entry.ebx = ((vcpu_id as u32) << EBX_CPUID_SHIFT)
                     | (EBX_CLFLUSH_CACHELINE << EBX_CLFLUSH_SIZE_SHIFT);
                 if cpu_count > 1 {
                     entry.ebx |= (cpu_count as u32) << EBX_CPU_COUNT_SHIFT;

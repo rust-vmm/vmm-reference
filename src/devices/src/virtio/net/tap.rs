@@ -14,10 +14,11 @@ use std::os::raw::{c_char, c_int, c_uint, c_ulong};
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
 use vmm_sys_util::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
-use vmm_sys_util::{ioctl_expr, ioctl_ioc_nr, ioctl_iow_nr};
+use vmm_sys_util::{ioctl_ioc_nr, ioctl_iow_nr};
 
 use super::bindings::ifreq;
 
+use std::ffi::CString;
 // As defined in the Linux UAPI:
 // https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/if.h#L33
 const IFACE_NAME_MAX_LEN: usize = 16;
@@ -85,7 +86,7 @@ impl IfReqBuilder {
     }
 
     pub fn if_name(mut self, if_name: &[u8; IFACE_NAME_MAX_LEN]) -> Self {
-        // Since we don't call as_mut on the same union field more than once, this block is safe.
+        // SAFETY: Since we don't call as_mut on the same union field more than once, this block is safe.
         let ifrn_name = unsafe { self.0.ifr_ifrn.ifrn_name.as_mut() };
         ifrn_name.copy_from_slice(if_name.as_ref());
 
@@ -93,7 +94,7 @@ impl IfReqBuilder {
     }
 
     pub(crate) fn flags(mut self, flags: i16) -> Self {
-        // Since we don't call as_mut on the same union field more than once, this block is safe.
+        // SAFETY: Since we don't call as_mut on the same union field more than once, this block is safe.
         let ifru_flags = unsafe { self.0.ifr_ifru.ifru_flags.as_mut() };
         *ifru_flags = flags;
 
@@ -101,7 +102,7 @@ impl IfReqBuilder {
     }
 
     pub(crate) fn execute<F: AsRawFd>(mut self, socket: &F, ioctl: u64) -> Result<ifreq> {
-        // ioctl is safe. Called with a valid socket fd, and we check the return.
+        // SAFETY: ioctl is safe. Called with a valid socket fd, and we check the return.
         let ret = unsafe { ioctl_with_mut_ref(socket, ioctl, &mut self.0) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
@@ -119,18 +120,21 @@ impl Tap {
     pub fn open_named(if_name: &str) -> Result<Tap> {
         let terminated_if_name = build_terminated_if_name(if_name)?;
 
+        // SAFETY: Open calls are safe because we give a constant null-terminated
+        // string and verify the result.
         let fd = unsafe {
             // Open calls are safe because we give a constant null-terminated
             // string and verify the result.
+            let tun_str = CString::new("/dev/net/tun").unwrap();
             libc::open(
-                b"/dev/net/tun\0".as_ptr() as *const c_char,
+                tun_str.as_ptr() as *const c_char,
                 libc::O_RDWR | libc::O_NONBLOCK | libc::O_CLOEXEC,
             )
         };
         if fd < 0 {
             return Err(Error::OpenTun(IoError::last_os_error()));
         }
-        // We just checked that the fd is valid.
+        // SAFETY: We just checked that the fd is valid.
         let tuntap = unsafe { File::from_raw_fd(fd) };
 
         let ifreq = IfReqBuilder::new()
@@ -138,9 +142,9 @@ impl Tap {
             .flags((IFF_TAP | IFF_NO_PI | IFF_VNET_HDR) as i16)
             .execute(&tuntap, TUNSETIFF())?;
 
-        // Safe since only the name is accessed, and it's cloned out.
         Ok(Tap {
             tap_file: tuntap,
+            // SAFETY: since only the name is accessed, and it's cloned out.
             if_name: unsafe { *ifreq.ifr_ifrn.ifrn_name.as_ref() },
         })
     }
@@ -156,7 +160,7 @@ impl Tap {
 
     /// Set the offload flags for the tap interface.
     pub fn set_offload(&self, flags: c_uint) -> Result<()> {
-        // ioctl is safe. Called with a valid tap fd, and we check the return.
+        // SAFETY: ioctl is safe. Called with a valid tap fd, and we check the return.
         let ret = unsafe { ioctl_with_val(&self.tap_file, TUNSETOFFLOAD(), c_ulong::from(flags)) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));
@@ -167,7 +171,7 @@ impl Tap {
 
     /// Set the size of the vnet hdr.
     pub fn set_vnet_hdr_size(&self, size: c_int) -> Result<()> {
-        // ioctl is safe. Called with a valid tap fd, and we check the return.
+        // SAFETY: ioctl is safe. Called with a valid tap fd, and we check the return.
         let ret = unsafe { ioctl_with_ref(&self.tap_file, TUNSETVNETHDRSZ(), &size) };
         if ret < 0 {
             return Err(Error::IoctlError(IoError::last_os_error()));

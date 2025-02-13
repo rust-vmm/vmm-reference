@@ -5,7 +5,7 @@ use std::convert::TryInto;
 use std::io::{self, stdin, Read, Write};
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
-#[cfg(target_arch = "aarch64")]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
 use vm_device::{bus::MmioAddress, MutDeviceMmio};
 #[cfg(target_arch = "x86_64")]
 use vm_device::{
@@ -106,7 +106,7 @@ impl<T: Trigger<E = io::Error>, W: Write> MutDevicePio for SerialWrapper<T, NoEv
     }
 }
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
 impl<T: Trigger<E = io::Error>, W: Write> MutDeviceMmio for SerialWrapper<T, NoEvents, W> {
     fn mmio_read(&mut self, _base: MmioAddress, offset: u64, data: &mut [u8]) {
         // TODO: this function can't return an Err, so we'll mark error conditions
@@ -150,13 +150,13 @@ mod tests {
         // Check that passing invalid data does not result in a crash.
         #[cfg(target_arch = "x86_64")]
         serial_console.pio_read(PioAddress(0), valid_iir_offset, invalid_data);
-        #[cfg(target_arch = "aarch64")]
+        #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
         serial_console.mmio_read(MmioAddress(0), valid_iir_offset, invalid_data);
 
         // The same scenario happens for writes.
         #[cfg(target_arch = "x86_64")]
         serial_console.pio_write(PioAddress(0), valid_iir_offset, invalid_data);
-        #[cfg(target_arch = "aarch64")]
+        #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
         serial_console.mmio_write(MmioAddress(0), valid_iir_offset, invalid_data);
     }
 
@@ -182,7 +182,7 @@ mod tests {
             let invalid_offset = PioAddressOffset::MAX;
             serial_console.pio_write(PioAddress(0), invalid_offset, &data);
         }
-        #[cfg(target_arch = "aarch64")]
+        #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
         {
             let invalid_offset = u64::MAX;
             serial_console.mmio_write(MmioAddress(0), invalid_offset, &data);
@@ -203,7 +203,7 @@ mod tests {
             serial_console.pio_write(PioAddress(0), offset, &write_data);
             serial_console.pio_read(PioAddress(0), offset, read_data.as_mut());
         }
-        #[cfg(target_arch = "aarch64")]
+        #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
         {
             serial_console.mmio_write(MmioAddress(0), offset, &write_data);
             serial_console.mmio_read(MmioAddress(0), offset, read_data.as_mut());

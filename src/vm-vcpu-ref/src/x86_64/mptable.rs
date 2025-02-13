@@ -5,7 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::io;
 use std::mem;
 use std::result;
 use std::slice;
@@ -96,7 +95,7 @@ const MPC_SIGNATURE: [c_char; 4] = char_array!(c_char; 'P', 'C', 'M', 'P');
 const MPC_SPEC: i8 = 4;
 const MPC_OEM: [c_char; 8] = char_array!(c_char; 'r', 'u', 's', 't', '-', 'v', 'm', 'm');
 const MPC_PRODUCT_ID: [c_char; 12] = ['0' as c_char; 12];
-const BUS_TYPE_ISA: [u8; 6] = char_array!(u8; 'I', 'S', 'A', ' ', ' ', ' ');
+const BUS_TYPE_ISA: [u8; 6] = char_array!(u8; b'I', b'S', b'A', b' ', b' ', b' ');
 const IO_APIC_DEFAULT_PHYS_BASE: u32 = 0xfec0_0000; // source: linux/arch/x86/include/asm/apicdef.h
 const APIC_DEFAULT_PHYS_BASE: u32 = 0xfee0_0000; // source: linux/arch/x86/include/asm/apicdef.h
 const APIC_VERSION: u8 = 0x14;
@@ -190,7 +189,8 @@ impl MpTable {
         let mut checksum: u8 = 0;
         let max_ioapic_id = self.cpu_num + 1;
 
-        mem.read_from(base_mp, &mut io::repeat(0), mp_size)
+        let zero_slice: Vec<u8> = (0..mp_size).map(|_| 0u8).collect();
+        mem.write_slice(zero_slice.as_slice(), base_mp)
             .map_err(|_| Error::Clear)?;
 
         {
@@ -405,23 +405,14 @@ mod tests {
         let mpc_offset = GuestAddress(u64::from(mpf_intel.0.physptr));
         let mpc_table: MpcTable = mem.read_obj(mpc_offset).unwrap();
 
-        struct Sum(u8);
-        impl io::Write for Sum {
-            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-                for v in buf.iter() {
-                    self.0 = self.0.wrapping_add(*v);
-                }
-                Ok(buf.len())
-            }
-            fn flush(&mut self) -> io::Result<()> {
-                Ok(())
-            }
-        }
-
-        let mut sum = Sum(0);
-        mem.write_to(mpc_offset, &mut sum, mpc_table.0.length as usize)
+        let mut mpc_table: Vec<u8> = (0..mpc_table.0.length).map(|_| 0u8).collect();
+        mem.read_slice(mpc_table.as_mut_slice(), mpc_offset)
             .unwrap();
-        assert_eq!(sum.0, 0);
+        let mut csum: u8 = 0;
+        mpc_table
+            .iter()
+            .for_each(|byte| csum = csum.wrapping_add(*byte));
+        assert_eq!(csum, 0);
     }
 
     #[test]
