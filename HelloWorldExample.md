@@ -30,7 +30,9 @@ make install
 
 cd ..
 sudo cp -a ./busybox-1.37.0/_install/* ./mnt/
+```
 
+```bash
 sudo tee ./mnt/init.sh << 'EOF'
 #!/bin/sh
 set -eux
@@ -56,7 +58,9 @@ ping 8.8.8.8 -c 4
 echo "[init] ping finished, poweroff"
 poweroff -f
 EOF
+```
 
+```bash
 sudo chmod +x ./mnt/init.sh
 
 sudo umount ./mnt
