@@ -82,7 +82,7 @@ make vmlinux -j 4
 cd ..
 ```
 
-## 3、Run
+## 3. Run
 ```bash
 sudo rust-vmm/vmm-reference/target/debug/vmm-reference --kernel path=./linux-5.10.1/vmlinux,cmdline="root=/dev/vda rw init=/init.sh" --block path=rootfs.ext4 --net tap=tap0
 ```
