@@ -74,6 +74,8 @@ cp microvm-kernel-ci-x86_64-5.10.config linux-5.10.1/.config
 cd linux-5.10.1
 make oldconfig
 make vmlinux -j 4
+
+cd ..
 ```
 
 ## 3、Run
